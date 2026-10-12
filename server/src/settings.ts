@@ -7,6 +7,8 @@ export interface Settings {
   /** Lets remotes resolve to a private/loopback/link-local IP. For LAN setups. */
   allowPrivateRemotes: boolean;
   eventScoutUrl: string;
+  /** event-scout's API token, used by the admin proxy. Never sent to clients; env EVENT_SCOUT_TOKEN wins. */
+  eventScoutToken: string;
   /** TfNSW Open Data API key. Never sent to clients; env TFNSW_API_KEY wins. */
   tfnswApiKey: string;
   /** Origins allowed to read the open API from a page served elsewhere. */
@@ -18,6 +20,7 @@ export const DEFAULT_SETTINGS: Settings = {
   areas: [],
   allowPrivateRemotes: false,
   eventScoutUrl: '',
+  eventScoutToken: '',
   tfnswApiKey: '',
   corsOrigins: [],
 };
@@ -28,6 +31,7 @@ export function getSettings(db: Db): Settings {
   // Env wins over what is stored, so an operator can pin these without the UI.
   if (process.env.EVENT_SCOUT_URL) stored.eventScoutUrl = process.env.EVENT_SCOUT_URL;
   if (process.env.TFNSW_API_KEY) stored.tfnswApiKey = process.env.TFNSW_API_KEY;
+  if (process.env.EVENT_SCOUT_TOKEN) stored.eventScoutToken = process.env.EVENT_SCOUT_TOKEN;
   delete (stored as Record<string, unknown>).freightSpeedLoadedKmh; // retired with manual sightings
   delete (stored as Record<string, unknown>).freightSpeedEmptyKmh;
   return stored;
@@ -43,11 +47,17 @@ export function tfnswKey(db: Db): string {
 }
 
 /** What GET /api/settings returns: everything except the key itself. */
-export type PublicSettings = Omit<Settings, 'tfnswApiKey'> & { tfnswApiKeySet: boolean; tfnswApiKeyFromEnv: boolean };
+export type PublicSettings = Omit<Settings, 'tfnswApiKey' | 'eventScoutToken'> & {
+  tfnswApiKeySet: boolean; tfnswApiKeyFromEnv: boolean; eventScoutTokenSet: boolean; eventScoutTokenFromEnv: boolean;
+};
 
 export function publicSettings(settings: Settings): PublicSettings {
-  const { tfnswApiKey, ...rest } = settings;
-  return { ...rest, tfnswApiKeySet: Boolean(tfnswApiKey), tfnswApiKeyFromEnv: Boolean(process.env.TFNSW_API_KEY) };
+  const { tfnswApiKey, eventScoutToken, ...rest } = settings;
+  return {
+    ...rest,
+    tfnswApiKeySet: Boolean(tfnswApiKey), tfnswApiKeyFromEnv: Boolean(process.env.TFNSW_API_KEY),
+    eventScoutTokenSet: Boolean(eventScoutToken), eventScoutTokenFromEnv: Boolean(process.env.EVENT_SCOUT_TOKEN),
+  };
 }
 
 /**
@@ -97,10 +107,13 @@ export function cleanSettingsBody(body: Record<string, unknown>): Partial<Settin
 export function applySettingsUpdate(db: Db, body: Record<string, unknown>): { settings: Settings; keyChanged: boolean } {
   const raw = db.getKv('settings');
   const stored: Settings = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
-  const { tfnswApiKey, clearTfnswApiKey, tfnswApiKeySet: _s, tfnswApiKeyFromEnv: _e, ...rest } = body;
-  const next: Settings = { ...stored, ...cleanSettingsBody(rest), tfnswApiKey: stored.tfnswApiKey ?? '' };
+  const { tfnswApiKey, clearTfnswApiKey, tfnswApiKeySet: _s, tfnswApiKeyFromEnv: _e, eventScoutToken, clearEventScoutToken, eventScoutTokenSet: _ts, eventScoutTokenFromEnv: _te, ...rest } = body;
+  const next: Settings = { ...stored, ...cleanSettingsBody(rest), tfnswApiKey: stored.tfnswApiKey ?? '', eventScoutToken: stored.eventScoutToken ?? '' };
   // Don't persist env-pinned values as if the user typed them.
   if (process.env.EVENT_SCOUT_URL) next.eventScoutUrl = stored.eventScoutUrl;
+  // Same shape as the TfNSW key: replaced by a non-empty string, cleared on request, else kept.
+  if (clearEventScoutToken === true) next.eventScoutToken = '';
+  else if (typeof eventScoutToken === 'string' && eventScoutToken.trim() && eventScoutToken.length <= 500) next.eventScoutToken = eventScoutToken.trim();
   let keyChanged = false;
   if (clearTfnswApiKey === true) { keyChanged = next.tfnswApiKey !== ''; next.tfnswApiKey = ''; }
   else if (typeof tfnswApiKey === 'string' && tfnswApiKey.trim()) { next.tfnswApiKey = tfnswApiKey.trim(); keyChanged = true; }

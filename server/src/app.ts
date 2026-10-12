@@ -1103,6 +1103,63 @@ app.get('/api/eventscout/test', async (req, res) => {
   }
 });
 
+/**
+ * Admin-only pass-through to the events service, which browsers can't reach.
+ * Only these paths (under its /api/) are forwarded; nothing under auth/ ever is.
+ */
+const EVENTSCOUT_ALLOWED = [
+  /^(settings|topics|geocode|status|refresh|version|archive|tasks|import|import\/preview|ical\/preview)$/,
+  /^llm\/(status|queue|reset)$/,
+  /^vision\/reset$/,
+  /^crawler\/(status|pages|events|run|crawl)$/,
+  /^tasks\/[a-z0-9_.:-]+\/(run|enable)$/,
+  /^notify\/(status|looks|test)$/,
+  /^density\/(status|refresh|discover|areas)$/,
+  /^density\/[a-z0-9_-]+\/venues$/,
+];
+const EVENTSCOUT_MAX_BYTES = 5 * 1024 * 1024;
+
+app.all('/api/eventscout/proxy/*', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  // Judge the raw URL, before Express decodes anything.
+  const raw = req.originalUrl.split('?')[0].slice('/api/eventscout/proxy/'.length);
+  if (/\.\.|\/\/|\\|%2f|%2e|%5c/i.test(raw) || !/^[a-z0-9/_.:-]+$/i.test(raw)) return res.status(400).json({ error: 'Bad path' });
+  const rest = raw.replace(/\/$/, '');
+  if (!EVENTSCOUT_ALLOWED.some((re) => re.test(rest)) || rest.startsWith('auth')) return res.status(404).json({ error: 'Not found' });
+  const settings = getSettings(db);
+  const base = settings.eventScoutUrl.trim().replace(/\/$/, '');
+  if (!base) return res.status(503).json({ error: 'Events service is not set up' });
+  const query = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+  const hasBody = !['GET', 'HEAD'].includes(req.method);
+  try {
+    const target = await assertPublicUrl(`${base}/api/${rest}${query}`, true); // http(s) only; private is the point
+    const upstream = await fetch(target, {
+      method: req.method,
+      redirect: 'error',
+      signal: AbortSignal.timeout(30_000),
+      headers: {
+        Accept: 'application/json',
+        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(settings.eventScoutToken ? { Authorization: `Bearer ${settings.eventScoutToken}` } : {}),
+      },
+      body: hasBody ? JSON.stringify(req.body ?? {}) : undefined,
+    });
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for await (const chunk of upstream.body ?? []) {
+      total += chunk.length;
+      if (total > EVENTSCOUT_MAX_BYTES) return res.status(502).json({ error: 'Events service reply too large' });
+      chunks.push(chunk);
+    }
+    const text = Buffer.concat(chunks).toString('utf8');
+    let json: unknown;
+    try { json = JSON.parse(text); } catch { json = { text }; }
+    res.status(upstream.status).json(json);
+  } catch {
+    res.status(502).json({ error: 'Could not reach the events service' });
+  }
+});
+
 app.get('/api/spots/:id/commons', async (req, res, next) => {
   try {
     const spot = db.handle.prepare('SELECT * FROM spots WHERE id = ?').get(req.params.id) as unknown as SpotRow | undefined;

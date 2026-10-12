@@ -100,6 +100,9 @@ export interface Settings {
   /** Never the key itself — only whether one is set, and whether the environment pins it. */
   tfnswApiKeySet: boolean;
   tfnswApiKeyFromEnv: boolean;
+  /** The events service's token: write-only, like the TfNSW key. */
+  eventScoutTokenSet: boolean;
+  eventScoutTokenFromEnv: boolean;
   corsOrigins: string[];
 }
 
@@ -406,7 +409,7 @@ export const api = {
 
   // --- settings ---
   settings: () => fetch('/api/settings').then((r) => json<Settings>(r)),
-  saveSettings: (s: Partial<Settings> & { tfnswApiKey?: string; clearTfnswApiKey?: boolean }) =>
+  saveSettings: (s: Partial<Settings> & { tfnswApiKey?: string; clearTfnswApiKey?: boolean; eventScoutToken?: string; clearEventScoutToken?: boolean }) =>
     fetch('/api/settings', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(s) }).then((r) => json<Settings>(r)),
 
   // --- geocode / version ---

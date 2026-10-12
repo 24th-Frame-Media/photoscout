@@ -960,8 +960,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 
 /* Settings tabs */
 fieldset.bare { border: 0; padding: 0; margin: 0; }
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 0 16px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
-.tabs::-webkit-scrollbar { display: none; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 0 16px; flex-wrap: wrap; }
 .tab { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 12px; color: var(--muted); white-space: nowrap; cursor: pointer; }
 .tab:hover { color: var(--text); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -1213,3 +1212,249 @@ a.chip { text-decoration: none; }
 .linkbtn { background: none; border: 0; padding: 0; color: var(--muted); font-size: 12.5px; text-decoration: underline; cursor: pointer; }
 .chat__log { height: 60vh; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; }
 .chat__line { margin: 0 0 6px; overflow-wrap: anywhere; }
+
+/* events settings */
+/* Everything below is scoped to .evs, the wrapper around the events tabs in Settings. */
+.evs {
+  --line: var(--border);
+.badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--panel-2);
+}
+.badge.unofficial { color: var(--red); border-color: #6b3030; }
+.activity__feed {
+  max-height: 116px;
+  overflow-y: auto;
+  color: var(--muted);
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+}
+.activity__line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.activity__line:last-child { color: var(--text); }
+.taskrow { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.taskrow__actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.taskmeta { margin: 0; display: flex; gap: 16px; flex-wrap: wrap; }
+.taskmeta button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font-size: inherit;
+}
+.taskmeta button:hover { background: none; border-color: transparent; text-decoration: underline; }
+/* The tasks console: every task's output in one place, in order. Monospace and
+   dense, because it is read by scanning rather than by sentence. */
+.console {
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.console__empty { color: var(--muted); font-family: inherit; }
+.console__line { display: flex; gap: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.console__time { color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+/* Fixed width so the messages line up into a column that can be scanned. */
+.console__task { color: var(--blue); flex: none; width: 108px; overflow: hidden; text-overflow: ellipsis; }
+.console__text { color: var(--text); }
+/* A run's first and last lines are the structure; what a task says between
+   them is detail, so the brackets are what stands out. */
+.console__line--start .console__text { color: var(--accent); }
+.console__line--end .console__text { color: var(--green); }
+.console__line--log .console__text { color: var(--muted); }
+.console__line.is-failed .console__text { color: var(--red); }
+button.danger { background: var(--red); border-color: var(--red); color: #2a0b0b; font-weight: 600; }
+button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
+/* --- the crawler panel --------------------------------------------------- */
+
+/*
+ * A row of figures that wraps rather than scrolls: six of them fit a desktop
+ * and two fit a phone, and neither wants a horizontal scrollbar in a settings
+ * page.
+ */
+.crawlstats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.6rem;
+  margin: 0.75rem 0 0;
+}
+
+.crawlstat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel2, transparent);
+}
+
+.crawlstat__value { font-size: 1.45rem; font-weight: 600; line-height: 1.1; }
+.crawlstat__label { font-size: 0.8rem; opacity: 0.85; }
+.crawlstat__hint { font-size: 0.72rem; opacity: 0.55; }
+
+.crawltable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.crawltable th,
+.crawltable td {
+  text-align: left;
+  padding: 0.35rem 0.6rem 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.crawltable th { font-weight: 500; opacity: 0.8; width: 11rem; }
+.crawltable__note { opacity: 0.55; font-size: 0.82rem; }
+
+/* A feed URL is long and has nowhere to break, so it gets its own rules. */
+.crawltable--list td { word-break: break-all; }
+.crawltable--list th { width: auto; }
+
+.crawllog {
+  margin: 0.4rem 0 0;
+  padding: 0.6rem;
+  max-height: 16rem;
+  overflow: auto;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  opacity: 0.85;
+}
+
+/* Tables with a header row, where the first column is not a label. */
+.crawltable--wide th { width: auto; }
+.crawltable__when { white-space: nowrap; }
+
+.crawlphrases {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.crawlphrases a { word-break: break-all; }
+
+.crawlsub {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 1rem 0 0.35rem;
+}
+
+/* The cycle graph. Scrolls inside itself on a phone rather than shrinking
+   its labels to nothing. */
+.crawlchart { margin: 0.9rem 0 0; overflow-x: auto; }
+.crawlchart svg { display: block; width: 100%; min-width: 30rem; height: auto; }
+.crawlchart__grid { stroke: var(--line); stroke-width: 1; }
+.crawlchart__axis { fill: var(--muted); font-size: 10px; }
+.crawlchart__read { fill: var(--blue); opacity: 0.55; }
+.crawlchart__trouble { fill: var(--red); opacity: 0.6; }
+.crawlchart__events { fill: none; stroke: var(--accent); stroke-width: 2; }
+.crawlchart__dot { fill: var(--accent); }
+.crawlchart__held { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.crawlchart__hit { fill: transparent; }
+.crawlchart__hit:hover { fill: rgba(255, 255, 255, 0.05); }
+.crawlchart__legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-top: 0.4rem; font-size: 0.78rem; opacity: 0.8; }
+.crawlchart__key { display: inline-block; width: 0.9rem; height: 0.55rem; margin-right: 0.35rem; border-radius: 2px; vertical-align: middle; }
+.crawlchart__key--read { background: var(--blue); opacity: 0.55; }
+.crawlchart__key--trouble { background: var(--red); opacity: 0.6; }
+.crawlchart__key--events { height: 2px; background: var(--accent); }
+.crawlchart__key--held { height: 0; border-top: 2px dashed var(--muted); background: none; }
+
+/* A feed's preview, opened under its row. Capped, because a council calendar
+   can hold a hundred upcoming events. */
+.feedpreview { max-height: 24rem; overflow: auto; padding: 0.2rem 0 0.4rem; }
+.feedpreview .crawltable { margin-top: 0.3rem; }
+.crawlfeeds__actions { white-space: nowrap; text-align: right; }
+.crawlfeeds__actions button { margin-left: 0.35rem; }
+.crawlfeeds__added { color: var(--green, #86efac); font-size: 0.82rem; }
+
+/* A crawler list that folds away: the heading is the toggle. */
+.crawlfold { margin-top: 0.4rem; }
+.crawlfold > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  list-style: none;
+  padding: 0.2rem 0;
+  user-select: none;
+}
+.crawlfold > summary::-webkit-details-marker { display: none; }
+.crawlfold > summary::before {
+  content: '▸';
+  font-size: 0.85em;
+  opacity: 0.6;
+  transition: transform 0.12s ease;
+}
+.crawlfold[open] > summary::before { transform: rotate(90deg); }
+.crawlfold__title { font-size: 1.05rem; font-weight: 600; }
+.crawlfold__count {
+  font-size: 0.75rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  opacity: 0.8;
+}
+.crawlfold > :not(summary) { margin-top: 0.5rem; }
+
+.pager { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; }
+/* Settings → Notifications. */
+.notify__target { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin: 12px 0; background: var(--panel-2); }
+.notify__target > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.notify__target h4 { margin: 14px 0 6px; font-size: 13px; }
+.notify__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); display: inline-block; }
+.notify__dot.is-ok { background: var(--green); }
+.notify__dot.is-bad { background: var(--red); }
+/* The Settings hint carries a bottom margin for paragraphs; in a row it only pushes the text up. */
+.notify__target summary .hint, .notify__grid .hint, .notify__actions .hint, .notify__target .formrow .hint { margin: 0; }
+.notify__last { margin-left: auto !important; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notify__last.is-bad { color: var(--red); }
+.notify__grid { display: grid; grid-template-columns: minmax(200px, auto) 1fr; gap: 6px 12px; align-items: center; }
+.notify__check { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.notify__num { width: 64px !important; display: inline-block; }
+.notify__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.notify__remove { margin-left: auto; color: var(--red); }
+/* The rooms the Matrix bot is in: one aligned row each. */
+.notify__rooms { margin: 14px 0 10px; display: flex; flex-direction: column; gap: 6px; }
+.notify__rooms h4 { margin: 0 0 2px; font-size: 13px; }
+.notify__room { display: grid; grid-template-columns: minmax(90px, max-content) minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); font-size: 14px; }
+.notify__room-name { font-weight: 600; }
+.notify__room-id { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notify__room-state { color: var(--green); font-size: 13px; }
+.notify__room button { padding: 4px 10px; font-size: 13px; }
+section > .notify__check { margin-top: 10px; }
+/* In a target's rows the fields give way to their checkboxes, and a long label wraps inside the card. */
+.notify__target .formrow { flex-wrap: wrap; }
+.notify__target .formrow > input, .notify__target .formrow > select { flex: 1 1 220px; min-width: 0; width: auto; }
+.notify__target .formrow > .notify__check { white-space: normal; flex: 0 1 auto; }
+.notify__sub { margin: 18px 0 4px; font-size: 14px; }
+.notify__prompt { align-items: flex-start; }
+.notify__prompt textarea { flex: 1; min-height: 90px; resize: vertical; font-size: 13px; }
+/* Each trigger's switch in the first column and its details in the second, whether or not the details show. */
+.notify__grid > .notify__check { grid-column: 1; }
+.notify__grid > span { grid-column: 2; }
+
+  .map-panel__meta { color: var(--muted); font-size: 12px; margin: 8px 0 0; line-height: 1.45; }
+  .evs-linky { padding: 0; border: 0; background: none; color: var(--blue); font-size: 13px; }
+  .evs-linky:hover { background: none; text-decoration: underline; }
+  .evs-confirm { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 8px; }
+  .evs-confirm > span { font-size: 13px; flex: 1; min-width: 220px; }
+  .chip.evs-chip-off { opacity: 0.55; text-decoration: line-through; }
+  .evs-lead { margin: 0 0 14px; }
+}

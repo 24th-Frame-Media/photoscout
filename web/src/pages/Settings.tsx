@@ -1,6 +1,14 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { api, GeocodeResult, Role, Settings as SettingsType, TaskStatus, TrainsStatus, User } from '../api.js';
 
+import EventsGeneral from '../settings/events/General.js';
+import EventsSources from '../settings/events/Sources.js';
+import EventsCrawler from '../settings/events/Crawler.js';
+import EventsDensity from '../settings/events/Density.js';
+import EventsModel from '../settings/events/Model.js';
+import EventsNotify from '../settings/events/Notify.js';
+import EventTasks from '../settings/events/EventTasks.js';
+
 type Area = SettingsType['home'];
 
 export default function Settings({ user, account, onChange }: { user: User | null; account: string | null; onChange: () => void }) {
@@ -18,6 +26,9 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const [keyInput, setKeyInput] = useState('');
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyMsg, setKeyMsg] = useState('');
+  const [tokenInput, setTokenInput] = useState('');
+  const [tokenBusy, setTokenBusy] = useState(false);
+  const [tokenMsg, setTokenMsg] = useState('');
   const [tab, setTabState] = useState<Tab>(() => {
     const h = window.location.hash.slice(1) as Tab;
     return TABS.some((t) => t.id === h) ? h : 'home';
@@ -70,6 +81,21 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       setKeyMsg(`Couldn't save: ${(err as Error).message}`);
     } finally {
       setKeyBusy(false);
+    }
+  };
+
+  // Like the TfNSW key: saved on its own, so it is only ever sent when typed in.
+  const saveToken = async (clear: boolean) => {
+    setTokenBusy(true); setTokenMsg('');
+    try {
+      const next = await api.saveSettings(clear ? { clearEventScoutToken: true } : { eventScoutToken: tokenInput.trim() });
+      setDraft((d) => (d ? { ...d, eventScoutTokenSet: next.eventScoutTokenSet, eventScoutTokenFromEnv: next.eventScoutTokenFromEnv } : next));
+      setTokenInput('');
+      setTokenMsg(clear ? 'Token cleared.' : 'Token saved.');
+    } catch (err) {
+      setTokenMsg(`Couldn't save: ${(err as Error).message}`);
+    } finally {
+      setTokenBusy(false);
     }
   };
 
@@ -140,11 +166,25 @@ export default function Settings({ user, account, onChange }: { user: User | nul
 
         {tab === 'instance' && isAdmin && <section>
           <h2>🔗 Instance</h2>
-          <div className="formrow"><label>Event Scout URL</label>
+          <div className="formrow"><label>Events service URL</label>
             <input value={draft.eventScoutUrl} placeholder="http://event-scout:3001" onChange={(e) => { set({ eventScoutUrl: e.target.value }); setScoutTest(null); }} />
             <button type="button" onClick={() => void testScout()} disabled={!draft.eventScoutUrl || scoutTesting}>{scoutTesting ? 'Testing…' : 'Test'}</button>
           </div>
           {scoutTest && <div className={`status-line ${scoutTest.ok ? 'ok' : 'error'}`}>{scoutTest.ok ? '●' : '✕'} {scoutTest.message}</div>}
+          {draft.eventScoutTokenFromEnv ? (
+            <p className="hint">The events service token is set by the <code>EVENT_SCOUT_TOKEN</code> environment variable — change it there.</p>
+          ) : (
+            <>
+              <div className="formrow"><label>Events service token</label>
+                <input type="password" autoComplete="off" value={tokenInput}
+                  placeholder={draft.eventScoutTokenSet ? '•••••••• (set — enter a new one to replace)' : 'Paste the service’s API token'}
+                  onChange={(e) => { setTokenInput(e.target.value); setTokenMsg(''); }} />
+                <button type="button" onClick={() => void saveToken(false)} disabled={!tokenInput.trim() || tokenBusy}>Save token</button>
+                {draft.eventScoutTokenSet && <button type="button" onClick={() => void saveToken(true)} disabled={tokenBusy}>Clear</button>}
+              </div>
+              <p className="hint">{draft.eventScoutTokenSet ? 'A token is set' : 'No token set'} — it's never shown or sent back here.{tokenMsg && <> {tokenMsg}</>}</p>
+            </>
+          )}
           <div className="formrow"><label>Private remotes</label>
             <input type="checkbox" checked={draft.allowPrivateRemotes} onChange={(e) => set({ allowPrivateRemotes: e.target.checked })} />
             <span className="hint">Let remotes resolve to LAN addresses.</span></div>
@@ -187,17 +227,33 @@ export default function Settings({ user, account, onChange }: { user: User | nul
         </div>
       )}
 
-      {isAdmin && tab === 'tasks' && <Tasks />}
+      {isAdmin && (tab === 'events' || tab === 'sources' || tab === 'crawler' || tab === 'density' || tab === 'model' || tab === 'notify') && (
+        <div className="evs">
+          {tab === 'events' && <EventsGeneral />}
+          {tab === 'sources' && <EventsSources />}
+          {tab === 'crawler' && <EventsCrawler />}
+          {tab === 'density' && <EventsDensity />}
+          {tab === 'model' && <EventsModel />}
+          {tab === 'notify' && <EventsNotify />}
+        </div>
+      )}
+      {isAdmin && tab === 'tasks' && <><Tasks /><div className="evs"><EventTasks /></div></>}
       {isAdmin && tab === 'users' && <Users me={user!} />}
     </div>
   );
 }
 
-type Tab = 'home' | 'account' | 'instance' | 'feeds' | 'tasks' | 'users';
+type Tab = 'home' | 'account' | 'instance' | 'events' | 'sources' | 'crawler' | 'density' | 'model' | 'notify' | 'feeds' | 'tasks' | 'users';
 const TABS: { id: Tab; label: string; admin?: boolean }[] = [
   { id: 'home', label: 'Home & areas' },
   { id: 'account', label: 'Account' },
   { id: 'instance', label: 'Instance', admin: true },
+  { id: 'events', label: 'Events', admin: true },
+  { id: 'sources', label: 'Sources', admin: true },
+  { id: 'crawler', label: 'Crawler', admin: true },
+  { id: 'density', label: 'Density', admin: true },
+  { id: 'model', label: 'Local model', admin: true },
+  { id: 'notify', label: 'Notifications', admin: true },
   { id: 'feeds', label: 'Trains' },
   { id: 'tasks', label: 'Tasks', admin: true },
   { id: 'users', label: 'Users', admin: true },
