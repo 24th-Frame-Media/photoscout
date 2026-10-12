@@ -293,6 +293,7 @@ function Users({ me }: { me: User }) {
               <td>
                 <select value={u.role} disabled={u.id === me.id} style={{ width: 'auto' }} onChange={(e) => void run(() => api.updateUser(u.id, { role: e.target.value as Role }))}>
                   <option value="contributor">contributor</option>
+                  <option value="moderator">moderator</option>
                   <option value="admin">admin</option>
                 </select>
               </td>

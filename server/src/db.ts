@@ -126,6 +126,64 @@ CREATE TABLE IF NOT EXISTS community_rsvps (
 );
 CREATE INDEX IF NOT EXISTS idx_community_rsvps_user ON community_rsvps(user_id);
 
+-- The feed, chat and reports. No foreign keys: authStore.deleteUser and the
+-- routes that delete a ride, gear or event clear their rows by hand, so a
+-- post can outlive nothing it should not.
+CREATE TABLE IF NOT EXISTS posts (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  kind TEXT NOT NULL, -- checkin | ride | gear | rsvp | event
+  ref_id TEXT NOT NULL DEFAULT '',
+  lat REAL,
+  lng REAL,
+  place_name TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  hidden INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at);
+CREATE INDEX IF NOT EXISTS idx_posts_owner ON posts(owner_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_posts_ref ON posts(kind, ref_id);
+
+CREATE TABLE IF NOT EXISTS post_votes (
+  post_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  PRIMARY KEY (post_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS post_comments (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  body TEXT NOT NULL,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_post_comments_post ON post_comments(post_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_post_comments_owner ON post_comments(owner_id, created_at);
+
+-- One public room whose messages live thirty minutes (see the housekeeping task).
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_created ON chat_messages(created_at);
+
+CREATE TABLE IF NOT EXISTS reports (
+  id TEXT PRIMARY KEY,
+  reporter_id TEXT NOT NULL,
+  target_kind TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolved_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_reports_open ON reports(resolved_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_reports_target ON reports(target_kind, target_id);
+
 CREATE TABLE IF NOT EXISTS places (
   id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL,
@@ -334,6 +392,7 @@ export function createDb(filePath: string = path.join(dataDir, 'photoscout.db'))
   handle.exec(SCHEMA);
   addColumnIfMissing(handle, 'users', 'bio', "bio TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(handle, 'users', 'instagram', "instagram TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(handle, 'community_events', 'hidden', 'hidden INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(handle, 'sightings', 'loaded', 'loaded INTEGER');
   addColumnIfMissing(handle, 'photos', 'focal_length', 'focal_length REAL');
   addColumnIfMissing(handle, 'photos', 'date_time_original', 'date_time_original TEXT');

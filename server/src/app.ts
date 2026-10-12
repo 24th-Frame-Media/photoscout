@@ -7,13 +7,15 @@ import helmet from 'helmet';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import {
   SessionUser, Visibility,
-  canEdit, canRead, needsAuth, originAllowed, readCookie, secureEqual, HANDLE, OAUTH_COOKIE, SESSION_COOKIE,
+  canEdit, canRead, isStaff, needsAuth, originAllowed, readCookie, secureEqual, HANDLE, OAUTH_COOKIE, SESSION_COOKIE,
 } from './auth.js';
 import {
   accountIdOf, createSession, deleteSession, deleteUser, findUserById, findUserByUsername, listUsers,
   sessionUser, setProfile, setUserBanned, setUserRole, setUsername, upsertOAuthUser, usernameTaken,
 } from './authStore.js';
-import { bodyProblem, parseCommunityEvent, parseGear, parseProfile, parseRide } from './bodyLimits.js';
+import {
+  bodyProblem, CHAT_MINUTES, MAX_CHAT_BODY, MAX_POST_BODY, parseCheckin, parseCommunityEvent, parseGear, parseMessage, parseProfile, parseReport, parseRide,
+} from './bodyLimits.js';
 import { catalog, searchCatalog } from './gearCatalog.js';
 import { configuredProviders, generateCodeVerifier, generateState, provider, publicUrl } from './oauth.js';
 import { corsDecision, readOrigins } from './cors.js';
@@ -167,6 +169,8 @@ app.use(
 app.use(/^\/api\/(spots|places)\/[^/]+\/(nearby|commons|trains)$/, upstreamLimit);
 /** Photo uploads: each is held in memory while it is checked, so few at a time. */
 const uploadLimit = limit(10 * MINUTE, 60, 'uploads');
+/** The one public chat room: ten lines a minute each. */
+const chatLimit = limit(MINUTE, 10, 'messages');
 
 app.use('/api', (req, res, next) => {
   if (!needsAuth(req.method, req.baseUrl + req.path)) return next();
@@ -279,12 +283,17 @@ app.get('/api/users', (req, res) => {
   res.json(listUsers(db));
 });
 app.patch('/api/users/:id', (req, res) => {
-  if (!requireAdmin(req, res)) return;
-  if (!findUserById(db, req.params.id)) return res.status(404).json({ error: 'No such user' });
+  if (!isStaff(req.user)) return res.status(403).json({ error: 'Admins only' });
+  const target = findUserById(db, req.params.id);
+  if (!target) return res.status(404).json({ error: 'No such user' });
   const { role, banned } = (req.body ?? {}) as { role?: unknown; banned?: unknown };
+  // A moderator may suspend or reinstate a contributor and nothing else.
+  if (req.user!.role === 'moderator' && (role !== undefined || target.role !== 'contributor')) {
+    return res.status(403).json({ error: 'Moderators can only suspend or reinstate contributors' });
+  }
   const self = req.params.id === req.user!.id;
   if (role !== undefined) {
-    if (role !== 'admin' && role !== 'contributor') return res.status(400).json({ error: 'role must be admin or contributor' });
+    if (role !== 'admin' && role !== 'moderator' && role !== 'contributor') return res.status(400).json({ error: 'role must be admin, moderator or contributor' });
     if (self) return res.status(400).json({ error: 'Cannot change your own role' });
     setUserRole(db, req.params.id, role);
   }
@@ -1262,6 +1271,18 @@ app.delete('/api/follows/:username', (req, res) => {
   res.json({ following: false });
 });
 
+// --- auto-posts ----------------------------------------------------------------------
+
+/** What happened, put on the feed by the server (never by the client): a ride or gear added, an RSVP, a public event made. */
+function autoPost(ownerId: string, kind: 'ride' | 'gear' | 'rsvp' | 'event', refId: string, body: string, where?: { lat: number; lng: number; place: string }) {
+  db.handle
+    .prepare('INSERT INTO posts (id, owner_id, kind, ref_id, lat, lng, place_name, body, hidden, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)')
+    .run(crypto.randomUUID(), ownerId, kind, refId, where?.lat ?? null, where?.lng ?? null, where?.place ?? '', body, new Date().toISOString());
+}
+/** Deleting the thing deletes its auto-posts. */
+const dropPosts = (kinds: string[], refId: string) =>
+  db.handle.prepare(`DELETE FROM posts WHERE kind IN (${kinds.map(() => '?').join(',')}) AND ref_id = ?`).run(...kinds, refId);
+
 // --- Kit: rides ---------------------------------------------------------------------
 
 const MAX_RIDES = 30;
@@ -1306,6 +1327,7 @@ app.post('/api/kit/rides', (req, res) => {
   const now = new Date().toISOString();
   db.handle.prepare('INSERT INTO rides (id, owner_id, kind, make, model, year, nickname, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, req.user!.id, v.kind, v.make, v.model, v.year, v.nickname, v.notes, now, now);
+  autoPost(req.user!.id, 'ride', id, [v.year, v.make, v.model].filter(Boolean).join(' '));
   res.status(201).json(ridesJson([db.handle.prepare('SELECT * FROM rides WHERE id = ?').get(id) as unknown as RideRow])[0]);
 });
 
@@ -1327,6 +1349,7 @@ app.delete('/api/kit/rides/:id', (req, res) => {
   deleteImages(photos.flatMap((p) => [p.file, p.thumb]));
   db.handle.prepare('DELETE FROM ride_photos WHERE ride_id = ?').run(row.id);
   db.handle.prepare('DELETE FROM rides WHERE id = ?').run(row.id);
+  dropPosts(['ride'], row.id);
   res.json({ ok: true });
 });
 
@@ -1410,6 +1433,7 @@ app.post('/api/kit/gear', (req, res) => {
   const now = new Date().toISOString();
   db.handle.prepare('INSERT INTO gear (id, owner_id, kind, brand, name, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, req.user!.id, v.kind, v.brand, v.name, v.notes, now, now);
+  autoPost(req.user!.id, 'gear', id, `${v.brand} ${v.name}`);
   res.status(201).json(gearJson(db.handle.prepare('SELECT * FROM gear WHERE id = ?').get(id) as unknown as GearRow));
 });
 
@@ -1428,6 +1452,7 @@ app.delete('/api/kit/gear/:id', (req, res) => {
   const row = ownedGear(req, res);
   if (!row) return;
   db.handle.prepare('DELETE FROM gear WHERE id = ?').run(row.id);
+  dropPosts(['gear'], row.id);
   res.json({ ok: true });
 });
 
@@ -1441,7 +1466,7 @@ interface CommunityRow {
   id: string; owner_id: string; title: string; description: string; start_time: string; end_time: string | null;
   venue_name: string; address: string; lat: number; lng: number; price_text: string; visibility: 'public' | 'unlisted';
   created_at: string; updated_at: string;
-  owner_name?: string; owner_avatar?: string; owner_banned?: number; going?: number | bigint; is_going?: number | bigint;
+  hidden?: number; owner_name?: string; owner_avatar?: string; owner_banned?: number; going?: number | bigint; is_going?: number | bigint;
 }
 
 /** With no end time an event counts as on for twelve hours after it starts. */
@@ -1467,7 +1492,9 @@ const communityEvent = (id: string, userId: string | undefined) =>
 
 /** Public and unlisted can be read by anyone with the id; a suspended organiser's events are out of sight except to an admin. */
 function communityReadable(r: CommunityRow, user: SessionUser | null | undefined): boolean {
-  return canRead(r.visibility, r.owner_id, user ?? null) && (r.owner_banned !== 1 || user?.role === 'admin');
+  // A hidden event (see the reports queue) is seen by its organiser and by staff only.
+  const hiddenOk = r.hidden !== 1 || isStaff(user) || user?.id === r.owner_id;
+  return canRead(r.visibility, r.owner_id, user ?? null) && (r.owner_banned !== 1 || user?.role === 'admin') && hiddenOk;
 }
 
 const eventIsOver = (r: CommunityRow) =>
@@ -1477,7 +1504,7 @@ const eventIsOver = (r: CommunityRow) =>
 app.get('/api/community-events', (req, res) => {
   const me = req.user?.id ?? '';
   const rows = db.handle
-    .prepare(`${COMMUNITY_SELECT} WHERE u.banned = 0 AND ${STILL_ON} AND (e.visibility = 'public' OR e.owner_id = ?) ORDER BY e.start_time, e.id LIMIT 500`)
+    .prepare(`${COMMUNITY_SELECT} WHERE u.banned = 0 AND e.hidden = 0 AND ${STILL_ON} AND (e.visibility = 'public' OR e.owner_id = ?) ORDER BY e.start_time, e.id LIMIT 500`)
     .all(me, new Date().toISOString(), me) as unknown as CommunityRow[];
   res.json(rows.map(communityJson));
 });
@@ -1494,6 +1521,7 @@ app.post('/api/community-events', (req, res) => {
   db.handle
     .prepare('INSERT INTO community_events (id, owner_id, title, description, start_time, end_time, venue_name, address, lat, lng, price_text, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, req.user!.id, v.title, v.description, v.startTime, v.endTime, v.venueName, v.address, v.lat, v.lng, v.priceText, v.visibility, now, now);
+  if (v.visibility === 'public') autoPost(req.user!.id, 'event', id, v.title, { lat: v.lat, lng: v.lng, place: v.venueName });
   res.status(201).json(communityJson(communityEvent(id, req.user!.id)!));
 });
 
@@ -1516,6 +1544,8 @@ app.patch('/api/community-events/:id', (req, res) => {
   db.handle
     .prepare('UPDATE community_events SET title=?, description=?, start_time=?, end_time=?, venue_name=?, address=?, lat=?, lng=?, price_text=?, visibility=?, updated_at=? WHERE id=?')
     .run(v.title, v.description, v.startTime, v.endTime, v.venueName, v.address, v.lat, v.lng, v.priceText, v.visibility, new Date().toISOString(), row.id);
+  // Made unlisted, an event leaves the feed; the posts are not remade if it goes public again.
+  if (v.visibility === 'unlisted') dropPosts(['event', 'rsvp'], row.id);
   res.json(communityJson(communityEvent(row.id, req.user!.id)!));
 });
 
@@ -1523,6 +1553,7 @@ app.delete('/api/community-events/:id', (req, res) => {
   const row = communityEvent(req.params.id, req.user!.id);
   if (!row) return res.status(404).json({ error: 'No such event' });
   if (!canEdit(row.owner_id, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  dropPosts(['event', 'rsvp'], row.id);
   db.handle.prepare('DELETE FROM community_rsvps WHERE event_id = ?').run(row.id);
   db.handle.prepare('DELETE FROM community_events WHERE id = ?').run(row.id);
   res.json({ ok: true });
@@ -1532,8 +1563,9 @@ app.put('/api/community-events/:id/rsvp', (req, res) => {
   const row = communityEvent(req.params.id, req.user!.id);
   if (!row || !communityReadable(row, req.user)) return res.status(404).json({ error: 'No such event' });
   if (eventIsOver(row)) return res.status(409).json({ error: 'That event is over' });
-  db.handle.prepare('INSERT OR IGNORE INTO community_rsvps (event_id, user_id, created_at) VALUES (?, ?, ?)')
+  const added = db.handle.prepare('INSERT OR IGNORE INTO community_rsvps (event_id, user_id, created_at) VALUES (?, ?, ?)')
     .run(row.id, req.user!.id, new Date().toISOString());
+  if (added.changes > 0 && row.visibility === 'public') autoPost(req.user!.id, 'rsvp', row.id, row.title, { lat: row.lat, lng: row.lng, place: row.venue_name });
   res.json(communityJson(communityEvent(row.id, req.user!.id)!));
 });
 
@@ -1541,7 +1573,312 @@ app.delete('/api/community-events/:id/rsvp', (req, res) => {
   const row = communityEvent(req.params.id, req.user!.id);
   if (!row || !communityReadable(row, req.user)) return res.status(404).json({ error: 'No such event' });
   db.handle.prepare('DELETE FROM community_rsvps WHERE event_id = ? AND user_id = ?').run(row.id, req.user!.id);
+  db.handle.prepare("DELETE FROM posts WHERE kind = 'rsvp' AND ref_id = ? AND owner_id = ?").run(row.id, req.user!.id);
   res.json(communityJson(communityEvent(row.id, req.user!.id)!));
+});
+
+// --- the feed -----------------------------------------------------------------------
+// Check-ins by hand, and the auto-posts above. A hidden post, and anything by a suspended
+// account, is out of every read. Votes and comments hang off a post by its id.
+
+const FEED_PAGE = 30;
+const MAX_CHECKINS_PER_DAY = 30;
+const MAX_COMMENTS_PER_DAY = 200;
+const MAX_REPORTS_PER_DAY = 20;
+
+/** How many rows one account made in the last day; the SQL takes (user id, since). */
+function madeToday(sql: string, userId: string): number {
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  return Number((db.handle.prepare(sql).get(userId, since) as { n: number | bigint }).n);
+}
+
+interface FeedRow {
+  id: string; kind: string; ref_id: string; lat: number | null; lng: number | null; place_name: string; body: string; created_at: string;
+  username: string; avatar: string; votes: number | bigint; comments: number | bigint; voted: number | bigint;
+}
+const FEED_SELECT =
+  'SELECT p.id, p.kind, p.ref_id, p.lat, p.lng, p.place_name, p.body, p.created_at, u.username, u.avatar, ' +
+  '(SELECT COUNT(*) FROM post_votes v WHERE v.post_id = p.id) AS votes, ' +
+  '(SELECT COUNT(*) FROM post_comments c JOIN users cu ON cu.id = c.owner_id WHERE c.post_id = p.id AND c.hidden = 0 AND cu.banned = 0) AS comments, ' +
+  'EXISTS (SELECT 1 FROM post_votes v WHERE v.post_id = p.id AND v.user_id = ?) AS voted ' +
+  'FROM posts p JOIN users u ON u.id = p.owner_id WHERE p.hidden = 0 AND u.banned = 0';
+
+/** Where a feed card goes when clicked: always a route inside this app, built from ids we made, never from text a user typed. */
+function feedLink(r: FeedRow): string {
+  if (r.kind === 'ride' || r.kind === 'gear') return `/u/${encodeURIComponent(r.username)}`;
+  if (r.kind === 'event' || r.kind === 'rsvp') return `/events?open=${encodeURIComponent(r.ref_id)}`;
+  return r.lat !== null && r.lng !== null ? `/?lat=${r.lat}&lng=${r.lng}` : `/u/${encodeURIComponent(r.username)}`;
+}
+
+function feedJson(r: FeedRow) {
+  return {
+    id: r.id, kind: r.kind, created_at: r.created_at, author: { username: r.username, avatar: r.avatar },
+    body: r.body, place_name: r.place_name, lat: r.lat, lng: r.lng, link: feedLink(r),
+    votes: Number(r.votes), comments: Number(r.comments), voted: Number(r.voted) === 1,
+  };
+}
+
+/** An ISO-ish instant from the query string, or null when it is not one. */
+const instantParam = (v: unknown): number | null => {
+  const ms = typeof v === 'string' ? Date.parse(v) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+};
+
+app.get('/api/feed', (req, res) => {
+  const scope = req.query.scope ?? 'all';
+  if (scope !== 'all' && scope !== 'following') return res.status(400).json({ error: 'scope must be all or following' });
+  // The gate sees paths, not queries, so the one scope that needs a session is refused here.
+  if (scope === 'following' && !req.user) return res.status(401).json({ error: 'Sign in required' });
+  const params: (string | number)[] = [req.user?.id ?? ''];
+  let sql = FEED_SELECT;
+  if (req.query.before !== undefined) {
+    const before = instantParam(req.query.before);
+    if (before === null) return res.status(400).json({ error: 'before must be a date and time' });
+    sql += ' AND p.created_at < ?';
+    params.push(new Date(before).toISOString());
+  }
+  if (scope === 'following') {
+    sql += ' AND p.owner_id IN (SELECT followee_id FROM follows WHERE follower_id = ?)';
+    params.push(req.user!.id);
+  }
+  const rows = db.handle.prepare(`${sql} ORDER BY p.created_at DESC, p.id LIMIT ?`).all(...params, FEED_PAGE) as unknown as FeedRow[];
+  res.json(rows.map(feedJson));
+});
+
+app.post('/api/checkins', (req, res) => {
+  const input = parseCheckin(req.body);
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  const v = input.value;
+  if (madeToday("SELECT COUNT(*) AS n FROM posts WHERE owner_id = ? AND kind = 'checkin' AND created_at > ?", req.user!.id) >= MAX_CHECKINS_PER_DAY) {
+    return res.status(429).json({ error: `You can check in ${MAX_CHECKINS_PER_DAY} times a day` });
+  }
+  let ref = '', lat = v.lat, lng = v.lng, place = v.placeName;
+  if (v.spotId) {
+    const spot = db.handle.prepare('SELECT id, name, lat, lng, visibility FROM spots WHERE id = ?').get(v.spotId) as
+      { id: string; name: string; lat: number; lng: number; visibility: Visibility } | undefined;
+    if (!spot || spot.visibility !== 'public') return res.status(404).json({ error: 'No such public spot' });
+    ({ lat, lng } = spot);
+    ref = `spot:${spot.id}`;
+    place = spot.name.slice(0, 120);
+  } else if (v.eventId) {
+    const ev = communityEvent(v.eventId, req.user!.id);
+    if (!ev || ev.visibility !== 'public' || !communityReadable(ev, req.user)) return res.status(404).json({ error: 'No such event' });
+    ({ lat, lng } = ev);
+    ref = `event:${ev.id}`;
+    place = ev.title.slice(0, 120);
+  }
+  const id = crypto.randomUUID();
+  db.handle.prepare("INSERT INTO posts (id, owner_id, kind, ref_id, lat, lng, place_name, body, hidden, created_at) VALUES (?, ?, 'checkin', ?, ?, ?, ?, ?, 0, ?)")
+    .run(id, req.user!.id, ref, lat, lng, place, v.body, new Date().toISOString());
+  res.status(201).json(feedJson(db.handle.prepare(`${FEED_SELECT} AND p.id = ?`).get(req.user!.id, id) as unknown as FeedRow));
+});
+
+/** A post that can be seen, so can be voted on and commented on. */
+const visiblePost = (id: string) =>
+  Boolean(db.handle.prepare('SELECT 1 FROM posts p JOIN users u ON u.id = p.owner_id WHERE p.id = ? AND p.hidden = 0 AND u.banned = 0').get(id));
+
+app.delete('/api/posts/:id', (req, res) => {
+  const row = db.handle.prepare('SELECT owner_id FROM posts WHERE id = ?').get(req.params.id) as { owner_id: string } | undefined;
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (row.owner_id !== req.user!.id && !isStaff(req.user)) return res.status(403).json({ error: 'Forbidden' });
+  db.handle.prepare('DELETE FROM post_votes WHERE post_id = ?').run(req.params.id);
+  db.handle.prepare('DELETE FROM post_comments WHERE post_id = ?').run(req.params.id);
+  db.handle.prepare('DELETE FROM posts WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+function voteReply(postId: string, voted: boolean) {
+  const n = db.handle.prepare('SELECT COUNT(*) AS n FROM post_votes WHERE post_id = ?').get(postId) as { n: number | bigint };
+  return { votes: Number(n.n), voted };
+}
+app.put('/api/posts/:id/vote', (req, res) => {
+  if (!visiblePost(req.params.id)) return res.status(404).json({ error: 'Not found' });
+  db.handle.prepare('INSERT OR IGNORE INTO post_votes (post_id, user_id) VALUES (?, ?)').run(req.params.id, req.user!.id);
+  res.json(voteReply(req.params.id, true));
+});
+app.delete('/api/posts/:id/vote', (req, res) => {
+  if (!visiblePost(req.params.id)) return res.status(404).json({ error: 'Not found' });
+  db.handle.prepare('DELETE FROM post_votes WHERE post_id = ? AND user_id = ?').run(req.params.id, req.user!.id);
+  res.json(voteReply(req.params.id, false));
+});
+
+const commentJson = (r: { id: string; body: string; created_at: string; username: string; avatar: string }) =>
+  ({ id: r.id, body: r.body, created_at: r.created_at, author: { username: r.username, avatar: r.avatar } });
+
+app.get('/api/posts/:id/comments', (req, res) => {
+  if (!visiblePost(req.params.id)) return res.status(404).json({ error: 'Not found' });
+  const rows = db.handle
+    .prepare('SELECT c.id, c.body, c.created_at, u.username, u.avatar FROM post_comments c JOIN users u ON u.id = c.owner_id WHERE c.post_id = ? AND c.hidden = 0 AND u.banned = 0 ORDER BY c.created_at, c.id LIMIT 200')
+    .all(req.params.id) as unknown as Parameters<typeof commentJson>[0][];
+  res.json(rows.map(commentJson));
+});
+
+app.post('/api/posts/:id/comments', (req, res) => {
+  const input = parseMessage(req.body, MAX_POST_BODY);
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  if (!visiblePost(req.params.id)) return res.status(404).json({ error: 'Not found' });
+  if (madeToday('SELECT COUNT(*) AS n FROM post_comments WHERE owner_id = ? AND created_at > ?', req.user!.id) >= MAX_COMMENTS_PER_DAY) {
+    return res.status(429).json({ error: `You can comment ${MAX_COMMENTS_PER_DAY} times a day` });
+  }
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.handle.prepare('INSERT INTO post_comments (id, post_id, owner_id, body, hidden, created_at) VALUES (?, ?, ?, ?, 0, ?)')
+    .run(id, req.params.id, req.user!.id, input.value, now);
+  const me = findUserById(db, req.user!.id)!;
+  res.status(201).json(commentJson({ id, body: input.value, created_at: now, username: me.username, avatar: me.avatar }));
+});
+
+app.delete('/api/comments/:id', (req, res) => {
+  const row = db.handle.prepare('SELECT owner_id FROM post_comments WHERE id = ?').get(req.params.id) as { owner_id: string } | undefined;
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (row.owner_id !== req.user!.id && !isStaff(req.user)) return res.status(403).json({ error: 'Forbidden' });
+  db.handle.prepare('DELETE FROM post_comments WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// --- chat ---------------------------------------------------------------------------
+// One public room. ponytail: polling every few seconds; move to the convoy WebSocket in Phase 5.
+
+const chatJson = (r: { id: string; body: string; created_at: string; username: string; avatar: string }) =>
+  ({ id: r.id, body: r.body, created_at: r.created_at, author: { username: r.username, avatar: r.avatar } });
+
+/** Newest 100 from the last thirty minutes, oldest first; `after` narrows it to what a poller has not seen. Filtered on read so a task that has not run leaks nothing. */
+app.get('/api/chat', (req, res) => {
+  let since = Date.now() - CHAT_MINUTES * 60_000;
+  if (req.query.after !== undefined) {
+    const after = instantParam(req.query.after);
+    if (after === null) return res.status(400).json({ error: 'after must be a date and time' });
+    since = Math.max(since, after);
+  }
+  const rows = db.handle
+    .prepare('SELECT m.id, m.body, m.created_at, u.username, u.avatar FROM chat_messages m JOIN users u ON u.id = m.owner_id WHERE u.banned = 0 AND m.created_at > ? ORDER BY m.created_at DESC, m.id DESC LIMIT 100')
+    .all(new Date(since).toISOString()) as unknown as Parameters<typeof chatJson>[0][];
+  res.json(rows.reverse().map(chatJson));
+});
+
+app.post('/api/chat', chatLimit, (req, res) => {
+  const input = parseMessage(req.body, MAX_CHAT_BODY);
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.handle.prepare('INSERT INTO chat_messages (id, owner_id, body, created_at) VALUES (?, ?, ?, ?)').run(id, req.user!.id, input.value, now);
+  const me = findUserById(db, req.user!.id)!;
+  res.status(201).json(chatJson({ id, body: input.value, created_at: now, username: me.username, avatar: me.avatar }));
+});
+
+app.delete('/api/chat/:id', (req, res) => {
+  const row = db.handle.prepare('SELECT owner_id FROM chat_messages WHERE id = ?').get(req.params.id) as { owner_id: string } | undefined;
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (row.owner_id !== req.user!.id && !isStaff(req.user)) return res.status(403).json({ error: 'Forbidden' });
+  db.handle.prepare('DELETE FROM chat_messages WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// --- reports and moderation -----------------------------------------------------------
+
+/**
+ * What a report is about: a snapshot of its text and who wrote it. With a `viewer` the thing has to be
+ * one that viewer can see (so nobody reports, and learns of, what they could not open); without one,
+ * as for staff reading the queue, a hidden or suspended author's thing is still found.
+ */
+function reportTarget(kind: string, id: string, viewer?: SessionUser): { text: string; ownerId: string } | undefined {
+  const seen = viewer !== undefined;
+  const one = (sql: string) => db.handle.prepare(sql).get(id) as Record<string, any> | undefined;
+  switch (kind) {
+    case 'post': {
+      const r = one(`SELECT p.owner_id, p.body, p.place_name FROM posts p JOIN users u ON u.id = p.owner_id WHERE p.id = ?${seen ? ' AND p.hidden = 0 AND u.banned = 0' : ''}`);
+      return r && { text: r.body || r.place_name, ownerId: r.owner_id };
+    }
+    case 'comment': {
+      const r = one(`SELECT c.owner_id, c.body FROM post_comments c JOIN users u ON u.id = c.owner_id WHERE c.id = ?${seen ? ' AND c.hidden = 0 AND u.banned = 0' : ''}`);
+      return r && { text: r.body, ownerId: r.owner_id };
+    }
+    case 'chat': {
+      const r = one(`SELECT m.owner_id, m.body FROM chat_messages m JOIN users u ON u.id = m.owner_id WHERE m.id = ?${seen ? ' AND u.banned = 0' : ''}`);
+      return r && { text: r.body, ownerId: r.owner_id };
+    }
+    case 'community_event': {
+      const r = communityEvent(id, viewer?.id);
+      return r && (!seen || communityReadable(r, viewer)) ? { text: `${r.title}. ${r.description}`, ownerId: r.owner_id } : undefined;
+    }
+    case 'profile': {
+      const r = one(`SELECT id, username, bio FROM users WHERE id = ?${seen ? ' AND banned = 0' : ''}`);
+      return r && { text: r.bio || r.username, ownerId: r.id };
+    }
+    case 'ride': {
+      const r = one(`SELECT r.owner_id, r.make, r.model, r.nickname, r.notes FROM rides r JOIN users u ON u.id = r.owner_id WHERE r.id = ?${seen ? ' AND u.banned = 0' : ''}`);
+      return r && { text: [r.make, r.model, r.nickname, r.notes].filter(Boolean).join(' '), ownerId: r.owner_id };
+    }
+    case 'spot': {
+      const r = one('SELECT owner_id, name, notes, visibility FROM spots WHERE id = ?');
+      return r && (!seen || canRead(r.visibility, r.owner_id, viewer ?? null)) ? { text: [r.name, r.notes].filter(Boolean).join('. '), ownerId: r.owner_id } : undefined;
+    }
+  }
+  return undefined;
+}
+
+app.post('/api/reports', (req, res) => {
+  const input = parseReport(req.body);
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  const v = input.value;
+  if (!reportTarget(v.targetKind, v.targetId, req.user!)) return res.status(404).json({ error: 'No such thing to report' });
+  if (db.handle.prepare('SELECT 1 FROM reports WHERE reporter_id = ? AND target_kind = ? AND target_id = ? AND resolved_at IS NULL').get(req.user!.id, v.targetKind, v.targetId)) {
+    return res.status(409).json({ error: 'You have already reported that' });
+  }
+  if (madeToday('SELECT COUNT(*) AS n FROM reports WHERE reporter_id = ? AND created_at > ?', req.user!.id) >= MAX_REPORTS_PER_DAY) {
+    return res.status(429).json({ error: `You can file ${MAX_REPORTS_PER_DAY} reports a day` });
+  }
+  db.handle.prepare('INSERT INTO reports (id, reporter_id, target_kind, target_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(crypto.randomUUID(), req.user!.id, v.targetKind, v.targetId, v.reason, new Date().toISOString());
+  res.status(201).json({ ok: true });
+});
+
+/** The queue: open reports oldest first, then the latest resolved ones. */
+app.get('/api/reports', (req, res) => {
+  if (!isStaff(req.user)) return res.status(403).json({ error: 'Staff only' });
+  const rows = db.handle
+    .prepare(
+      `SELECT r.id, r.target_kind, r.target_id, r.reason, r.created_at, r.resolved_at, u.username AS reporter
+         FROM reports r LEFT JOIN users u ON u.id = r.reporter_id
+        ORDER BY r.resolved_at IS NOT NULL, CASE WHEN r.resolved_at IS NULL THEN r.created_at END, r.resolved_at DESC LIMIT 200`
+    )
+    .all() as unknown as { id: string; target_kind: string; target_id: string; reason: string; created_at: string; resolved_at: string | null; reporter: string | null }[];
+  res.json(rows.map((r) => {
+    const target = reportTarget(r.target_kind, r.target_id);
+    const author = target && findUserById(db, target.ownerId);
+    return {
+      ...r,
+      snapshot: target ? target.text.slice(0, 200) : null,
+      author: author ? { id: author.id, username: author.username, role: author.role, banned: author.banned } : null,
+    };
+  }));
+});
+
+app.post('/api/reports/:id/resolve', (req, res) => {
+  if (!isStaff(req.user)) return res.status(403).json({ error: 'Staff only' });
+  const action = (req.body as { action?: unknown } | undefined)?.action;
+  if (action !== 'dismiss' && action !== 'hide') return res.status(400).json({ error: 'action must be dismiss or hide' });
+  const r = db.handle.prepare('SELECT id, target_kind, target_id, resolved_at FROM reports WHERE id = ?').get(req.params.id) as
+    { id: string; target_kind: string; target_id: string; resolved_at: string | null } | undefined;
+  if (!r) return res.status(404).json({ error: 'Not found' });
+  if (r.resolved_at) return res.status(409).json({ error: 'Already resolved' });
+  const now = new Date().toISOString();
+  if (action === 'dismiss') {
+    db.handle.prepare('UPDATE reports SET resolved_at = ?, resolved_by = ? WHERE id = ?').run(now, req.user!.id, r.id);
+    return res.json({ ok: true });
+  }
+  // Hiding. A profile, ride or spot is only resolved: staff then suspend the user, or an admin deals with the spot.
+  if (r.target_kind === 'post') db.handle.prepare('UPDATE posts SET hidden = 1 WHERE id = ?').run(r.target_id);
+  else if (r.target_kind === 'comment') db.handle.prepare('UPDATE post_comments SET hidden = 1 WHERE id = ?').run(r.target_id);
+  else if (r.target_kind === 'chat') db.handle.prepare('DELETE FROM chat_messages WHERE id = ?').run(r.target_id);
+  else if (r.target_kind === 'community_event') {
+    db.handle.prepare('UPDATE community_events SET hidden = 1 WHERE id = ?').run(r.target_id);
+    db.handle.prepare("UPDATE posts SET hidden = 1 WHERE kind IN ('event', 'rsvp') AND ref_id = ?").run(r.target_id);
+  }
+  // Everyone's open report on the same thing is settled with it.
+  db.handle.prepare('UPDATE reports SET resolved_at = ?, resolved_by = ? WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL')
+    .run(now, req.user!.id, r.target_kind, r.target_id);
+  res.json({ ok: true });
 });
 
 // --- 404 + error handling, then the built frontend -------------------------------

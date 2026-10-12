@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { getSettings, Settings, tfnswKey } from '../settings.js';
 import { syncRemote } from '../share.js';
 import { deleteExpiredSessions } from '../authStore.js';
+import { CHAT_MINUTES } from '../bodyLimits.js';
 import { runRailTask } from '../sources/rail.js';
 import { runCandidatesTask } from '../sources/osm.js';
 import { importStaticGtfs, TrainFeedName } from '../feeds/trains.js';
@@ -56,7 +57,9 @@ tasks.register({
   run: async () => {
     deleteExpiredSessions(db);
     const { changes } = db.handle.prepare('DELETE FROM kv WHERE expires_at IS NOT NULL AND expires_at < ?').run(new Date().toISOString());
-    return { ok: true, message: `${changes} expired cache rows dropped` };
+    // Chat lives thirty minutes; the read filters on age too, so this only keeps the table small.
+    const chat = db.handle.prepare('DELETE FROM chat_messages WHERE created_at < ?').run(new Date(Date.now() - CHAT_MINUTES * 60_000).toISOString());
+    return { ok: true, message: `${changes} expired cache rows and ${chat.changes} old chat messages dropped` };
   },
 });
 

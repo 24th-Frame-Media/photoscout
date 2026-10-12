@@ -16,7 +16,7 @@ export const SESSION_COOKIE = '__Host-ps_session';
 /** State and PKCE verifier for a sign-in that is under way. Ten minutes. */
 export const OAUTH_COOKIE = '__Host-ps_oauth';
 
-export type Role = 'admin' | 'contributor';
+export type Role = 'admin' | 'moderator' | 'contributor';
 export type Visibility = 'private' | 'unlisted' | 'public';
 
 export interface SessionUser {
@@ -58,6 +58,9 @@ const ANONYMOUS_READS = [
   /^\/api\/profiles\/[^/]+$/,
   /^\/api\/community-events(\/[^/]+)?$/,
   /^\/api\/kit\/photos\/[^/]+\/(file|thumb)$/,
+  // The feed (scope=following is refused to a visitor by the handler: the query is not seen here) and a post's comments.
+  /^\/api\/feed$/,
+  /^\/api\/posts\/[^/]+\/comments$/,
 ];
 
 export function normalizePath(p: string): string {
@@ -107,6 +110,11 @@ export function canRead(visibility: Visibility, ownerId: string, user: SessionUs
 export function canEdit(ownerId: string, user: SessionUser | null): boolean {
   if (!user) return false;
   return user.role === 'admin' || user.id === ownerId;
+}
+
+/** Admins and moderators: those who may read the reports queue, hide content and suspend contributors. Nothing else is shared. */
+export function isStaff(user: { role: Role } | null | undefined): boolean {
+  return user?.role === 'admin' || user?.role === 'moderator';
 }
 
 /** Compare without leaking how far the comparison got. */

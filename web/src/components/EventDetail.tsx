@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { EventItem, User } from '../api.js';
 import { decodeEntities, formatWhen } from '../events.js';
 import { MarkButtons, type OnMark } from './EventCard.js';
+import ReportButton from './ReportButton.js';
 
 /** Say you are going to a community event, or that you are not; absent for a visitor. */
 export type OnGoing = (communityId: string, going: boolean) => Promise<void>;
@@ -46,6 +47,7 @@ export default function EventDetail({ ev, onClose, onMark, onGoing, user }: { ev
               <span className="hint">{ev.going ?? 0} going</span>
               {onGoing && <button className={ev.isGoing ? 'primary' : ''} onClick={toggleGoing}>{ev.isGoing ? '✓ Going' : 'Going'}</button>}
               {canEdit && <Link className="button" to={`/events/${ev.communityId}/edit`}>Edit</Link>}
+              {user && user.id !== ev.ownerId && <ReportButton user={user} kind="community_event" id={ev.communityId!} />}
             </>
           )}
           <MarkButtons ev={ev} onMark={onMark} />

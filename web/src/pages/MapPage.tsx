@@ -177,7 +177,7 @@ export default function MapPage({ user }: { user: User | null }) {
 
   // Start on home, unless a spot or place was asked for in the URL.
   useEffect(() => {
-    if (!map || params.get('spot') || params.get('place')) return;
+    if (!map || params.get('spot') || params.get('place') || params.get('lat')) return;
     api.settings().then((s) => map.jumpTo({ center: [s.home.lng, s.home.lat], zoom: 10 })).catch(() => {});
   }, [map]);
 
@@ -448,6 +448,15 @@ export default function MapPage({ user }: { user: User | null }) {
     else return;
     setParams({}, { replace: true });
   }, [map, spots, places]);
+
+  // A feed item's `?lat=&lng=` link: look at that spot on the map.
+  useEffect(() => {
+    if (!map) return;
+    const lat = Number(params.get('lat')), lng = Number(params.get('lng'));
+    if (!params.get('lat') || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
+    focus(lng, lat, 15);
+    setParams({}, { replace: true });
+  }, [map]);
 
   /** Centre a point in the part of the map the panel leaves visible: above the phone sheet, left of the desktop panel. */
   function focus(lng: number, lat: number, zoom?: number) {

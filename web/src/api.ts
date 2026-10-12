@@ -1,6 +1,6 @@
 /** Typed client for every server/src/index.ts endpoint. */
 
-export type Role = 'admin' | 'contributor';
+export type Role = 'admin' | 'moderator' | 'contributor';
 export type Visibility = 'private' | 'unlisted' | 'public';
 
 export interface User {
@@ -280,6 +280,21 @@ export interface Profile extends ProfileHit {
 }
 
 /** An event somebody here made (server/src/app.ts), kept apart from the scraped feed above. */
+export interface FeedItem {
+  id: string; kind: 'checkin' | 'ride' | 'gear' | 'rsvp' | 'event'; created_at: string; author: ProfileHit;
+  body: string; place_name: string; lat: number | null; lng: number | null;
+  /** A route inside this app. */
+  link: string; votes: number; comments: number; voted: boolean;
+}
+export interface FeedComment { id: string; body: string; created_at: string; author: ProfileHit }
+export type CheckinInput = { body?: string } & ({ spotId: string } | { eventId: string } | { lat: number; lng: number; placeName: string });
+export interface ChatMessage { id: string; body: string; created_at: string; author: ProfileHit }
+export type ReportKind = 'post' | 'comment' | 'chat' | 'community_event' | 'profile' | 'ride' | 'spot';
+export interface Report {
+  id: string; target_kind: ReportKind; target_id: string; reason: string; created_at: string; resolved_at: string | null;
+  reporter: string | null; snapshot: string | null; author: { id: string; username: string; role: Role; banned: boolean } | null;
+}
+
 export interface CommunityEventInput {
   title: string; description: string; startTime: string; endTime: string | null; venueName: string; address: string;
   lat: number; lng: number; priceText: string; visibility: 'public' | 'unlisted';
@@ -523,6 +538,28 @@ export const api = {
   deleteCommunityEvent: (id: string) => fetch(`/api/community-events/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
   setGoing: (id: string, going: boolean) =>
     fetch(`/api/community-events/${id}/rsvp`, { method: going ? 'PUT' : 'DELETE' }).then((r) => json<CommunityEvent>(r)),
+
+  // --- feed, chat and reports (the feed and a post's comments are open to visitors) ---
+  feed: (scope: 'all' | 'following', before?: string) =>
+    fetch(`/api/feed?scope=${scope}${before ? `&before=${encodeURIComponent(before)}` : ''}`).then((r) => json<FeedItem[]>(r)),
+  checkin: (c: CheckinInput) =>
+    fetch('/api/checkins', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(c) }).then((r) => json<FeedItem>(r)),
+  deletePost: (id: string) => fetch(`/api/posts/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
+  votePost: (id: string, on: boolean) =>
+    fetch(`/api/posts/${id}/vote`, { method: on ? 'PUT' : 'DELETE' }).then((r) => json<{ votes: number; voted: boolean }>(r)),
+  comments: (postId: string) => fetch(`/api/posts/${postId}/comments`).then((r) => json<FeedComment[]>(r)),
+  addComment: (postId: string, body: string) =>
+    fetch(`/api/posts/${postId}/comments`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ body }) }).then((r) => json<FeedComment>(r)),
+  deleteComment: (id: string) => fetch(`/api/comments/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
+  chat: (after?: string) => fetch(`/api/chat${after ? `?after=${encodeURIComponent(after)}` : ''}`).then((r) => json<ChatMessage[]>(r)),
+  sendChat: (body: string) =>
+    fetch('/api/chat', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ body }) }).then((r) => json<ChatMessage>(r)),
+  deleteChat: (id: string) => fetch(`/api/chat/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
+  report: (targetKind: ReportKind, targetId: string, reason: string) =>
+    fetch('/api/reports', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ targetKind, targetId, reason }) }).then((r) => json<{ ok: boolean }>(r)),
+  reports: () => fetch('/api/reports').then((r) => json<Report[]>(r)),
+  resolveReport: (id: string, action: 'dismiss' | 'hide') =>
+    fetch(`/api/reports/${id}/resolve`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ action }) }).then((r) => json<{ ok: boolean }>(r)),
 
   // --- events (open to visitors; starring and hiding need a session and are your own) ---
   events: () => fetch('/api/events').then((r) => json<EventItem[]>(r)),

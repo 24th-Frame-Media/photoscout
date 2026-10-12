@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import type { User } from '../api.js';
 import { applyFilters, categoriesOf, DATE_CHIPS, DEFAULT_FILTERS, type Filters, foldSeries } from '../events.js';
 import { useEvents } from '../useEvents.js';
@@ -19,7 +19,11 @@ export default function Events({ user }: { user: User | null }) {
   const cards = useMemo(() => foldSeries(filtered), [filtered]);
   const categories = useMemo(() => categoriesOf(all), [events]);
   const folded = filtered.length - cards.length;
-  const openEvent = open ? all.find((e) => e.group === open) : undefined;
+  // `?open=<community id>` is how the feed links to an event.
+  const [params, setParams] = useSearchParams();
+  const wanted = params.get('open');
+  const openEvent = open ? all.find((e) => e.group === open) : wanted ? all.find((e) => e.communityId === wanted) : undefined;
+  const close = () => { setOpen(null); if (wanted) setParams({}, { replace: true }); };
 
   return (
     <div className="page">
@@ -67,7 +71,7 @@ export default function Events({ user }: { user: User | null }) {
         </div>
       )}
 
-      {openEvent && <EventDetail ev={openEvent} user={user} onClose={() => setOpen(null)} onMark={onMark} onGoing={user ? setGoing : undefined} />}
+      {openEvent && <EventDetail ev={openEvent} user={user} onClose={close} onMark={onMark} onGoing={user ? setGoing : undefined} />}
     </div>
   );
 }

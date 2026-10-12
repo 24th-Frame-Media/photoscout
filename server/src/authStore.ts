@@ -107,6 +107,13 @@ export function deleteUser(db: Db, id: string): void {
   db.handle.prepare('DELETE FROM rides WHERE owner_id = ?').run(id);
   db.handle.prepare('DELETE FROM gear WHERE owner_id = ?').run(id);
   db.handle.prepare('DELETE FROM follows WHERE follower_id = ? OR followee_id = ?').run(id, id);
+  // Their posts, and the votes and comments on them; their own votes, comments and chat; the reports they filed. Auto-posts about their events go too.
+  db.handle.prepare("DELETE FROM posts WHERE kind IN ('event', 'rsvp') AND ref_id IN (SELECT id FROM community_events WHERE owner_id = ?)").run(id);
+  db.handle.prepare('DELETE FROM post_votes WHERE user_id = ? OR post_id IN (SELECT id FROM posts WHERE owner_id = ?)').run(id, id);
+  db.handle.prepare('DELETE FROM post_comments WHERE owner_id = ? OR post_id IN (SELECT id FROM posts WHERE owner_id = ?)').run(id, id);
+  db.handle.prepare('DELETE FROM posts WHERE owner_id = ?').run(id);
+  db.handle.prepare('DELETE FROM chat_messages WHERE owner_id = ?').run(id);
+  db.handle.prepare('DELETE FROM reports WHERE reporter_id = ?').run(id);
   db.handle.prepare('DELETE FROM community_rsvps WHERE user_id = ? OR event_id IN (SELECT id FROM community_events WHERE owner_id = ?)').run(id, id);
   db.handle.prepare('DELETE FROM community_events WHERE owner_id = ?').run(id);
   db.handle.prepare('DELETE FROM users WHERE id = ?').run(id);

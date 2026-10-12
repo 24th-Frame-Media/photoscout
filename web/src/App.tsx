@@ -13,8 +13,11 @@ import Calendar from './pages/Calendar.js';
 import Profile from './pages/Profile.js';
 import Kit from './pages/Kit.js';
 import CommunityEventForm from './pages/CommunityEventForm.js';
+import Feed from './pages/Feed.js';
+import Chat from './pages/Chat.js';
+import Moderation from './pages/Moderation.js';
 
-const NAV = [['/', 'Map'], ['/events', 'Events'], ['/calendar', 'Calendar'], ['/kit', 'Kit'], ['/plan', 'Plan shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
+const NAV = [['/', 'Map'], ['/events', 'Events'], ['/feed', 'Feed'], ['/chat', 'Chat'], ['/calendar', 'Calendar'], ['/kit', 'Kit'], ['/plan', 'Plan shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
 
 export default function App() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -49,9 +52,10 @@ export default function App() {
         <button className="topbar__burger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">☰</button>
         <Link className="logo" to="/">Photo<span>Scout</span></Link>
         <nav className={menuOpen ? 'is-open' : ''}>
-          {NAV.filter(([path]) => user || (path !== '/import' && path !== '/settings' && path !== '/kit')).map(([path, label]) => (
+          {NAV.filter(([path]) => user || (path !== '/import' && path !== '/settings' && path !== '/kit' && path !== '/chat')).map(([path, label]) => (
             <Link key={path} to={path} className={active(path) ? 'active' : ''}>{label}</Link>
           ))}
+          {(user?.role === 'admin' || user?.role === 'moderator') && <Link to="/moderation" className={active('/moderation') ? 'active' : ''}>Moderation</Link>}
           {user && (
             <>
               <Link className="topbar__nav-meta" to={`/u/${encodeURIComponent(user.username)}`}>{user.username} ({user.role})</Link>
@@ -74,6 +78,9 @@ export default function App() {
         <Route path="/events" element={<Events user={user} />} />
         <Route path="/events/new" element={<CommunityEventForm user={user} />} />
         <Route path="/events/:id/edit" element={<CommunityEventForm user={user} />} />
+        <Route path="/feed" element={<Feed user={user} />} />
+        <Route path="/chat" element={<Chat user={user} />} />
+        <Route path="/moderation" element={<Moderation user={user} />} />
         <Route path="/calendar" element={<Calendar user={user} />} />
         <Route path="/u/:username" element={<Profile user={user} />} />
         <Route path="/kit" element={<Kit user={user} onChange={refresh} />} />

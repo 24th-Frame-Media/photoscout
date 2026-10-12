@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { needsAuth, canRead, canEdit, handleFrom, isAdminAccount, originAllowed, HANDLE, SessionUser } from '../src/auth.js';
+import { needsAuth, canRead, canEdit, isStaff, handleFrom, isAdminAccount, originAllowed, HANDLE, SessionUser } from '../src/auth.js';
 
 const admin: SessionUser = { id: 'admin-1', role: 'admin' };
 const contributor: SessionUser = { id: 'contrib-1', role: 'contributor' };
@@ -21,13 +21,16 @@ test('needsAuth: signing in and out, the version and a share token need no sessi
 test('needsAuth: a visitor may read the public map and nothing else', () => {
   for (const open of ['/api/spots', '/api/spots/abc', '/api/places', '/api/places/abc', '/api/routes', '/api/routes/abc',
     '/api/spots/abc/photos', '/api/photos/abc/file', '/api/photos/abc/thumb', '/api/Spots/', '/api/spots?bbox=1,2,3,4', '/api/settings', '/api/rail', '/api/fires', '/api/aurora', '/api/events', '/api/events/solo-12', '/api/Events/',
-    '/api/profiles/Alice', '/api/Profiles/Alice/', '/api/community-events', '/api/community-events/abc', '/api/kit/photos/abc/file', '/api/kit/photos/abc/thumb']) {
+    '/api/profiles/Alice', '/api/Profiles/Alice/', '/api/community-events', '/api/community-events/abc', '/api/kit/photos/abc/file', '/api/kit/photos/abc/thumb',
+    '/api/feed', '/api/feed?scope=all&before=2030-01-01T00:00:00Z', '/api/posts/abc/comments']) {
     assert.equal(needsAuth('GET', open), false, open);
   }
   // Writes to the new resources are never open, whatever their path.
   for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
     for (const path of ['/api/profiles/Alice', '/api/follows/Alice', '/api/kit/rides', '/api/kit/rides/abc', '/api/kit/gear/abc', '/api/kit/photos/abc', '/api/kit/photos/abc/file',
-      '/api/community-events', '/api/community-events/abc', '/api/community-events/abc/rsvp']) {
+      '/api/community-events', '/api/community-events/abc', '/api/community-events/abc/rsvp',
+      '/api/feed', '/api/checkins', '/api/posts/abc', '/api/posts/abc/vote', '/api/posts/abc/comments', '/api/comments/abc',
+      '/api/chat', '/api/chat/abc', '/api/reports', '/api/reports/abc/resolve']) {
       assert.equal(needsAuth(method, path), true, `${method} ${path}`);
     }
   }
@@ -38,7 +41,8 @@ test('needsAuth: a visitor may read the public map and nothing else', () => {
     '/api/spots/abc/nearby', '/api/spots/abc/commons', '/api/spots/abc/trains', '/api/settings/x', '/api/tasks', '/api/users',
     '/api/export.geojson', '/api/remotes', '/api/candidates', '/api/eventscout/test', '/api/nothing',
     '/api/profiles', '/api/profiles?q=al', '/api/profiles/Alice/extra', '/api/follows', '/api/follows/Alice', '/api/gear/catalog', '/api/kit/rides', '/api/kit/gear',
-    '/api/kit/photos/abc', '/api/kit/photos/abc/other', '/api/community-events/abc/rsvp', '/api/community-events/abc/extra']) {
+    '/api/kit/photos/abc', '/api/kit/photos/abc/other', '/api/community-events/abc/rsvp', '/api/community-events/abc/extra',
+    '/api/chat', '/api/chat/abc', '/api/reports', '/api/posts/abc', '/api/posts/abc/vote', '/api/feed/extra', '/api/posts/abc/comments/x', '/api/comments/abc']) {
     assert.equal(needsAuth('GET', closed), true, closed);
   }
 });
@@ -91,6 +95,16 @@ test('canRead: private is owner or admin only', () => {
   assert.equal(canRead('private', contributor.id, otherContributor), false);
   assert.equal(canRead('private', contributor.id, contributor), true);
   assert.equal(canRead('private', contributor.id, admin), true);
+});
+
+test('isStaff: admins and moderators; a moderator still edits nobody else\'s rows and reads no private ones', () => {
+  const moderator: SessionUser = { id: 'mod-1', role: 'moderator' };
+  assert.equal(isStaff(admin), true);
+  assert.equal(isStaff(moderator), true);
+  assert.equal(isStaff(contributor), false);
+  assert.equal(isStaff(null), false);
+  assert.equal(canEdit(contributor.id, moderator), false);
+  assert.equal(canRead('private', contributor.id, moderator), false);
 });
 
 test('canEdit: owner or admin only, never anonymous', () => {

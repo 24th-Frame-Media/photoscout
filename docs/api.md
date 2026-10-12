@@ -8,7 +8,9 @@ Sign-in is Google or Discord (see the README); a session is a `__Host-ps_session
 - Share-token reads under `/api/share/`: the token is the credential.
 - Reads an anonymous visitor may make: `GET` on `/api/places`, `/api/spots` and `/api/routes` (and one by id) and a spot's photos and photo files (public rows only, plus unlisted ones by id), `/api/settings` (a cut-down answer: where the map opens), `/api/rail`, `/api/fires`, `/api/aurora`, and `/api/events` (below). Anything that proxies a third-party service, or costs a request elsewhere, is not on this list.
 
-Every other method than `GET` and `HEAD` needs a session, and one from another site's `Origin` is refused. Admin routes answer 403 to anyone else. Which accounts are admins is `ADMIN_IDS`; everyone else is a contributor, who edits only their own rows.
+Also open to a visitor: `GET /api/feed` (`scope=all` only) and `GET /api/posts/:id/comments`.
+
+Every other method than `GET` and `HEAD` needs a session, and one from another site's `Origin` is refused. Admin routes answer 403 to anyone else. Which accounts are admins is `ADMIN_IDS`; everyone else is a contributor, who edits only their own rows. An admin can make a user a moderator: staff (admins and moderators) can read the reports queue, hide content, delete other people's posts, comments and chat lines, and suspend contributors, and nothing else an admin can do.
 
 ## Core
 
@@ -91,3 +93,22 @@ Same auth rules as above: all of these need a session unless marked open.
 - `starred` and `hidden` are the caller's own, from `user_event_state`; always false for a visitor. event-scout's own star and hide are not used.
 - The upstream list is cached in memory for 60 seconds and shared by every caller, so listing costs event-scout one request a minute at most. If it can't be reached the last list is served; with none yet, 502. Unset, `[]`.
 
+
+### Feed, chat and reports
+
+Bodies are plain text; the server never stores or returns markup.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/feed?scope=all\|following&before=<iso>` | Open to visitors for `all`; `following` needs a session. 30 per page, newest first. Items: `id, kind, created_at, author{username,avatar}, body, place_name, lat, lng, link, votes, comments, voted`. Hidden posts and posts by suspended accounts are left out. `kind` is `checkin`, or an auto-post (`ride`, `gear`, `rsvp`, `event`) the server makes when a ride or gear is added, someone RSVPs to, or someone creates, a public community event. Deleting the thing deletes the post. |
+| POST | `/api/checkins` | `{ spotId }` (public spot), `{ eventId }` (public community event) or `{ lat, lng, placeName<=120 }`, plus optional `body<=500`. 30 a day. |
+| DELETE | `/api/posts/:id` | Author or staff. |
+| PUT/DELETE | `/api/posts/:id/vote` | Upvote / take it back. Replies `{ votes, voted }`. |
+| GET/POST | `/api/posts/:id/comments` | List (open to visitors) / add `{ body<=500 }`; 200 a day. |
+| DELETE | `/api/comments/:id` | Author or staff. |
+| GET | `/api/chat?after=<iso>` | Session needed. Up to 100 messages from the last 30 minutes, oldest first. |
+| POST | `/api/chat` | `{ body<=300 }`; 10 a minute. Messages are deleted after 30 minutes (the `housekeeping` task, and reads ignore older ones anyway). |
+| DELETE | `/api/chat/:id` | Author or staff. |
+| POST | `/api/reports` | `{ targetKind: post\|comment\|chat\|community_event\|profile\|ride\|spot, targetId, reason<=300 }`. 409 if you already have an open report on it; 20 a day. |
+| GET | `/api/reports` | Staff: open reports oldest first, then recently settled, each with a text snapshot and the author. |
+| POST | `/api/reports/:id/resolve` | Staff: `{ action: dismiss\|hide }`. `hide` hides a post, comment or community event (hidden events 404 for everyone but the organiser and staff) and deletes a chat line; for a profile, ride or spot it only settles the report. |

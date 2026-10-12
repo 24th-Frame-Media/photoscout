@@ -104,7 +104,50 @@ export function parseProfile(body: unknown): Parsed<ProfileInput> {
   });
 }
 
-export const RIDE_KINDS = ['car', 'motorbike'] as const;
+// --- the feed, chat and reports ---------------------------------------------
+
+export const MAX_POST_BODY = 500;
+export const MAX_CHAT_BODY = 300;
+/** How long a chat message lives, and so how far back a read can reach. */
+export const CHAT_MINUTES = 30;
+export const MAX_REPORT_REASON = 300;
+export const REPORT_KINDS = ['post', 'comment', 'chat', 'community_event', 'profile', 'ride', 'spot'] as const;
+
+/** A comment or a chat message: required text, trimmed, of at most `max` characters. */
+export function parseMessage(body: unknown, max: number): Parsed<string> {
+  return parsed(body, (b) => text(b, 'body', max, undefined, true));
+}
+
+export interface CheckinInput { spotId: string; eventId: string; lat: number; lng: number; placeName: string; body: string }
+
+/** A check-in at a public spot, at a community event, or at free coordinates with a place name. */
+export function parseCheckin(body: unknown): Parsed<CheckinInput> {
+  return parsed(body, (b) => {
+    const id = (field: string) => (b[field] === undefined || b[field] === null ? '' : typeof b[field] === 'string' && (b[field] as string).length <= 64 ? (b[field] as string) : bad(`${field} must be an id`));
+    const spotId = id('spotId'), eventId = id('eventId');
+    const note = text(b, 'body', MAX_POST_BODY, '');
+    if (spotId && eventId) return bad('Check in at a spot or an event, not both');
+    if (spotId || eventId) return { spotId, eventId, lat: 0, lng: 0, placeName: '', body: note };
+    return {
+      spotId, eventId, body: note,
+      placeName: text(b, 'placeName', 120, undefined, true),
+      lat: number(b, 'lat', -90, 90, undefined),
+      lng: number(b, 'lng', -180, 180, undefined),
+    };
+  });
+}
+
+export interface ReportInput { targetKind: typeof REPORT_KINDS[number]; targetId: string; reason: string }
+
+export function parseReport(body: unknown): Parsed<ReportInput> {
+  return parsed(body, (b) => ({
+    targetKind: oneOf(b, 'targetKind', REPORT_KINDS, undefined),
+    targetId: text(b, 'targetId', 64, undefined, true),
+    reason: text(b, 'reason', MAX_REPORT_REASON, ''),
+  }));
+}
+
+export const RIDE_KINDS =['car', 'motorbike'] as const;
 export const GEAR_KINDS = ['camera', 'lens', 'other'] as const;
 export const EVENT_VISIBILITIES = ['public', 'unlisted'] as const;
 

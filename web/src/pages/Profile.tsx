@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, type Profile as ProfileData, type User } from '../api.js';
+import ReportButton from '../components/ReportButton.js';
 import { gearTitle, instagramUrl, rideTitle } from '../kit.js';
 
 /**
@@ -49,6 +50,7 @@ export default function Profile({ user }: { user: User | null }) {
         <div className="profile__actions">
           {mine && <Link className="button" to="/kit">Edit profile and Kit</Link>}
           {!mine && user && <button className={profile.isFollowing ? '' : 'primary'} disabled={busy} onClick={() => void toggleFollow()}>{profile.isFollowing ? 'Following' : 'Follow'}</button>}
+          {!mine && <ReportButton user={user} kind="profile" id={profile.id} />}
           {!user && <span className="hint">Sign in to follow.</span>}
         </div>
       </div>

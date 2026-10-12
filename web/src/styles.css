@@ -1196,3 +1196,17 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
 .kitphotos__item button { position: absolute; top: 2px; right: 2px; padding: 0 6px; line-height: 18px; }
 .kitphotos__add { display: inline-flex; align-items: center; justify-content: center; width: 96px; height: 72px; border: 1px dashed var(--border); border-radius: var(--radius-xs); cursor: pointer; color: var(--muted); font-size: 13px; }
 .locpicker { width: 100%; height: 280px; border-radius: var(--radius-xs); border: 1px solid var(--border); margin-bottom: 10px; }
+
+/* Feed, chat and moderation */
+.feed, .chat, .moderation { max-width: 720px; }
+.feed__list { display: flex; flex-direction: column; gap: 10px; }
+.feed .checkin { margin-bottom: 12px; }
+.feedcard p { margin: 0; overflow-wrap: anywhere; }
+.feedcard__text { white-space: pre-wrap; }
+.feedcard__comments { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 8px; }
+.feedcard__comment { font-size: 13.5px; }
+.feedcard__add { display: flex; gap: 6px; }
+.feedcard__add input { flex: 1; min-width: 0; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--muted); font-size: 12.5px; text-decoration: underline; cursor: pointer; }
+.chat__log { height: 60vh; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; }
+.chat__line { margin: 0 0 6px; overflow-wrap: anywhere; }
