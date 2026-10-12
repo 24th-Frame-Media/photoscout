@@ -20,9 +20,12 @@ test('needsAuth: signing in and out, the version and a share token need no sessi
 
 test('needsAuth: a visitor may read the public map and nothing else', () => {
   for (const open of ['/api/spots', '/api/spots/abc', '/api/places', '/api/places/abc', '/api/routes', '/api/routes/abc',
-    '/api/spots/abc/photos', '/api/photos/abc/file', '/api/photos/abc/thumb', '/api/Spots/', '/api/spots?bbox=1,2,3,4', '/api/settings', '/api/rail', '/api/fires', '/api/aurora']) {
+    '/api/spots/abc/photos', '/api/photos/abc/file', '/api/photos/abc/thumb', '/api/Spots/', '/api/spots?bbox=1,2,3,4', '/api/settings', '/api/rail', '/api/fires', '/api/aurora', '/api/events', '/api/events/solo-12', '/api/Events/']) {
     assert.equal(needsAuth('GET', open), false, open);
   }
+  // Starring and hiding are somebody's own.
+  assert.equal(needsAuth('PUT', '/api/events/solo-12/state'), true);
+  assert.equal(needsAuth('GET', '/api/events/solo-12/state'), true);
   for (const closed of ['/api/geocode', '/api/weather', '/api/planes', '/api/buildings', '/api/roads', '/api/cameras/1/image',
     '/api/spots/abc/nearby', '/api/spots/abc/commons', '/api/spots/abc/trains', '/api/settings/x', '/api/tasks', '/api/users',
     '/api/export.geojson', '/api/remotes', '/api/candidates', '/api/eventscout/test', '/api/nothing']) {

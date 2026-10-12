@@ -32,6 +32,7 @@ import {
   buildPointPassesResponse, combinedFeedData, combinedRealtime, emptyFeedData, nextPasses, parsePointPassRequest, predictTrainPositions, tripCount, TRAIN_FEEDS,
 } from './feeds/trains.js';
 import { nearbyFor } from './feeds/eventScout.js';
+import { eventList, MAX_GROUP_LENGTH, setUserEventState, userEventStates, withState } from './events.js';
 import { getCachedRail, requestTilesForUnsnapped, trackGraphFor } from './sources/rail.js';
 import { commonsNearbyCached, lensStats } from './sources/commons.js';
 import { coverFields, deleteImages, detectImageType, MAX_PHOTO_BYTES, parseMultipart, saveImage, SPOT_COVER_COLS } from './photos.js';
@@ -816,6 +817,46 @@ app.get('/api/marine', async (req, res, next) => {
 app.get('/api/fires', async (_req, res, next) => {
   try {
     res.json(await fetchFires());
+  } catch (err) { next(err); }
+});
+
+// --- events (from event-scout) --------------------------------------------
+
+/** The shared list, with the caller's own star and hide laid over it when signed in. */
+async function eventsFor(req: express.Request) {
+  const events = await eventList(getSettings(db).eventScoutUrl);
+  return withState(events, req.user ? userEventStates(db, req.user.id) : null);
+}
+
+app.get('/api/events', async (req, res, next) => {
+  try {
+    res.json(await eventsFor(req));
+  } catch (err) { next(err); }
+});
+
+app.get('/api/events/:group', async (req, res, next) => {
+  try {
+    const event = (await eventsFor(req)).find((ev) => ev.group === req.params.group);
+    if (!event) return res.status(404).json({ error: 'No such event' });
+    res.json(event);
+  } catch (err) { next(err); }
+});
+
+/** Star or hide an event for yourself. Event-scout's own flags are not touched. */
+app.put('/api/events/:group/state', async (req, res, next) => {
+  try {
+    const group = req.params.group;
+    const { starred, hidden } = (req.body ?? {}) as { starred?: unknown; hidden?: unknown };
+    if (group.length > MAX_GROUP_LENGTH) return res.status(400).json({ error: 'Not an event' });
+    if (starred === undefined && hidden === undefined) return res.status(400).json({ error: 'Send starred or hidden' });
+    if ((starred !== undefined && typeof starred !== 'boolean') || (hidden !== undefined && typeof hidden !== 'boolean')) {
+      return res.status(400).json({ error: 'starred and hidden must be true or false' });
+    }
+    // Only for an event on the list, so this table cannot be filled with made-up keys.
+    if (!(await eventList(getSettings(db).eventScoutUrl)).some((ev) => ev.group === group)) {
+      return res.status(404).json({ error: 'No such event' });
+    }
+    res.json({ group, ...setUserEventState(db, req.user!.id, group, { starred, hidden }) });
   } catch (err) { next(err); }
 });
 

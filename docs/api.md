@@ -1,18 +1,27 @@
 # API
 
-Everything follows `INSTANCE_MODE` (see the README), apart from first-run setup and share-token reads.
+## Who may call what
+
+Sign-in is Google or Discord (see the README); a session is a `__Host-ps_session` cookie. Every route needs a session except:
+
+- Sign-in itself, `GET /api/auth/status` and `GET /api/version`.
+- Share-token reads under `/api/share/`: the token is the credential.
+- Reads an anonymous visitor may make: `GET` on `/api/places`, `/api/spots` and `/api/routes` (and one by id) and a spot's photos and photo files (public rows only, plus unlisted ones by id), `/api/settings` (a cut-down answer: where the map opens), `/api/rail`, `/api/fires`, `/api/aurora`, and `/api/events` (below). Anything that proxies a third-party service, or costs a request elsewhere, is not on this list.
+
+Every other method than `GET` and `HEAD` needs a session, and one from another site's `Origin` is refused. Admin routes answer 403 to anyone else. Which accounts are admins is `ADMIN_IDS`; everyone else is a contributor, who edits only their own rows.
 
 ## Core
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/auth/status` | Whether setup is needed, who's signed in, whether sign-up is open. |
-| POST | `/api/auth/setup` | First run only: create the admin. |
-| POST | `/api/auth/signup` | Create a contributor account, if the admin allowed it. |
-| POST | `/api/auth/login` / `/api/auth/logout` | Session cookie. |
-| GET/POST | `/api/users` | Admin: list / create users. |
-| PATCH/DELETE | `/api/users/:id` | Admin: change role or password, or remove a user. |
-| GET/PUT | `/api/settings` | Home area, extra areas, sign-up toggle, remotes policy, feed URLs. PUT is admin-only. |
+| GET | `/api/auth/status` | `{ authed, user, account, providers }`: who's signed in (`user` is null for a visitor), their `provider:id` (what goes in `ADMIN_IDS`; null for a visitor), and which providers are set up. |
+| GET | `/api/auth/:provider/start` | `google` or `discord`: redirects to the provider; 404 if it isn't set up. |
+| GET | `/api/auth/:provider/callback` | The provider's redirect back (`<PUBLIC_URL>/api/auth/:provider/callback`). Sets the session cookie, then redirects to `/`, or to `/login?error=` if it fails. |
+| POST | `/api/auth/logout` | Ends the session. |
+| PATCH | `/api/auth/me` | Change your own handle (`{ username }`, 3 to 24 letters, digits or underscores). |
+| GET | `/api/users` | Admin: list users. |
+| PATCH/DELETE | `/api/users/:id` | Admin: change `role` or `banned`, or remove a user. Not your own account. |
+| GET/PUT | `/api/settings` | Home area, extra areas, remotes policy, feed URLs. PUT is admin-only; members and visitors get the cut-down read. |
 | GET | `/api/geocode?q=` | Nominatim search, cached. |
 | GET | `/api/version` | Build info. |
 | GET/POST | `/api/places` | List (visibility-filtered) / create. |
@@ -28,17 +37,17 @@ Everything follows `INSTANCE_MODE` (see the README), apart from first-run setup 
 | GET/POST | `/api/shares` | List / create a share link (returns a token). |
 | DELETE | `/api/shares/:token` | Revoke. |
 | GET | `/api/share/:token` | The bundle the token grants — no login needed, the token is the credential. |
-| GET/POST | `/api/remotes` | List / add a remote instance's share URL. |
-| DELETE | `/api/remotes/:id` | |
-| POST | `/api/remotes/:id/sync` | Fetch and upsert now, instead of waiting for the daily task. |
-| GET | `/api/tasks` | Background task status and log. |
+| GET/POST | `/api/remotes` | Admin: list / add a remote instance's share URL. |
+| DELETE | `/api/remotes/:id` | Admin. |
+| POST | `/api/remotes/:id/sync` | Admin: fetch and upsert now, instead of waiting for the daily task. |
+| GET | `/api/tasks` | Admin: background task status and log. |
 | POST | `/api/tasks/:name/run` | Admin: run a task now. |
 
 Remotes are SSRF-guarded: http(s) only, private/loopback/link-local addresses blocked unless `allowPrivateRemotes` is set (for LAN setups).
 
 ## Live feeds and ingestion
 
-Same auth rules as above.
+Same auth rules as above: all of these need a session unless marked open.
 
 | Method | Path | Notes |
 |---|---|---|
@@ -53,12 +62,32 @@ Same auth rules as above.
 | GET | `/api/trains/status` | Whether a key is set, last static import, trip count. |
 | GET | `/api/spots/:id/nearby`, `/api/places/:id/nearby` | Nearby Event Scout events (7 days, keyword-flagged) and venue busyness. |
 | GET | `/api/eventscout/test?url=` | Admin: try reaching an Event Scout URL. |
+| GET | `/api/events` | Open to visitors. Upcoming events from Event Scout (needs `EVENT_SCOUT_URL` or the Settings URL; an empty list without), see below. |
+| GET | `/api/events/:group` | Open to visitors. One event from that list, same shape; 404 if it isn't on it. |
+| PUT | `/api/events/:group/state` | Your own star and hide on an event. Body `{ starred?: boolean, hidden?: boolean }`, at least one; a field left out keeps its value. Replies `{ group, starred, hidden }`. 400 for anything else or a `group` over 100 characters, 404 for an event not on the list. |
 | GET | `/api/candidates?bbox=` | OSM candidate points of interest. |
 | POST | `/api/candidates/:id/promote` | Turn a candidate into a spot. |
 | GET | `/api/spots/:id/commons` | Wikimedia Commons photos near the spot (cached 1 day) and lens advisor stats (`{ images, stats }`). |
-| GET | `/api/fires` | NSW RFS major incidents (fires), cached 5 min. |
-| GET | `/api/aurora` | NOAA planetary K-index (now + next 24h max), cached 30 min. |
+| GET | `/api/fires` | Open to visitors. NSW RFS major incidents (fires), cached 5 min. |
+| GET | `/api/aurora` | Open to visitors. NOAA planetary K-index (now + next 24h max), cached 30 min. |
 | GET | `/api/marine?lat=&lng=` | Open-Meteo marine tides and swell for coastal spots, cached per 0.05° cell for 1 h. |
 | GET | `/api/cameras` | NSW live traffic cameras (TfNSW, needs `TFNSW_API_KEY`), cached 10 min. |
 | GET | `/api/cameras/:id/image` | Proxy live JPEG for a traffic camera. |
+
+### Events
+
+`GET /api/events` answers with a bare array, soonest first, of:
+
+```json
+{
+  "group": "m3f9a…", "title": "…", "description": "…", "startTime": "2030-01-05T09:00:00.000Z", "endTime": null,
+  "venueName": "…", "address": "…", "locality": "…", "lat": -33.4, "lng": 149.5, "imageUrl": "https://…",
+  "category": "…", "priceText": "…", "isOnline": false, "dateOnly": false, "photoScore": 55,
+  "series": "…", "url": "https://…", "starred": false, "hidden": false
+}
+```
+
+- It is event-scout's list with what that service has hidden or culled removed, cut down to these fields: no raw listing text, no per-source addresses (`url` is one http(s) link), and `imageUrl` is an https picture or `""`. `description` is cut at 1500 characters. `lat` and `lng` are null when the event has no position. `series` is shared by the dates of a repeating event.
+- `starred` and `hidden` are the caller's own, from `user_event_state`; always false for a visitor. event-scout's own star and hide are not used.
+- The upstream list is cached in memory for 60 seconds and shared by every caller, so listing costs event-scout one request a minute at most. If it can't be reached the last list is served; with none yet, 502. Unset, `[]`.
 

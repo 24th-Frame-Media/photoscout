@@ -8,8 +8,10 @@ import PlacePage from './pages/PlacePage.js';
 import PlanShoot from './pages/PlanShoot.js';
 import ImportExport from './pages/ImportExport.js';
 import Settings from './pages/Settings.js';
+import Events from './pages/Events.js';
+import Calendar from './pages/Calendar.js';
 
-const NAV = [['/', 'Map'], ['/plan', 'Plan shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
+const NAV = [['/', 'Map'], ['/events', 'Events'], ['/calendar', 'Calendar'], ['/plan', 'Plan shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
 
 export default function App() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -66,6 +68,8 @@ export default function App() {
       {menuOpen && <div className="topbar__scrim" onClick={() => setMenuOpen(false)} />}
       <Routes>
         <Route path="/places/:id" element={<PlacePage />} />
+        <Route path="/events" element={<Events user={user} />} />
+        <Route path="/calendar" element={<Calendar user={user} />} />
         <Route path="/plan" element={<PlanShoot />} />
         <Route path="/trip" element={<Navigate to={`/plan${location.search}`} replace />} />
         <Route path="/import" element={<ImportExport />} />

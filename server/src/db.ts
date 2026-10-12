@@ -35,6 +35,18 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
+-- What one person has starred or hidden among the events event-scout lists,
+-- by the group key it gives them. No foreign key to the events: they live in
+-- another service, and a key that has gone from its list is harmless here.
+CREATE TABLE IF NOT EXISTS user_event_state (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  event_group TEXT NOT NULL,
+  starred INTEGER NOT NULL DEFAULT 0,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, event_group)
+);
+
 CREATE TABLE IF NOT EXISTS places (
   id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL,

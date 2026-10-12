@@ -4,13 +4,13 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { GeoJSONSource, LngLatBounds, Map as MlMap, MapMouseEvent, Marker, NavigationControl, Point, Popup, ScaleControl, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
-import { api, Candidate, FireIncident, Place, Plane, type PlaneInfo, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast } from '../api.js';
+import { api, Candidate, type EventItem, FireIncident, Place, Plane, type PlaneInfo, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast } from '../api.js';
 import { sunLook } from '../map/sunLook.js';
 import { hourAt, pickRadarFrame, RAINVIEWER_INDEX, radarTileUrl, weatherIcon, type RadarIndex } from '../map/weather.js';
 import {
   CLICKABLE, initFeedLayers, initLayers, PLANE_LAYERS, setImagery, setLayerVisible, setTerrain3d, STYLE_URL, updateCandidates, updateDraft, updateRoads, ROADS_MIN_ZOOM,
   updateMood, updatePlacesAndSpots, updatePlanes, updateRail, updateRays, setNearbyHighlight, updateShadows, updateTrains, updateWedges,
-  TRAIN_LAYERS, setTrains3d, updatePlanePositions, hiddenLayers, setRadarFrame, FIRE_LAYERS, updateFires, updateCameras,
+  TRAIN_LAYERS, setTrains3d, updatePlanePositions, hiddenLayers, setRadarFrame, FIRE_LAYERS, updateFires, updateCameras, EVENT_LAYERS, updateEvents,
 } from '../map/layers.js';
 import { due, MotionTracker, planePredict, trainPredict } from '../map/motion.js';
 import { carriageCount } from '../map/trains3d.js';
@@ -25,6 +25,9 @@ import { applyBaseRailHighlight, effectiveRailOn, restoreBaseRailHighlight, type
 import { buildRailPassPopupHtml, clickableRailLayerIds } from '../map/railPasses.js';
 import { deadReckon, formatPlaneDetails } from '../map/planes.js';
 import { useMapTime } from '../time.js';
+import { useEvents } from '../useEvents.js';
+import { decodeEntities, formatWhen } from '../events.js';
+import EventDetail from '../components/EventDetail.js';
 import TimeBar from '../components/TimeBar.js';
 import SpotPanel from '../components/SpotPanel.js';
 import SpotEditor, { SpotDraft } from '../components/SpotEditor.js';
@@ -71,7 +74,7 @@ const newSpot = (lat: number, lng: number, placeId: string | null = null): SpotD
 });
 
 /** Legend keys whose visibility is applied by their own effect below. */
-const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras'];
+const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events'];
 const RADAR_POLL_MS = 10 * 60_000;
 
 type RouteHistoryEntry = { draft: RouteDraft; duration: number | null; ready: boolean };
@@ -122,7 +125,7 @@ export default function MapPage({ user }: { user: User | null }) {
   const [vis, setVis] = useState<Visibility>(loadVisibility);
   useEffect(() => saveVisibility(vis), [vis]);
   const toggle = (key: string, on = !vis[key]) => setVis((v) => ({ ...v, [key]: on }));
-  const { planes: planesOn, rail: railOn, trains: trainsOn, candidates: candidatesOn, imagery, weather: weatherOn, fires: firesOn, cameras: camerasOn } = vis;
+  const { planes: planesOn, rail: railOn, trains: trainsOn, candidates: candidatesOn, imagery, weather: weatherOn, fires: firesOn, cameras: camerasOn, events: eventsOn } = vis;
   const railEffectiveOn = effectiveRailOn(railOn, trainsOn);
   const baseRailPaint = useRef<BaseRailPaintSnapshot[] | null>(null);
   const routesOn = vis.routes;
@@ -335,6 +338,15 @@ export default function MapPage({ user }: { user: User | null }) {
       updateCameras(map, cameraData);
     }
   }, [map, camerasOn, cameraData]);
+
+  // Event Scout events: fetched (and polled) only while the layer is on. A click opens the event over the map.
+  const eventFeed = useEvents(!!eventsOn);
+  const [openEvent, setOpenEvent] = useState<string | null>(null);
+  useEffect(() => {
+    if (!map) return;
+    setLayerVisible(map, EVENT_LAYERS, !!eventsOn);
+    if (eventsOn) updateEvents(map, eventFeed.events ?? []);
+  }, [map, eventsOn, eventFeed.events]);
 
   // Animation: move planes and trains between polls, at most every FRAME_MS, and only for shown layers.
   const trainById = useMemo(() => new Map(trainData.map((t) => [t.tripId, t])), [trainData]);
@@ -895,6 +907,16 @@ export default function MapPage({ user }: { user: User | null }) {
       showRoadPopup(map, [lng, lat], hit.properties ?? {});
       return;
     }
+    if (hit.layer.id === 'event-clusters') {
+      (map.getSource('events') as GeoJSONSource).getClusterExpansionZoom(hit.properties.cluster_id)
+        .then((zoom) => map.easeTo({ center: (hit.geometry as GeoJSON.Point).coordinates as [number, number], zoom }));
+      return;
+    }
+    if (hit.layer.id === 'event-points') {
+      const ev = eventFeed.events?.find((x) => x.group === hit.properties?.group);
+      if (ev) showEventPopup(map, (hit.geometry as GeoJSON.Point).coordinates as [number, number], ev, () => setOpenEvent(ev.group));
+      return;
+    }
     if (FIRE_LAYERS.includes(hit.layer.id)) {
       showFirePopup(map, [lng, lat], hit.properties ?? {});
       return;
@@ -1092,6 +1114,9 @@ export default function MapPage({ user }: { user: User | null }) {
         </div>
       )}
 
+      {openEvent && eventFeed.events?.find((e) => e.group === openEvent) && (
+        <EventDetail ev={eventFeed.events.find((e) => e.group === openEvent)!} onClose={() => setOpenEvent(null)} onMark={user ? eventFeed.mark : undefined} />
+      )}
       <Legend map={map} vis={vis} onToggle={toggle} />
       <NearbyList planes={planesOn ? planeData : null} trains={trainsOn ? trainData : null} centre={centre}
         onHover={(at) => { if (map) setNearbyHighlight(map, at); }}
@@ -1124,6 +1149,7 @@ export default function MapPage({ user }: { user: User | null }) {
           ] },
           { label: 'Scout', items: [
             { key: 'candidates', label: category('candidates').label, swatch: <Swatch cat={category('candidates')} />, on: candidatesOn, title: 'OpenStreetMap viewpoints, ruins and other candidates', onSelect: () => toggle('candidates') },
+            { key: 'events', label: category('events').label, swatch: <Swatch cat={category('events')} />, on: !!eventsOn, title: 'Upcoming events from Event Scout that have a location', onSelect: () => toggle('events') },
             { key: 'road-quality', label: category('road-quality').label, swatch: <Swatch cat={category('road-quality')} />, on: !!vis['road-quality'], title: 'OpenStreetMap roads from z13: green good, amber fair, red poor/unpaved, grey unknown. Surface tags are incomplete, so grey and fair are often guesses.', onSelect: () => toggle('road-quality') },
             { key: 'rail', label: category('rail').label, swatch: <Swatch cat={category('rail')} />, on: railOn, onSelect: () => toggle('rail') },
             { key: 'routes', label: category('routes').label, swatch: <Swatch cat={category('routes')} />, on: routesOn, title: 'Show or hide saved routes', onSelect: () => toggle('routes') },
@@ -1367,6 +1393,15 @@ function showRailPassPopup(map: MlMap, lat: number, lng: number) {
     .catch((err) => {
       if (trainPopup.current === popup) popup.setHTML(`<div role="alert"><strong>Passenger trains</strong><br/><span>${escapeHtml((err as Error).message)}</span></div>`);
     });
+}
+
+/** Popup for a clicked event: what and when and where, and a button for the rest. */
+function showEventPopup(map: MlMap, at: [number, number], ev: EventItem, onOpen: () => void) {
+  const place = decodeEntities(ev.venueName || ev.address || ev.locality);
+  const html = `<strong>${escapeHtml(decodeEntities(ev.title))}</strong><br/><span>${escapeHtml(formatWhen(ev))}</span>`
+    + (place ? `<br/><span>📍 ${escapeHtml(place)}</span>` : '')
+    + '<br/><button class="popup-follow" type="button">Details</button>';
+  openPopup(map, at, html, onOpen);
 }
 
 function showFirePopup(map: MlMap, at: [number, number], p: Record<string, any>) {

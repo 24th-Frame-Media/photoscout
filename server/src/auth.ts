@@ -50,6 +50,9 @@ const ANONYMOUS_READS = [
   // Map layers with no parameters, answered from this server's own cache:
   // a visitor asking costs nobody upstream anything.
   /^\/api\/(rail|fires|aurora)$/,
+  // Events, from a list this server keeps for a minute (see events.ts), so
+  // asking costs event-scout nothing more however many visitors there are.
+  /^\/api\/events(\/[^/]+)?$/,
 ];
 
 export function normalizePath(p: string): string {

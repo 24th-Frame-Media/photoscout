@@ -232,6 +232,33 @@ export interface NearbyResult {
   status: 'ok' | 'not_configured';
 }
 
+/** An event from event-scout as this server passes it on (server/src/events.ts); starred and hidden are the caller's own. */
+export interface EventItem {
+  group: string;
+  title: string;
+  description: string;
+  startTime: string;
+  endTime: string | null;
+  venueName: string;
+  address: string;
+  locality: string;
+  lat: number | null;
+  lng: number | null;
+  imageUrl: string;
+  category: string;
+  priceText: string;
+  isOnline: boolean;
+  dateOnly: boolean;
+  photoScore: number;
+  /** Shared by every date of a repeating event. */
+  series: string;
+  /** One link to a listing, '' when there is none. */
+  url: string;
+  starred: boolean;
+  hidden: boolean;
+}
+export interface EventState { starred: boolean; hidden: boolean }
+
 export interface Candidate { id: string; source: string; ref: string; name: string; lat: number; lng: number; tags: Record<string, string>; fetchedAt: string }
 export interface CommonsImage {
   title: string;
@@ -426,6 +453,12 @@ export const api = {
   // --- Event Scout ---
   spotNearby: (spotId: string) => fetch(`/api/spots/${spotId}/nearby`).then((r) => json<NearbyResult>(r)),
   placeNearby: (placeId: string) => fetch(`/api/places/${placeId}/nearby`).then((r) => json<NearbyResult>(r)),
+
+  // --- events (open to visitors; starring and hiding need a session and are your own) ---
+  events: () => fetch('/api/events').then((r) => json<EventItem[]>(r)),
+  setEventState: (group: string, state: Partial<EventState>) =>
+    fetch(`/api/events/${encodeURIComponent(group)}/state`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(state) })
+      .then((r) => json<EventState & { group: string }>(r)),
 
   // --- candidates + Commons ---
   candidates: (bbox?: string) => fetch(`/api/candidates${bbox ? `?bbox=${bbox}` : ''}`).then((r) => json<Candidate[]>(r)),

@@ -1,6 +1,7 @@
 /** MapLibre sources and layers: base extras (imagery, DEM), light (mood, rays, shadows) and our places/spots. */
 import { GeoJSONSource, Map as MlMap, type RasterTileSource, type LightSpecification } from 'maplibre-gl';
-import type { FireIncident, Place, Spot, TrafficCamera } from '../api.js';
+import type { EventItem, FireIncident, Place, Spot, TrafficCamera } from '../api.js';
+import { isOver } from '../events.js';
 import { cameraBearing, ICON, thumbIconId } from './spotGlance.js';
 import { RAIL_COLOR } from './legend.js';
 import { useOvertureBuildings } from './overture.js';
@@ -280,6 +281,16 @@ export function initFeedLayers(map: MlMap) {
     paint: { 'circle-radius': 6, 'circle-color': FIRE_COLOR, 'circle-stroke-color': '#0e1014', 'circle-stroke-width': 1.5 },
   });
 
+  // Events from Event Scout: purple dots (spots are blue, candidates grey) that cluster when close.
+  map.addSource('events', { type: 'geojson', data: empty(), cluster: true, clusterMaxZoom: 13, clusterRadius: 40 });
+  map.addLayer({ id: 'event-clusters', type: 'circle', source: 'events', filter: ['has', 'point_count'], layout: { visibility: 'none' },
+    paint: { 'circle-radius': 15, 'circle-color': '#1d212b', 'circle-stroke-color': EVENT_COLOR, 'circle-stroke-width': 2 } });
+  map.addLayer({ id: 'event-cluster-count', type: 'symbol', source: 'events', filter: ['has', 'point_count'],
+    layout: { visibility: 'none', 'text-field': ['get', 'point_count_abbreviated'], 'text-font': FONT, 'text-size': 12, 'text-allow-overlap': true },
+    paint: { 'text-color': EVENT_COLOR } });
+  map.addLayer({ id: 'event-points', type: 'circle', source: 'events', filter: ['!', ['has', 'point_count']], layout: { visibility: 'none' },
+    paint: { 'circle-radius': 7, 'circle-color': EVENT_COLOR, 'circle-stroke-color': '#0e1014', 'circle-stroke-width': 2 } });
+
   // NSW Live Traffic cameras: a camera glyph (places are plain dots) with a cone the way it looks.
   // The cone is a screen-sized icon rotated to the bearing, so it stays small at any zoom.
   if (!map.hasImage('camera')) map.addImage('camera', cameraIcon(), { pixelRatio: 2 });
@@ -452,6 +463,28 @@ export function updateFires(map: MlMap, fires: FireIncident[]) {
   setData(map, 'fires', firesGeoJSON(fires));
 }
 
+const EVENT_COLOR = '#c084fc';
+export const EVENT_LAYERS = ['event-clusters', 'event-cluster-count', 'event-points'];
+
+/** Only events with a position are drawn, and not ones that are over or that this person has hidden. */
+export function eventsGeoJSON(events: EventItem[], now = Date.now()): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+  for (const ev of events) {
+    if (ev.lat == null || ev.lng == null || ev.hidden || isOver(ev, now)) continue;
+    features.push({
+      type: 'Feature',
+      id: ev.group,
+      properties: { group: ev.group, title: ev.title, category: ev.category },
+      geometry: { type: 'Point', coordinates: [ev.lng, ev.lat] },
+    });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+export function updateEvents(map: MlMap, events: EventItem[]) {
+  setData(map, 'events', eventsGeoJSON(events));
+}
+
 export function camerasGeoJSON(cameras: TrafficCamera[]): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
@@ -507,7 +540,7 @@ function cameraIcon(): ImageData {
   return g.getImageData(0, 0, 44, 44);
 }
 
-export const CLICKABLE = ['spot-thumbs', 'place-spot-thumbs', 'spot-points', 'place-spots', 'clusters', 'place-points', 'place-fill', 'place-line', 'candidates', 'fires-pts', 'fires-polys-fill', 'fires-polys-line', 'cameras', 'road-quality', 'route-lines', 'route-staging'];
+export const CLICKABLE = ['spot-thumbs', 'place-spot-thumbs', 'spot-points', 'place-spots', 'clusters', 'place-points', 'place-fill', 'place-line', 'candidates', 'fires-pts', 'fires-polys-fill', 'fires-polys-line', 'cameras', 'event-points', 'event-clusters', 'road-quality', 'route-lines', 'route-staging'];
 
 export function setImagery(map: MlMap, on: boolean) {
   map.setLayoutProperty('imagery', 'visibility', on ? 'visible' : 'none');
