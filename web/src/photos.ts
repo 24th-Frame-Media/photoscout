@@ -1,0 +1,43 @@
+/** Browser photo pipeline: read EXIF, then re-encode to WebP (which also strips EXIF, so no GPS leaks). */
+import exifr from 'exifr';
+
+export interface PhotoMeta { lat: number | null; lng: number | null; takenAt: Date | null; focalLength: number | null }
+
+export async function readExif(file: File): Promise<PhotoMeta> {
+  try {
+    const m = await exifr.parse(file, { gps: true, pick: ['DateTimeOriginal', 'latitude', 'longitude', 'GPSLatitude', 'GPSLongitude', 'GPSLatitudeRef', 'GPSLongitudeRef', 'FocalLength', 'FocalLengthIn35mmFilm'] });
+    const ok = typeof m?.latitude === 'number' && typeof m?.longitude === 'number';
+    
+    let focalLength: number | null = null;
+    if (m) {
+      const focal35 = typeof m.FocalLengthIn35mmFilm === 'number' && Number.isFinite(m.FocalLengthIn35mmFilm) && m.FocalLengthIn35mmFilm > 0 ? m.FocalLengthIn35mmFilm : null;
+      const focalRaw = typeof m.FocalLength === 'number' && Number.isFinite(m.FocalLength) && m.FocalLength > 0 ? m.FocalLength : null;
+      focalLength = focal35 ?? focalRaw ?? null;
+    }
+
+    return { lat: ok ? m.latitude : null, lng: ok ? m.longitude : null, takenAt: m?.DateTimeOriginal instanceof Date ? m.DateTimeOriginal : null, focalLength };
+  } catch {
+    return { lat: null, lng: null, takenAt: null, focalLength: null };
+  }
+}
+
+/** Scale so the long edge is at most `maxEdge`, as WebP. */
+export async function resize(file: Blob, maxEdge: number, quality = 0.85): Promise<{ blob: Blob; w: number; h: number }> {
+  const img = await createImageBitmap(file); // applies EXIF orientation
+  const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+  img.close();
+  const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/webp', quality));
+  if (!blob) throw new Error('This browser could not encode WebP');
+  return { blob, w, h };
+}
+
+export async function prepareUpload(file: File) {
+  const [full, thumb] = await Promise.all([resize(file, 2048), resize(file, 400, 0.8)]);
+  return { photo: full.blob, thumb: thumb.blob, w: full.w, h: full.h };
+}
