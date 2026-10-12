@@ -40,12 +40,14 @@ import { emptyGoodTimes } from '../components/GoodTimesEditor.js';
 import DayStrip from '../components/DayStrip.js';
 import SunBearingPlanner from '../components/SunBearingPlanner.js';
 import {
+  closeSunAnchorTool,
   Coordinate,
   defaultSunAnchorAdapter,
   handleSunAnchorPlacementClick,
   resolveDisplayOrigin,
   resolveSunPlannerBearing,
   shouldShowSunPlanner,
+  startSunAnchorTool,
   SunAnchorController,
   updateSelectedBearingProjection,
 } from '../map/sunAnchor.js';
@@ -1087,6 +1089,29 @@ export default function MapPage({ user }: { user: User | null }) {
     setMode('browse');
   }
 
+  function toggleSunAnchorPlacement() {
+    if (mode === 'anchor') {
+      setMode('browse');
+      return;
+    }
+    setVis((visibility) => startSunAnchorTool(visibility));
+    setMode('anchor');
+  }
+
+  function closePanel() {
+    if (editing) {
+      cancelEdit();
+      return;
+    }
+    setSelected(null);
+    if (sunAnchor || mode === 'anchor') {
+      const next = closeSunAnchorTool();
+      setSunAnchor(next.anchor);
+      setSunAnchorBearing(next.bearing);
+      setMode(next.mode);
+    }
+  }
+
   async function promoteCandidate(c: Candidate) {
     const spot = await api.promoteCandidate(c.id);
     await reload();
@@ -1179,7 +1204,7 @@ export default function MapPage({ user }: { user: User | null }) {
         <button
           type="button"
           className={mode === 'anchor' ? 'active' : ''}
-          onClick={() => setMode((m) => (m === 'anchor' ? 'browse' : 'anchor'))}
+          onClick={toggleSunAnchorPlacement}
         >
           Place anchor
         </button>
@@ -1208,7 +1233,7 @@ export default function MapPage({ user }: { user: User | null }) {
           >
             <span className="panel__grab" aria-hidden="true" />
           </button>
-          <button className="panel__close" onClick={() => { if (editing) cancelEdit(); else setSelected(null); }} title="Close">✕</button>
+          <button className="panel__close" onClick={closePanel} title="Close">✕</button>
           {editing?.type === 'spot' && (
             <SpotEditor key={editing.draft.id ?? 'new'} map={map} draft={editing.draft} places={places}
               onChange={(draft) => setEditing({ type: 'spot', draft })} onSave={() => saveSpot(editing.draft)} onCancel={cancelEdit} />

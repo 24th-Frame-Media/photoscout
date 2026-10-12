@@ -43,6 +43,16 @@ export function shouldShowSunPlanner(sunAnchor: Coordinate | null, selectedSpot:
   return sunAnchor !== null || selectedSpot !== null;
 }
 
+/** Starts the anchor tool with its supporting rays and wedges visible. */
+export function startSunAnchorTool<T extends Record<string, boolean>>(visibility: T): T & { sun: true } {
+  return { ...visibility, sun: true };
+}
+
+/** Clears the transient anchor state and returns the map to normal browsing. */
+export function closeSunAnchorTool(): { anchor: null; bearing: null; mode: 'browse' } {
+  return { anchor: null, bearing: null, mode: 'browse' };
+}
+
 export const SELECTED_BEARING_PROJECTION_SOURCE = 'selected-bearing-projection';
 const SELECTED_BEARING_PROJECTION_SCREEN_PX = 320;
 const SELECTED_BEARING_PROJECTION_MIN_KM = 0.2;
