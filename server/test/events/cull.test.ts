@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Cullable, cullReason, detectNotAnEvent, localSites, siteOf, vetting } from '../../src/events/cull.js';
+import { Cullable, cullReason, detectNotAnEvent, localSites, regionsNamedIn, siteOf, titleDateMismatch, vetting } from '../../src/events/cull.js';
 
 const bathurst = { name: 'Bathurst', lat: -33.4166, lng: 149.5804, radiusKm: 85 };
 const penrith = { name: 'Penrith', lat: -33.751, lng: 150.694, radiusKm: 25 };
@@ -257,4 +257,43 @@ test('siteOf and localSites: a leading www or m is dropped, and only that', () =
   assert.equal(siteOf('https://museumsbathurst.com.au/x'), 'museumsbathurst.com.au', 'an m that is part of the name stays');
   const many = ['a', 'b', 'c'].map((p) => ({ url: 'https://notallevents.info/' + p, area: 'Bathurst', elsewhere: false }));
   assert.deepEqual([...localSites(many)], ['notallevents.info'], 'a name that only ends like a listings site');
+});
+
+// The one that was announced: a Victorian track day, filed under Bathurst for the wrong day.
+const relay = {
+  title: '10 Hour Relay Event — SAT 10 OCT Melbourne',
+  description: "10 Hour Relay Event — Euro & Classic track day in Melbourne, VIC on Saturday 10 October 2026. Hosted by Alfa Romeo Owners' Club Of Australia (VIC) Inc.. At Winton Raceway.",
+  startTime: new Date(2026, 9, 14, 9).toISOString(),
+};
+
+test('a listing whose own words put it in another state is culled, even when it was filed under an area', () => {
+  const rules = { ...ON, areaRegions: ['nsw'] };
+  const filed = ev({ ...bathurstTown, area: 'Bathurst', title: 'Euro & Classic track day', description: relay.description });
+  assert.equal(cullReason(filed, hubs, rules), 'Says it is in Victoria, outside every area');
+  // Its own state as well: a Bathurst event with interstate entrants stays.
+  assert.equal(cullReason({ ...filed, description: 'Teams from Melbourne, VIC and Orange, NSW at Mount Panorama.' }, hubs, rules), null);
+  // Somebody set the place by hand, or starred it.
+  assert.equal(cullReason({ ...filed, edited: ['address'] }, hubs, rules), null);
+  assert.equal(cullReason({ ...filed, starred: true }, hubs, rules), null);
+  // With no region known for the areas there is nothing to contradict.
+  assert.equal(cullReason(filed, hubs, ON), null);
+});
+
+test('only a town with its region counts as naming one', () => {
+  assert.deepEqual(regionsNamedIn('Track day in Melbourne, VIC on Saturday'), ['vic']);
+  assert.deepEqual(regionsNamedIn('9/256 Bolton St, Eltham VIC 3095'), ['vic']);
+  assert.deepEqual(regionsNamedIn('Mount Panorama, Bathurst, NSW'), ['nsw']);
+  assert.deepEqual(regionsNamedIn("Alfa Romeo Owners' Club Of Australia (VIC) Inc. with the ACT Government and DJ WA"), []);
+  assert.deepEqual(regionsNamedIn('Doors at 7, BYO, RSVP by Friday'), []);
+});
+
+test('a title that names another day than the one listed is culled', () => {
+  assert.equal(titleDateMismatch(relay.title, relay.startTime), '2026-10-10');
+  assert.equal(cullReason(ev({ ...bathurstTown, area: 'Bathurst', ...relay, description: '' }), hubs, ON), 'Its title says 2026-10-10, not the day it is listed for');
+  // The day it is listed for, or a day inside a longer run.
+  assert.equal(titleDateMismatch(relay.title, new Date(2026, 9, 10, 9).toISOString()), null);
+  assert.equal(titleDateMismatch('Bathurst 1000 — SAT 10 OCT', new Date(2026, 9, 8, 9).toISOString(), new Date(2026, 9, 11, 17).toISOString()), null);
+  // No date in the title, or the date was set by hand.
+  assert.equal(titleDateMismatch('Cars and Coffee', relay.startTime), null);
+  assert.equal(cullReason(ev({ ...bathurstTown, area: 'Bathurst', ...relay, description: '', edited: ['startTime'] }), hubs, ON), null);
 });

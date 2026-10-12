@@ -1,5 +1,7 @@
 import { AREA_SLACK, haversineKm } from './shared/geo.js';
-import { regionName } from './regions.js';
+import { regionName, regionOf } from './regions.js';
+import { localDay } from './day.js';
+import { dateFromTitle } from './shared/textWhen.js';
 
 /**
  * Which events to keep out of sight on their own.
@@ -52,6 +54,52 @@ export interface Cullable {
   localSite?: boolean;
   /** The model is checking listings and has not passed this one. */
   unvetted?: boolean;
+  /** When it is listed as being on, for checking against a date its own title names. */
+  startTime?: string;
+  endTime?: string | null;
+}
+
+/**
+ * The day a title names, when the listing is filed under a different one.
+ *
+ * "10 Hour Relay Event — SAT 10 OCT Melbourne" arrived dated the 14th: the
+ * page's own data carried some other date and the headline was never asked.
+ * The headline is what a person reads, so a listing that disagrees with it is
+ * out of sight rather than announced for the wrong day. A title naming a day
+ * inside a longer run is fine. Returns the named day as YYYY-MM-DD, or null.
+ */
+export function titleDateMismatch(title: string | undefined, startTime: string | undefined, endTime?: string | null): string | null {
+  if (!title || !startTime) return null;
+  const start = new Date(startTime);
+  if (Number.isNaN(start.getTime())) return null;
+  // Read as of the listed start, so a bare "10 OCT" is taken in that year.
+  const named = dateFromTitle(title, start, start);
+  if (!named) return null;
+  const day = localDay(named.when.startTime);
+  const first = localDay(startTime);
+  const last = endTime ? localDay(endTime) : first;
+  return day >= first && day <= last ? null : day;
+}
+
+/** "Melbourne, VIC" or "Eltham VIC 3095": a town with its region, as running text writes one. */
+const PLACE_WITH_REGION = /\b[A-Z][A-Za-z'’-]+(?: [A-Z][A-Za-z'’-]+){0,2}(?:, ?[A-Z]{2,3}\b|,? [A-Z]{2,3} \d{4}\b)/g;
+
+/**
+ * The regions a listing's own words put it in.
+ *
+ * The address field is what places an event, and a crawled page's address is
+ * sometimes just the area that was being searched — which made a track day at
+ * Winton, "in Melbourne, VIC" by its own description, a Bathurst event. Only
+ * a town followed by its region counts, so "the ACT Government" and a band
+ * called WA do not.
+ */
+export function regionsNamedIn(text: string): string[] {
+  const found = new Set<string>();
+  for (const m of text.match(PLACE_WITH_REGION) ?? []) {
+    const region = regionOf(m);
+    if (region) found.add(region);
+  }
+  return [...found];
 }
 
 /**
@@ -165,13 +213,27 @@ export function cullReason(
   if (nonEventReason) return `Not an event: ${nonEventReason}`;
   if (ev.notEvent) return `Not an event: ${ev.notEvent}`;
   if (ev.pending && !ev.area) return 'Waiting to be checked';
+  if (!ev.edited.includes('startTime') && !ev.edited.includes('title')) {
+    const named = titleDateMismatch(ev.title, ev.startTime, ev.endTime);
+    if (named) return `Its title says ${named}, not the day it is listed for`;
+  }
 
   const excluded = new Set((rules.excludedCategories ?? []).map((c) => c.trim().toLowerCase()).filter(Boolean));
   if (excluded.has(ev.category.trim().toLowerCase()) && !ev.edited.includes('category')) {
     return `Excluded category: ${ev.category}`;
   }
 
-  if (!rules.cullOutsideAreas || ev.area) return null;
+  if (!rules.cullOutsideAreas) return null;
+  // What it says about itself, ahead of where it was filed: an area is given
+  // on the strength of an address field that may be no more than the search.
+  const areaRegions = rules.areaRegions ?? [];
+  if (areaRegions.length > 0 && !ev.edited.includes('address') && !ev.edited.includes('venueName')) {
+    const said = regionsNamedIn(`${ev.title ?? ''}. ${ev.description ?? ''}`);
+    if (said.length > 0 && !said.some((r) => areaRegions.includes(r))) {
+      return `Says it is in ${regionName(said[0])}, outside every area`;
+    }
+  }
+  if (ev.area) return null;
   // The region it names, when that is a region none of the areas are in. No
   // lookup needed, and it catches what a lookup often cannot: a listing whose
   // town was never found, or was found in the wrong state.
