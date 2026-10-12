@@ -92,7 +92,9 @@ export default function Settings({ user, account, onChange }: { user: User | nul
           <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </div>
-      {!isAdmin && <div className="banner">Only an admin can change these.</div>}
+      {/* Outside the fieldset below: your own account is yours to change, admin or not. */}
+      {tab === 'account' && user && <Account user={user} account={account} onChange={onChange} />}
+      {!isAdmin && tab !== 'account' && <div className="banner">Only an admin can change these.</div>}
       <fieldset disabled={!isAdmin} className="bare">
         {tab === 'home' && <section>
           <h2>📍 Home</h2>
@@ -135,8 +137,6 @@ export default function Settings({ user, account, onChange }: { user: User | nul
             </div>
           ))}
         </section>}
-
-        {tab === 'account' && user && <Account user={user} account={account} onChange={onChange} />}
 
         {tab === 'instance' && isAdmin && <section>
           <h2>🔗 Instance</h2>

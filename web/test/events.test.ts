@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { EventItem } from '../src/api.js';
+import type { CommunityEvent, EventItem } from '../src/api.js';
 import {
-  applyFilters, categoriesOf, dateWindow, DEFAULT_FILTERS, dayKey, foldSeries, formatWhen, groupByDay, isMultiDay, isOver, multiDaySpan,
+  applyFilters, categoriesOf, COMMUNITY_CATEGORY, communityToItem, dateWindow, DEFAULT_FILTERS, dayKey, foldSeries, formatWhen, groupByDay, isMultiDay, isOver, mergeEvents, multiDaySpan,
 } from '../src/events.js';
 import { eventsGeoJSON } from '../src/map/layers.js';
 import { categoryOf } from '../src/map/legend.js';
@@ -118,4 +118,48 @@ test('eventsGeoJSON: only events with a position that are still to come and not 
 
 test('the legend groups the event layers under Events', () => {
   for (const id of ['event-clusters', 'event-cluster-count', 'event-points']) assert.equal(categoryOf({ id, type: 'circle' }), 'events', id);
+});
+
+// --- community events ---------------------------------------------------------
+
+const community = (id: string, over: Partial<CommunityEvent> = {}): CommunityEvent => ({
+  id, ownerId: 'u1', owner: { username: 'Alice', avatar: '' }, title: `Meet ${id}`, description: 'Bring a camera', startTime: at(10, 9),
+  endTime: null, venueName: 'Showground', address: '', lat: -33.4, lng: 149.5, priceText: 'Free', visibility: 'public', going: 3, isGoing: true,
+  createdAt: at(1), updatedAt: at(1), ...over,
+});
+
+test('communityToItem: marked as community, never shortlisted or hidden, and its group cannot clash with a scraped one', () => {
+  const ev = communityToItem(community('abc'));
+  assert.equal(ev.community, true);
+  assert.equal(ev.group, 'community:abc');
+  assert.equal(ev.communityId, 'abc');
+  assert.equal(ev.category, COMMUNITY_CATEGORY);
+  assert.equal(ev.organiser, 'Alice');
+  assert.equal(ev.going, 3);
+  assert.equal(ev.isGoing, true);
+  assert.equal(ev.starred || ev.hidden, false);
+  assert.equal(ev.lat, -33.4);
+  assert.equal(event('x').community, undefined, 'a scraped event is not marked');
+});
+
+test('mergeEvents: one list in start order, scraped first on a tie, community events labelled', () => {
+  const scraped = [event('s1', { startTime: at(12) }), event('s2', { startTime: at(10, 9) })];
+  const merged = mergeEvents(scraped, [community('c1', { startTime: at(11) }), community('c2', { startTime: at(10, 9) })]);
+  assert.deepEqual(groups(merged), ['s2', 'community:c2', 'community:c1', 's1']);
+  assert.deepEqual(merged.map((e) => Boolean(e.community)), [false, true, true, false]);
+  assert.deepEqual(groups(mergeEvents(scraped, [])), ['s2', 's1']);
+  assert.deepEqual(groups(mergeEvents([], [])), []);
+  assert.deepEqual(groups(mergeEvents([event('bad', { startTime: 'soon' })], [community('c')])), ['community:c', 'bad'], 'an undated event sinks to the end');
+});
+
+test('merged community events flow through the filters, the series fold and the map layer like any other', () => {
+  const merged = mergeEvents([event('s', { startTime: at(10, 8), lat: 1, lng: 2 })], [community('c', { startTime: at(10, 9) })]);
+  assert.deepEqual(groups(applyFilters(merged, { ...DEFAULT_FILTERS, category: COMMUNITY_CATEGORY }, NOW)), ['community:c']);
+  assert.deepEqual(groups(applyFilters(merged, { ...DEFAULT_FILTERS, search: 'showground' }, NOW)), ['community:c']);
+  assert.deepEqual(groups(applyFilters(merged, { ...DEFAULT_FILTERS, starredOnly: true }, NOW)), [], 'a community event cannot be on the shortlist');
+  assert.equal(foldSeries(merged).length, 2, 'an empty series does not fold two events together');
+  assert.deepEqual(categoriesOf(merged), [COMMUNITY_CATEGORY]);
+  const features = eventsGeoJSON(merged, NOW.getTime()).features;
+  assert.deepEqual(features.map((f) => f.properties?.group), ['s', 'community:c']);
+  assert.deepEqual(groupByDay(merged).get(dayKey(new Date(at(10, 9))))?.map((e) => e.group), ['s', 'community:c']);
 });

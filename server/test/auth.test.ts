@@ -20,15 +20,25 @@ test('needsAuth: signing in and out, the version and a share token need no sessi
 
 test('needsAuth: a visitor may read the public map and nothing else', () => {
   for (const open of ['/api/spots', '/api/spots/abc', '/api/places', '/api/places/abc', '/api/routes', '/api/routes/abc',
-    '/api/spots/abc/photos', '/api/photos/abc/file', '/api/photos/abc/thumb', '/api/Spots/', '/api/spots?bbox=1,2,3,4', '/api/settings', '/api/rail', '/api/fires', '/api/aurora', '/api/events', '/api/events/solo-12', '/api/Events/']) {
+    '/api/spots/abc/photos', '/api/photos/abc/file', '/api/photos/abc/thumb', '/api/Spots/', '/api/spots?bbox=1,2,3,4', '/api/settings', '/api/rail', '/api/fires', '/api/aurora', '/api/events', '/api/events/solo-12', '/api/Events/',
+    '/api/profiles/Alice', '/api/Profiles/Alice/', '/api/community-events', '/api/community-events/abc', '/api/kit/photos/abc/file', '/api/kit/photos/abc/thumb']) {
     assert.equal(needsAuth('GET', open), false, open);
+  }
+  // Writes to the new resources are never open, whatever their path.
+  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+    for (const path of ['/api/profiles/Alice', '/api/follows/Alice', '/api/kit/rides', '/api/kit/rides/abc', '/api/kit/gear/abc', '/api/kit/photos/abc', '/api/kit/photos/abc/file',
+      '/api/community-events', '/api/community-events/abc', '/api/community-events/abc/rsvp']) {
+      assert.equal(needsAuth(method, path), true, `${method} ${path}`);
+    }
   }
   // Starring and hiding are somebody's own.
   assert.equal(needsAuth('PUT', '/api/events/solo-12/state'), true);
   assert.equal(needsAuth('GET', '/api/events/solo-12/state'), true);
   for (const closed of ['/api/geocode', '/api/weather', '/api/planes', '/api/buildings', '/api/roads', '/api/cameras/1/image',
     '/api/spots/abc/nearby', '/api/spots/abc/commons', '/api/spots/abc/trains', '/api/settings/x', '/api/tasks', '/api/users',
-    '/api/export.geojson', '/api/remotes', '/api/candidates', '/api/eventscout/test', '/api/nothing']) {
+    '/api/export.geojson', '/api/remotes', '/api/candidates', '/api/eventscout/test', '/api/nothing',
+    '/api/profiles', '/api/profiles?q=al', '/api/profiles/Alice/extra', '/api/follows', '/api/follows/Alice', '/api/gear/catalog', '/api/kit/rides', '/api/kit/gear',
+    '/api/kit/photos/abc', '/api/kit/photos/abc/other', '/api/community-events/abc/rsvp', '/api/community-events/abc/extra']) {
     assert.equal(needsAuth('GET', closed), true, closed);
   }
 });

@@ -53,6 +53,11 @@ const ANONYMOUS_READS = [
   // Events, from a list this server keeps for a minute (see events.ts), so
   // asking costs event-scout nothing more however many visitors there are.
   /^\/api\/events(\/[^/]+)?$/,
+  // A profile by handle, the public community events, and the pictures of a
+  // ride. The profile search (`/api/profiles` with no handle) is not here.
+  /^\/api\/profiles\/[^/]+$/,
+  /^\/api\/community-events(\/[^/]+)?$/,
+  /^\/api\/kit\/photos\/[^/]+\/(file|thumb)$/,
 ];
 
 export function normalizePath(p: string): string {

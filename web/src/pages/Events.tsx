@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { User } from '../api.js';
 import { applyFilters, categoriesOf, DATE_CHIPS, DEFAULT_FILTERS, type Filters, foldSeries } from '../events.js';
 import { useEvents } from '../useEvents.js';
@@ -7,7 +8,7 @@ import EventDetail from '../components/EventDetail.js';
 
 /** Upcoming events from Event Scout, filtered in the browser. Anyone can read; a signed-in user keeps a shortlist and hides events. */
 export default function Events({ user }: { user: User | null }) {
-  const { events, error, mark } = useEvents();
+  const { events, error, mark, setGoing } = useEvents();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [open, setOpen] = useState<string | null>(null);
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
@@ -39,6 +40,7 @@ export default function Events({ user }: { user: User | null }) {
             ★ Shortlist only
           </label>
         )}
+        {user && <Link className="button" to="/events/new">+ Add an event</Link>}
         <label className="toggle">
           <input type="checkbox" checked={filters.showHidden} onChange={(e) => set({ showHidden: e.target.checked })} />
           Show hidden
@@ -65,7 +67,7 @@ export default function Events({ user }: { user: User | null }) {
         </div>
       )}
 
-      {openEvent && <EventDetail ev={openEvent} onClose={() => setOpen(null)} onMark={onMark} />}
+      {openEvent && <EventDetail ev={openEvent} user={user} onClose={() => setOpen(null)} onMark={onMark} onGoing={user ? setGoing : undefined} />}
     </div>
   );
 }

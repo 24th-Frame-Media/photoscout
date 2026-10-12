@@ -8,7 +8,8 @@ export type OnMark = (group: string, patch: Partial<EventState>) => Promise<void
 /** Star and hide for one event, with the server's reason when it refuses. Nothing at all for a visitor. */
 export function MarkButtons({ ev, onMark }: { ev: EventItem; onMark?: OnMark }) {
   const [note, setNote] = useState('');
-  if (!onMark) return null;
+  // Starring and hiding are for the scraped feed; a community event is not on it.
+  if (!onMark || ev.community) return null;
   const mark = (patch: Partial<EventState>) => { setNote(''); onMark(ev.group, patch).catch((err) => setNote((err as Error).message)); };
   return (
     <>
@@ -32,9 +33,10 @@ export default function EventCard({ ev, dates, onOpen, onMark }: { ev: EventItem
       {ev.imageUrl && !noImage && <img className="eventcard__img" src={ev.imageUrl} alt="" loading="lazy" onError={() => setNoImage(true)} />}
       <h3><button className="linklike" onClick={() => onOpen(ev)}>{decodeEntities(ev.title)}</button></h3>
       <p className="hint">{formatWhen(ev)}</p>
-      <p className="hint">{ev.isOnline ? '💻 Online' : `📍 ${place || 'Unknown location'}`}{ev.priceText ? ` · ${decodeEntities(ev.priceText)}` : ''}</p>
+      <p className="hint">{ev.isOnline ? '💻 Online' : `📍 ${place || 'Unknown location'}`}{ev.priceText ? ` · ${decodeEntities(ev.priceText)}` : ''}{ev.community ? ` · ${ev.going ?? 0} going` : ''}</p>
       <div className="eventcard__badges">
-        {ev.category && <span className="eventbadge">{ev.category}</span>}
+        {ev.community && <span className="eventbadge eventbadge--community">Community</span>}
+        {ev.category && !ev.community && <span className="eventbadge">{ev.category}</span>}
         {isMultiDay(ev) && <span className="eventbadge">📅 {multiDaySpan(ev)} days</span>}
         {dates.length > 1 && (
           <span className="eventbadge" title={`Also on ${dates.slice(1, 8).map((d) => new Date(d.startTime).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })).join(', ')}${dates.length > 8 ? ' and more' : ''}`}>

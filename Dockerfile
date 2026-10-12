@@ -27,6 +27,8 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/server/package.json ./server/package.json
 COPY --from=build /app/server/dist ./server/dist
+# The gear suggestions the Kit form reads (gearCatalog.ts looks for them next to dist/).
+COPY --from=build /app/server/data-static ./server/data-static
 COPY --from=build /app/web/dist ./web/dist
 
 # db.ts resolves its directory relative to the compiled server, so this is

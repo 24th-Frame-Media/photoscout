@@ -1115,7 +1115,7 @@ export default function MapPage({ user }: { user: User | null }) {
       )}
 
       {openEvent && eventFeed.events?.find((e) => e.group === openEvent) && (
-        <EventDetail ev={eventFeed.events.find((e) => e.group === openEvent)!} onClose={() => setOpenEvent(null)} onMark={user ? eventFeed.mark : undefined} />
+        <EventDetail ev={eventFeed.events.find((e) => e.group === openEvent)!} user={user} onClose={() => setOpenEvent(null)} onMark={user ? eventFeed.mark : undefined} onGoing={user ? eventFeed.setGoing : undefined} />
       )}
       <Legend map={map} vis={vis} onToggle={toggle} />
       <NearbyList planes={planesOn ? planeData : null} trains={trainsOn ? trainData : null} centre={centre}
@@ -1399,6 +1399,7 @@ function showRailPassPopup(map: MlMap, lat: number, lng: number) {
 function showEventPopup(map: MlMap, at: [number, number], ev: EventItem, onOpen: () => void) {
   const place = decodeEntities(ev.venueName || ev.address || ev.locality);
   const html = `<strong>${escapeHtml(decodeEntities(ev.title))}</strong><br/><span>${escapeHtml(formatWhen(ev))}</span>`
+    + (ev.community ? '<br/><span>👥 Community event</span>' : '')
     + (place ? `<br/><span>📍 ${escapeHtml(place)}</span>` : '')
     + '<br/><button class="popup-follow" type="button">Details</button>';
   openPopup(map, at, html, onOpen);

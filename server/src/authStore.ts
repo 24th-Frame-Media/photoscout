@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Db } from './db.js';
+import { deleteImages } from './photos.js';
 import { Role, SessionUser, SESSION_DAYS, handleFrom, isAdminAccount } from './auth.js';
 
 /**
@@ -14,9 +15,12 @@ export interface User {
   role: Role;
   banned: boolean;
   created_at: string;
+  bio: string;
+  /** A handle without the @, '' when none. */
+  instagram: string;
 }
 
-const COLS = 'id, username, avatar, role, banned, created_at';
+const COLS = 'id, username, avatar, role, banned, created_at, bio, instagram';
 const toUser = (r: any): User => ({ ...r, banned: r.banned === 1 });
 
 export function findUserById(db: Db, id: string): User | undefined {
@@ -72,6 +76,18 @@ export function setUsername(db: Db, id: string, username: string): void {
   db.handle.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, id);
 }
 
+/** Only the fields given are changed; the values are already checked (see parseProfile). */
+export function setProfile(db: Db, id: string, profile: { bio?: string; instagram?: string }): void {
+  if (profile.bio !== undefined) db.handle.prepare('UPDATE users SET bio = ? WHERE id = ?').run(profile.bio, id);
+  if (profile.instagram !== undefined) db.handle.prepare('UPDATE users SET instagram = ? WHERE id = ?').run(profile.instagram, id);
+}
+
+/** By handle, which is not case-sensitive. A banned account is returned as it is: the caller decides what that means. */
+export function findUserByUsername(db: Db, username: string): User | undefined {
+  const r = db.handle.prepare(`SELECT ${COLS} FROM users WHERE username = ?`).get(username);
+  return r ? toUser(r) : undefined;
+}
+
 export function setUserRole(db: Db, id: string, role: Role): void {
   db.handle.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
 }
@@ -82,8 +98,17 @@ export function setUserBanned(db: Db, id: string, banned: boolean): void {
   if (banned) deleteUserSessions(db, id);
 }
 
+/** The account and everything of theirs that other tables hold: Kit (and its photo files), follows, community events and RSVPs. */
 export function deleteUser(db: Db, id: string): void {
   deleteUserSessions(db, id);
+  const photos = db.handle.prepare('SELECT file, thumb FROM ride_photos WHERE owner_id = ?').all(id) as { file: string; thumb: string }[];
+  deleteImages(photos.flatMap((p) => [p.file, p.thumb]));
+  db.handle.prepare('DELETE FROM ride_photos WHERE owner_id = ?').run(id);
+  db.handle.prepare('DELETE FROM rides WHERE owner_id = ?').run(id);
+  db.handle.prepare('DELETE FROM gear WHERE owner_id = ?').run(id);
+  db.handle.prepare('DELETE FROM follows WHERE follower_id = ? OR followee_id = ?').run(id, id);
+  db.handle.prepare('DELETE FROM community_rsvps WHERE user_id = ? OR event_id IN (SELECT id FROM community_events WHERE owner_id = ?)').run(id, id);
+  db.handle.prepare('DELETE FROM community_events WHERE owner_id = ?').run(id);
   db.handle.prepare('DELETE FROM users WHERE id = ?').run(id);
 }
 

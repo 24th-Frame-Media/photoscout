@@ -10,10 +10,11 @@ import {
   canEdit, canRead, needsAuth, originAllowed, readCookie, secureEqual, HANDLE, OAUTH_COOKIE, SESSION_COOKIE,
 } from './auth.js';
 import {
-  accountIdOf, createSession, deleteSession, deleteUser, findUserById, listUsers,
-  sessionUser, setUserBanned, setUserRole, setUsername, upsertOAuthUser, usernameTaken,
+  accountIdOf, createSession, deleteSession, deleteUser, findUserById, findUserByUsername, listUsers,
+  sessionUser, setProfile, setUserBanned, setUserRole, setUsername, upsertOAuthUser, usernameTaken,
 } from './authStore.js';
-import { bodyProblem } from './bodyLimits.js';
+import { bodyProblem, parseCommunityEvent, parseGear, parseProfile, parseRide } from './bodyLimits.js';
+import { catalog, searchCatalog } from './gearCatalog.js';
 import { configuredProviders, generateCodeVerifier, generateState, provider, publicUrl } from './oauth.js';
 import { corsDecision, readOrigins } from './cors.js';
 import { applySettingsUpdate, getSettings, memberSettings, publicSettings, tfnswKey } from './settings.js';
@@ -249,17 +250,25 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-/** Change your own handle. */
+/** Change your own handle, bio and Instagram handle; send any of them. */
 app.patch('/api/auth/me', (req, res) => {
   const username = (req.body as { username?: unknown } | undefined)?.username;
-  if (typeof username !== 'string' || !HANDLE.test(username)) {
-    return res.status(400).json({ error: 'A handle is 3 to 24 letters, digits or underscores' });
+  const profile = parseProfile(req.body ?? {});
+  if (!profile.ok) return res.status(400).json({ error: profile.error });
+  if (username === undefined && profile.value.bio === undefined && profile.value.instagram === undefined) {
+    return res.status(400).json({ error: 'Send a handle, a bio or an Instagram handle' });
   }
-  const me = findUserById(db, req.user!.id);
-  if (me && me.username.toLowerCase() !== username.toLowerCase() && usernameTaken(db, username)) {
-    return res.status(409).json({ error: 'That handle is taken' });
+  if (username !== undefined) {
+    if (typeof username !== 'string' || !HANDLE.test(username)) {
+      return res.status(400).json({ error: 'A handle is 3 to 24 letters, digits or underscores' });
+    }
+    const me = findUserById(db, req.user!.id);
+    if (me && me.username.toLowerCase() !== username.toLowerCase() && usernameTaken(db, username)) {
+      return res.status(409).json({ error: 'That handle is taken' });
+    }
+    setUsername(db, req.user!.id, username);
   }
-  setUsername(db, req.user!.id, username);
+  setProfile(db, req.user!.id, profile.value);
   res.json(findUserById(db, req.user!.id));
 });
 
@@ -553,14 +562,21 @@ function photoJson(r: PhotoRow) {
 /** Photos one account may add in a day. Disk is the thing a public upload form runs out of. */
 const MAX_PHOTOS_PER_DAY = 200;
 
+/** Spot photos and ride photos both count: the cap is on the disk, not on where a picture goes. */
+function photosToday(userId: string): number {
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  const r = db.handle.prepare(
+    'SELECT (SELECT COUNT(*) FROM photos WHERE owner_id = ? AND created_at > ?) + (SELECT COUNT(*) FROM ride_photos WHERE owner_id = ? AND created_at > ?) AS n'
+  ).get(userId, since, userId, since) as { n: number };
+  return r.n;
+}
+
 app.post('/api/spots/:id/photos', uploadLimit, async (req, res, next) => {
   try {
     const spot = db.handle.prepare('SELECT * FROM spots WHERE id = ?').get(req.params.id) as unknown as SpotRow | undefined;
     if (!spot) return res.status(404).json({ error: 'Not found' });
     if (!canEdit(spot.owner_id, req.user)) return res.status(403).json({ error: 'Forbidden' });
-    const today = db.handle.prepare('SELECT COUNT(*) AS n FROM photos WHERE owner_id = ? AND created_at > ?')
-      .get(req.user!.id, new Date(Date.now() - 86_400_000).toISOString()) as { n: number };
-    if (today.n >= MAX_PHOTOS_PER_DAY) return res.status(429).json({ error: 'Daily photo limit reached. Try again tomorrow.' });
+    if (photosToday(req.user!.id) >= MAX_PHOTOS_PER_DAY) return res.status(429).json({ error: 'Daily photo limit reached. Try again tomorrow.' });
 
     const { fields, files } = await parseMultipart(req, MAX_PHOTO_BYTES * 2 + 4096);
     if (!files.photo || !detectImageType(files.photo)) return res.status(400).json({ error: 'photo must be a JPEG, PNG or WebP file' });
@@ -1183,6 +1199,349 @@ app.delete('/api/routes/:id', (req, res) => {
   if (!canEdit(row.owner_id, req.user)) return res.status(403).json({ error: 'Forbidden' });
   db.handle.prepare('DELETE FROM routes WHERE id = ?').run(row.id);
   res.json({ ok: true });
+});
+
+// --- profiles ---------------------------------------------------------------------
+
+/** The account behind a handle in a URL, or undefined; a suspended account is treated as not there. */
+function liveUser(username: string) {
+  const user = HANDLE.test(username) ? findUserByUsername(db, username) : undefined;
+  return user && !user.banned ? user : undefined;
+}
+
+/** Search handles by prefix, for finding somebody to follow. */
+app.get('/api/profiles', (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (!/^[A-Za-z0-9_]{1,24}$/.test(q)) return res.json([]);
+  // `_` is a wildcard in LIKE and is allowed in a handle, so it is escaped.
+  const rows = db.handle
+    .prepare("SELECT username, avatar FROM users WHERE banned = 0 AND username LIKE ? ESCAPE '\\' ORDER BY username LIMIT 20")
+    .all(`${q.replace(/_/g, '\\_')}%`);
+  res.json(rows);
+});
+
+app.get('/api/profiles/:username', (req, res) => {
+  const user = liveUser(req.params.username);
+  if (!user) return res.status(404).json({ error: 'No such profile' });
+  const count = (sql: string) => Number((db.handle.prepare(sql).get(user.id) as { n: number | bigint }).n);
+  const isFollowing = req.user
+    ? Boolean(db.handle.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(req.user.id, user.id))
+    : false;
+  res.json({
+    id: user.id, username: user.username, avatar: user.avatar, bio: user.bio, instagram: user.instagram, createdAt: user.created_at,
+    followers: count('SELECT COUNT(*) AS n FROM follows WHERE followee_id = ?'),
+    following: count('SELECT COUNT(*) AS n FROM follows WHERE follower_id = ?'),
+    isFollowing,
+    rides: ridesJson(db.handle.prepare('SELECT * FROM rides WHERE owner_id = ? ORDER BY created_at, id').all(user.id) as unknown as RideRow[]),
+    gear: (db.handle.prepare('SELECT * FROM gear WHERE owner_id = ? ORDER BY created_at, id').all(user.id) as unknown as GearRow[]).map(gearJson),
+  });
+});
+
+// --- follows ----------------------------------------------------------------------
+
+app.get('/api/follows', (req, res) => {
+  res.json(db.handle
+    .prepare('SELECT u.username, u.avatar FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = ? AND u.banned = 0 ORDER BY u.username')
+    .all(req.user!.id));
+});
+
+app.put('/api/follows/:username', (req, res) => {
+  const target = liveUser(req.params.username);
+  if (!target) return res.status(404).json({ error: 'No such profile' });
+  if (target.id === req.user!.id) return res.status(400).json({ error: 'You cannot follow yourself' });
+  db.handle.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id, created_at) VALUES (?, ?, ?)')
+    .run(req.user!.id, target.id, new Date().toISOString());
+  res.json({ following: true });
+});
+
+/** Unfollowing is allowed for a suspended account too: a follow of one should be removable. */
+app.delete('/api/follows/:username', (req, res) => {
+  const target = HANDLE.test(req.params.username) ? findUserByUsername(db, req.params.username) : undefined;
+  if (!target) return res.status(404).json({ error: 'No such profile' });
+  db.handle.prepare('DELETE FROM follows WHERE follower_id = ? AND followee_id = ?').run(req.user!.id, target.id);
+  res.json({ following: false });
+});
+
+// --- Kit: rides ---------------------------------------------------------------------
+
+const MAX_RIDES = 30;
+const MAX_GEAR = 100;
+const MAX_RIDE_PHOTOS = 6;
+
+interface RideRow {
+  id: string; owner_id: string; kind: string; make: string; model: string; year: number | null;
+  nickname: string; notes: string; created_at: string; updated_at: string;
+}
+interface RidePhotoRow { id: string; ride_id: string; owner_id: string; file: string; thumb: string; w: number; h: number; created_at: string }
+
+/** Rides with their pictures, fetched together rather than one query per ride. */
+function ridesJson(rows: RideRow[]) {
+  const photos = rows.length
+    ? db.handle.prepare(`SELECT * FROM ride_photos WHERE ride_id IN (${rows.map(() => '?').join(',')}) ORDER BY created_at, id`)
+      .all(...rows.map((r) => r.id)) as unknown as RidePhotoRow[]
+    : [];
+  return rows.map((r) => ({
+    id: r.id, ownerId: r.owner_id, kind: r.kind, make: r.make, model: r.model, year: r.year, nickname: r.nickname, notes: r.notes,
+    photos: photos.filter((p) => p.ride_id === r.id)
+      .map((p) => ({ id: p.id, url: `/api/kit/photos/${p.id}/file`, thumbUrl: `/api/kit/photos/${p.id}/thumb`, w: p.w, h: p.h })),
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  }));
+}
+
+/** The ride in the URL if the caller may change it; otherwise the reply is already sent and this is undefined. */
+function ownedRide(req: express.Request, res: express.Response): RideRow | undefined {
+  const row = db.handle.prepare('SELECT * FROM rides WHERE id = ?').get(req.params.id) as unknown as RideRow | undefined;
+  if (!row) { res.status(404).json({ error: 'Not found' }); return undefined; }
+  if (!canEdit(row.owner_id, req.user)) { res.status(403).json({ error: 'Forbidden' }); return undefined; }
+  return row;
+}
+
+app.post('/api/kit/rides', (req, res) => {
+  const input = parseRide(req.body);
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  const owned = db.handle.prepare('SELECT COUNT(*) AS n FROM rides WHERE owner_id = ?').get(req.user!.id) as { n: number };
+  if (owned.n >= MAX_RIDES) return res.status(409).json({ error: `You can keep ${MAX_RIDES} rides` });
+  const v = input.value;
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.handle.prepare('INSERT INTO rides (id, owner_id, kind, make, model, year, nickname, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user!.id, v.kind, v.make, v.model, v.year, v.nickname, v.notes, now, now);
+  res.status(201).json(ridesJson([db.handle.prepare('SELECT * FROM rides WHERE id = ?').get(id) as unknown as RideRow])[0]);
+});
+
+app.patch('/api/kit/rides/:id', (req, res) => {
+  const row = ownedRide(req, res);
+  if (!row) return;
+  const input = parseRide(req.body, { kind: row.kind as 'car' | 'motorbike', make: row.make, model: row.model, year: row.year, nickname: row.nickname, notes: row.notes });
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  const v = input.value;
+  db.handle.prepare('UPDATE rides SET kind=?, make=?, model=?, year=?, nickname=?, notes=?, updated_at=? WHERE id=?')
+    .run(v.kind, v.make, v.model, v.year, v.nickname, v.notes, new Date().toISOString(), row.id);
+  res.json(ridesJson([db.handle.prepare('SELECT * FROM rides WHERE id = ?').get(row.id) as unknown as RideRow])[0]);
+});
+
+app.delete('/api/kit/rides/:id', (req, res) => {
+  const row = ownedRide(req, res);
+  if (!row) return;
+  const photos = db.handle.prepare('SELECT file, thumb FROM ride_photos WHERE ride_id = ?').all(row.id) as { file: string; thumb: string }[];
+  deleteImages(photos.flatMap((p) => [p.file, p.thumb]));
+  db.handle.prepare('DELETE FROM ride_photos WHERE ride_id = ?').run(row.id);
+  db.handle.prepare('DELETE FROM rides WHERE id = ?').run(row.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/kit/rides/:id/photos', uploadLimit, async (req, res, next) => {
+  try {
+    const ride = ownedRide(req, res);
+    if (!ride) return;
+    // Counted against the ride's owner, so an admin adding a picture does not spend their own allowance.
+    const refusal = (): { status: number; error: string } | null => {
+      const held = db.handle.prepare('SELECT COUNT(*) AS n FROM ride_photos WHERE ride_id = ?').get(ride.id) as { n: number };
+      if (held.n >= MAX_RIDE_PHOTOS) return { status: 409, error: `A ride can have ${MAX_RIDE_PHOTOS} photos` };
+      if (photosToday(ride.owner_id) >= MAX_PHOTOS_PER_DAY) return { status: 429, error: 'Daily photo limit reached. Try again tomorrow.' };
+      return null;
+    };
+    let refused = refusal();
+    if (refused) return res.status(refused.status).json({ error: refused.error });
+
+    const { fields, files } = await parseMultipart(req, MAX_PHOTO_BYTES * 2 + 4096);
+    if (!files.photo || !detectImageType(files.photo)) return res.status(400).json({ error: 'photo must be a JPEG, PNG or WebP file' });
+    const thumbBuf = files.thumb && detectImageType(files.thumb) ? files.thumb : files.photo;
+    // Asked again: other uploads to this ride may have landed while this one was being read.
+    refused = refusal();
+    if (refused) return res.status(refused.status).json({ error: refused.error });
+
+    const file = saveImage(files.photo);
+    const thumb = saveImage(thumbBuf);
+    const id = crypto.randomUUID();
+    db.handle.prepare('INSERT INTO ride_photos (id, ride_id, owner_id, file, thumb, w, h, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, ride.id, ride.owner_id, file, thumb, Number(fields.w ?? 0) || 0, Number(fields.h ?? 0) || 0, new Date().toISOString());
+    res.status(201).json(ridesJson([ride])[0]);
+  } catch (err) { next(err); }
+});
+
+/** A ride's picture is as public as the profile it is on, and gone with a suspended account. */
+function serveRidePhoto(variant: 'file' | 'thumb') {
+  return (req: express.Request, res: express.Response) => {
+    const row = db.handle.prepare('SELECT p.file, p.thumb, u.banned FROM ride_photos p JOIN users u ON u.id = p.owner_id WHERE p.id = ?')
+      .get(req.params.id) as { file: string; thumb: string; banned: number } | undefined;
+    if (!row || row.banned === 1) return res.status(404).json({ error: 'Not found' });
+    res.sendFile(path.join(photosDir, variant === 'file' ? row.file : row.thumb));
+  };
+}
+app.get('/api/kit/photos/:id/file', serveRidePhoto('file'));
+app.get('/api/kit/photos/:id/thumb', serveRidePhoto('thumb'));
+
+app.delete('/api/kit/photos/:id', (req, res) => {
+  const row = db.handle.prepare('SELECT * FROM ride_photos WHERE id = ?').get(req.params.id) as unknown as RidePhotoRow | undefined;
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (!canEdit(row.owner_id, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  deleteImages([row.file, row.thumb]);
+  db.handle.prepare('DELETE FROM ride_photos WHERE id = ?').run(row.id);
+  res.json({ ok: true });
+});
+
+// --- Kit: gear ----------------------------------------------------------------------
+
+interface GearRow { id: string; owner_id: string; kind: string; brand: string; name: string; notes: string; created_at: string; updated_at: string }
+function gearJson(r: GearRow) {
+  return { id: r.id, ownerId: r.owner_id, kind: r.kind, brand: r.brand, name: r.name, notes: r.notes, createdAt: r.created_at, updatedAt: r.updated_at };
+}
+
+function ownedGear(req: express.Request, res: express.Response): GearRow | undefined {
+  const row = db.handle.prepare('SELECT * FROM gear WHERE id = ?').get(req.params.id) as unknown as GearRow | undefined;
+  if (!row) { res.status(404).json({ error: 'Not found' }); return undefined; }
+  if (!canEdit(row.owner_id, req.user)) { res.status(403).json({ error: 'Forbidden' }); return undefined; }
+  return row;
+}
+
+/** Suggestions for the gear form (see gearCatalog.ts); the form takes any text. */
+app.get('/api/gear/catalog', (req, res) => {
+  res.json(searchCatalog(catalog(), typeof req.query.q === 'string' ? req.query.q : ''));
+});
+
+app.post('/api/kit/gear', (req, res) => {
+  const input = parseGear(req.body);
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  const owned = db.handle.prepare('SELECT COUNT(*) AS n FROM gear WHERE owner_id = ?').get(req.user!.id) as { n: number };
+  if (owned.n >= MAX_GEAR) return res.status(409).json({ error: `You can keep ${MAX_GEAR} pieces of gear` });
+  const v = input.value;
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.handle.prepare('INSERT INTO gear (id, owner_id, kind, brand, name, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user!.id, v.kind, v.brand, v.name, v.notes, now, now);
+  res.status(201).json(gearJson(db.handle.prepare('SELECT * FROM gear WHERE id = ?').get(id) as unknown as GearRow));
+});
+
+app.patch('/api/kit/gear/:id', (req, res) => {
+  const row = ownedGear(req, res);
+  if (!row) return;
+  const input = parseGear(req.body, { kind: row.kind as 'camera' | 'lens' | 'other', brand: row.brand, name: row.name, notes: row.notes });
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  const v = input.value;
+  db.handle.prepare('UPDATE gear SET kind=?, brand=?, name=?, notes=?, updated_at=? WHERE id=?')
+    .run(v.kind, v.brand, v.name, v.notes, new Date().toISOString(), row.id);
+  res.json(gearJson(db.handle.prepare('SELECT * FROM gear WHERE id = ?').get(row.id) as unknown as GearRow));
+});
+
+app.delete('/api/kit/gear/:id', (req, res) => {
+  const row = ownedGear(req, res);
+  if (!row) return;
+  db.handle.prepare('DELETE FROM gear WHERE id = ?').run(row.id);
+  res.json({ ok: true });
+});
+
+// --- community events -----------------------------------------------------------------
+// Made by people here, not scraped: they live in their own table and are served
+// from here, never through events.ts, so the two can be told apart wherever they meet.
+
+const MAX_UPCOMING_EVENTS = 20;
+
+interface CommunityRow {
+  id: string; owner_id: string; title: string; description: string; start_time: string; end_time: string | null;
+  venue_name: string; address: string; lat: number; lng: number; price_text: string; visibility: 'public' | 'unlisted';
+  created_at: string; updated_at: string;
+  owner_name?: string; owner_avatar?: string; owner_banned?: number; going?: number | bigint; is_going?: number | bigint;
+}
+
+/** With no end time an event counts as on for twelve hours after it starts. */
+const STILL_ON = "COALESCE(e.end_time, strftime('%Y-%m-%dT%H:%M:%fZ', e.start_time, '+12 hours')) > ?";
+const COMMUNITY_SELECT =
+  'SELECT e.*, u.username AS owner_name, u.avatar AS owner_avatar, u.banned AS owner_banned, ' +
+  '(SELECT COUNT(*) FROM community_rsvps r WHERE r.event_id = e.id) AS going, ' +
+  'EXISTS (SELECT 1 FROM community_rsvps r WHERE r.event_id = e.id AND r.user_id = ?) AS is_going ' +
+  'FROM community_events e JOIN users u ON u.id = e.owner_id';
+
+function communityJson(r: CommunityRow) {
+  return {
+    id: r.id, ownerId: r.owner_id, owner: { username: r.owner_name ?? '', avatar: r.owner_avatar ?? '' },
+    title: r.title, description: r.description, startTime: r.start_time, endTime: r.end_time,
+    venueName: r.venue_name, address: r.address, lat: r.lat, lng: r.lng, priceText: r.price_text, visibility: r.visibility,
+    going: Number(r.going ?? 0), isGoing: Number(r.is_going ?? 0) === 1,
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+const communityEvent = (id: string, userId: string | undefined) =>
+  db.handle.prepare(`${COMMUNITY_SELECT} WHERE e.id = ?`).get(userId ?? '', id) as unknown as CommunityRow | undefined;
+
+/** Public and unlisted can be read by anyone with the id; a suspended organiser's events are out of sight except to an admin. */
+function communityReadable(r: CommunityRow, user: SessionUser | null | undefined): boolean {
+  return canRead(r.visibility, r.owner_id, user ?? null) && (r.owner_banned !== 1 || user?.role === 'admin');
+}
+
+const eventIsOver = (r: CommunityRow) =>
+  (r.end_time ? Date.parse(r.end_time) : Date.parse(r.start_time) + 12 * 3_600_000) <= Date.now();
+
+/** What is still on: everyone's public events, and your own unlisted ones. Unlisted events never appear in anyone else's list. */
+app.get('/api/community-events', (req, res) => {
+  const me = req.user?.id ?? '';
+  const rows = db.handle
+    .prepare(`${COMMUNITY_SELECT} WHERE u.banned = 0 AND ${STILL_ON} AND (e.visibility = 'public' OR e.owner_id = ?) ORDER BY e.start_time, e.id LIMIT 500`)
+    .all(me, new Date().toISOString(), me) as unknown as CommunityRow[];
+  res.json(rows.map(communityJson));
+});
+
+app.post('/api/community-events', (req, res) => {
+  const input = parseCommunityEvent(req.body, Date.now());
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  const upcoming = db.handle.prepare(`SELECT COUNT(*) AS n FROM community_events e WHERE e.owner_id = ? AND ${STILL_ON}`)
+    .get(req.user!.id, new Date().toISOString()) as { n: number };
+  if (upcoming.n >= MAX_UPCOMING_EVENTS) return res.status(409).json({ error: `You can have ${MAX_UPCOMING_EVENTS} upcoming events` });
+  const v = input.value;
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.handle
+    .prepare('INSERT INTO community_events (id, owner_id, title, description, start_time, end_time, venue_name, address, lat, lng, price_text, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user!.id, v.title, v.description, v.startTime, v.endTime, v.venueName, v.address, v.lat, v.lng, v.priceText, v.visibility, now, now);
+  res.status(201).json(communityJson(communityEvent(id, req.user!.id)!));
+});
+
+app.get('/api/community-events/:id', (req, res) => {
+  const row = communityEvent(req.params.id, req.user?.id);
+  if (!row || !communityReadable(row, req.user)) return res.status(404).json({ error: 'No such event' });
+  res.json(communityJson(row));
+});
+
+app.patch('/api/community-events/:id', (req, res) => {
+  const row = communityEvent(req.params.id, req.user!.id);
+  if (!row) return res.status(404).json({ error: 'No such event' });
+  if (!canEdit(row.owner_id, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  const input = parseCommunityEvent(req.body, Date.now(), {
+    title: row.title, description: row.description, startTime: row.start_time, endTime: row.end_time, venueName: row.venue_name,
+    address: row.address, lat: row.lat, lng: row.lng, priceText: row.price_text, visibility: row.visibility,
+  });
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  const v = input.value;
+  db.handle
+    .prepare('UPDATE community_events SET title=?, description=?, start_time=?, end_time=?, venue_name=?, address=?, lat=?, lng=?, price_text=?, visibility=?, updated_at=? WHERE id=?')
+    .run(v.title, v.description, v.startTime, v.endTime, v.venueName, v.address, v.lat, v.lng, v.priceText, v.visibility, new Date().toISOString(), row.id);
+  res.json(communityJson(communityEvent(row.id, req.user!.id)!));
+});
+
+app.delete('/api/community-events/:id', (req, res) => {
+  const row = communityEvent(req.params.id, req.user!.id);
+  if (!row) return res.status(404).json({ error: 'No such event' });
+  if (!canEdit(row.owner_id, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  db.handle.prepare('DELETE FROM community_rsvps WHERE event_id = ?').run(row.id);
+  db.handle.prepare('DELETE FROM community_events WHERE id = ?').run(row.id);
+  res.json({ ok: true });
+});
+
+app.put('/api/community-events/:id/rsvp', (req, res) => {
+  const row = communityEvent(req.params.id, req.user!.id);
+  if (!row || !communityReadable(row, req.user)) return res.status(404).json({ error: 'No such event' });
+  if (eventIsOver(row)) return res.status(409).json({ error: 'That event is over' });
+  db.handle.prepare('INSERT OR IGNORE INTO community_rsvps (event_id, user_id, created_at) VALUES (?, ?, ?)')
+    .run(row.id, req.user!.id, new Date().toISOString());
+  res.json(communityJson(communityEvent(row.id, req.user!.id)!));
+});
+
+app.delete('/api/community-events/:id/rsvp', (req, res) => {
+  const row = communityEvent(req.params.id, req.user!.id);
+  if (!row || !communityReadable(row, req.user)) return res.status(404).json({ error: 'No such event' });
+  db.handle.prepare('DELETE FROM community_rsvps WHERE event_id = ? AND user_id = ?').run(row.id, req.user!.id);
+  res.json(communityJson(communityEvent(row.id, req.user!.id)!));
 });
 
 // --- 404 + error handling, then the built frontend -------------------------------

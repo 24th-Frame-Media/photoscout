@@ -4,7 +4,7 @@
  * read-only view of its events needs: its town, source and "recently found"
  * filters, the sorts, the merge and edit modes all belong to its admin.
  */
-import type { EventItem } from './api.js';
+import type { CommunityEvent, EventItem } from './api.js';
 
 export type DateChip = 'all' | 'today' | 'weekend' | 'week' | 'month';
 
@@ -107,6 +107,33 @@ export function foldSeries(list: EventItem[]): Card[] {
     out.push(fresh);
   }
   return out;
+}
+
+/**
+ * A community event as the list, the calendar and the map know an event.
+ *
+ * Its group cannot collide with a scraped one and says what it is, which is how
+ * the page keeps the two apart: the category is "Community", `community` is set,
+ * and starring and hiding (which belong to the scraped feed) are never offered.
+ */
+export function communityToItem(c: CommunityEvent): EventItem {
+  return {
+    group: `community:${c.id}`, title: c.title, description: c.description, startTime: c.startTime, endTime: c.endTime,
+    venueName: c.venueName, address: c.address, locality: '', lat: c.lat, lng: c.lng, imageUrl: '', category: COMMUNITY_CATEGORY,
+    priceText: c.priceText, isOnline: false, dateOnly: false, photoScore: 0, series: '', url: '', starred: false, hidden: false,
+    community: true, communityId: c.id, ownerId: c.ownerId, organiser: c.owner.username, going: c.going, isGoing: c.isGoing,
+  };
+}
+
+export const COMMUNITY_CATEGORY = 'Community';
+
+/** Scraped and community events as one list in start order; ties keep the scraped one first. */
+export function mergeEvents(scraped: EventItem[], community: CommunityEvent[]): EventItem[] {
+  const all = [...scraped, ...community.map(communityToItem)];
+  return all
+    .map((ev, i) => ({ ev, i, t: Date.parse(ev.startTime) }))
+    .sort((a, b) => (Number.isNaN(a.t) ? Infinity : a.t) - (Number.isNaN(b.t) ? Infinity : b.t) || a.i - b.i)
+    .map((x) => x.ev);
 }
 
 export function categoriesOf(events: EventItem[]): string[] {

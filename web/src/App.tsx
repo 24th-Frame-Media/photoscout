@@ -10,8 +10,11 @@ import ImportExport from './pages/ImportExport.js';
 import Settings from './pages/Settings.js';
 import Events from './pages/Events.js';
 import Calendar from './pages/Calendar.js';
+import Profile from './pages/Profile.js';
+import Kit from './pages/Kit.js';
+import CommunityEventForm from './pages/CommunityEventForm.js';
 
-const NAV = [['/', 'Map'], ['/events', 'Events'], ['/calendar', 'Calendar'], ['/plan', 'Plan shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
+const NAV = [['/', 'Map'], ['/events', 'Events'], ['/calendar', 'Calendar'], ['/kit', 'Kit'], ['/plan', 'Plan shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
 
 export default function App() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -46,19 +49,19 @@ export default function App() {
         <button className="topbar__burger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">☰</button>
         <Link className="logo" to="/">Photo<span>Scout</span></Link>
         <nav className={menuOpen ? 'is-open' : ''}>
-          {NAV.filter(([path]) => user || (path !== '/import' && path !== '/settings')).map(([path, label]) => (
+          {NAV.filter(([path]) => user || (path !== '/import' && path !== '/settings' && path !== '/kit')).map(([path, label]) => (
             <Link key={path} to={path} className={active(path) ? 'active' : ''}>{label}</Link>
           ))}
           {user && (
             <>
-              <span className="topbar__nav-meta">{user.username} ({user.role})</span>
+              <Link className="topbar__nav-meta" to={`/u/${encodeURIComponent(user.username)}`}>{user.username} ({user.role})</Link>
               <button type="button" className="topbar__nav-signout" onClick={() => { setMenuOpen(false); void logout(); }}>Sign out</button>
             </>
           )}
         </nav>
         {user ? (
           <>
-            <span className="meta">{user.username} ({user.role})</span>
+            <Link className="meta" to={`/u/${encodeURIComponent(user.username)}`}>{user.username} ({user.role})</Link>
             <button className="topbar__signout" onClick={logout}>Sign out</button>
           </>
         ) : (
@@ -69,7 +72,11 @@ export default function App() {
       <Routes>
         <Route path="/places/:id" element={<PlacePage />} />
         <Route path="/events" element={<Events user={user} />} />
+        <Route path="/events/new" element={<CommunityEventForm user={user} />} />
+        <Route path="/events/:id/edit" element={<CommunityEventForm user={user} />} />
         <Route path="/calendar" element={<Calendar user={user} />} />
+        <Route path="/u/:username" element={<Profile user={user} />} />
+        <Route path="/kit" element={<Kit user={user} onChange={refresh} />} />
         <Route path="/plan" element={<PlanShoot />} />
         <Route path="/trip" element={<Navigate to={`/plan${location.search}`} replace />} />
         <Route path="/import" element={<ImportExport />} />

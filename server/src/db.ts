@@ -47,6 +47,85 @@ CREATE TABLE IF NOT EXISTS user_event_state (
   PRIMARY KEY (user_id, event_group)
 );
 
+-- The Kit: what a person drives and what they shoot with. Each row is its
+-- owner's; deleting the account takes them all (authStore.deleteUser also
+-- removes the photo files, which a foreign key cannot).
+CREATE TABLE IF NOT EXISTS rides (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  make TEXT NOT NULL,
+  model TEXT NOT NULL,
+  year INTEGER,
+  nickname TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rides_owner ON rides(owner_id);
+
+CREATE TABLE IF NOT EXISTS ride_photos (
+  id TEXT PRIMARY KEY,
+  ride_id TEXT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+  owner_id TEXT NOT NULL,
+  file TEXT NOT NULL,
+  thumb TEXT NOT NULL,
+  w INTEGER NOT NULL DEFAULT 0,
+  h INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ride_photos_ride ON ride_photos(ride_id);
+CREATE INDEX IF NOT EXISTS idx_ride_photos_owner ON ride_photos(owner_id, created_at);
+
+CREATE TABLE IF NOT EXISTS gear (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  brand TEXT NOT NULL,
+  name TEXT NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_gear_owner ON gear(owner_id);
+
+CREATE TABLE IF NOT EXISTS follows (
+  follower_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  followee_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (follower_id, followee_id)
+);
+CREATE INDEX IF NOT EXISTS idx_follows_followee ON follows(followee_id);
+
+-- Events people make themselves, kept apart from the scraped feed that
+-- events.ts serves: different owner, different rules, never mixed in storage.
+CREATE TABLE IF NOT EXISTS community_events (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  start_time TEXT NOT NULL,
+  end_time TEXT,
+  venue_name TEXT NOT NULL DEFAULT '',
+  address TEXT NOT NULL DEFAULT '',
+  lat REAL NOT NULL,
+  lng REAL NOT NULL,
+  price_text TEXT NOT NULL DEFAULT '',
+  visibility TEXT NOT NULL DEFAULT 'public',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_community_events_owner ON community_events(owner_id);
+CREATE INDEX IF NOT EXISTS idx_community_events_start ON community_events(start_time);
+
+CREATE TABLE IF NOT EXISTS community_rsvps (
+  event_id TEXT NOT NULL REFERENCES community_events(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (event_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_community_rsvps_user ON community_rsvps(user_id);
+
 CREATE TABLE IF NOT EXISTS places (
   id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL,
@@ -253,6 +332,8 @@ export function createDb(filePath: string = path.join(dataDir, 'photoscout.db'))
   const handle = new DatabaseSync(filePath, { timeout: 5000 });
   if (filePath !== ':memory:') handle.exec('PRAGMA journal_mode = WAL');
   handle.exec(SCHEMA);
+  addColumnIfMissing(handle, 'users', 'bio', "bio TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(handle, 'users', 'instagram', "instagram TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(handle, 'sightings', 'loaded', 'loaded INTEGER');
   addColumnIfMissing(handle, 'photos', 'focal_length', 'focal_length REAL');
   addColumnIfMissing(handle, 'photos', 'date_time_original', 'date_time_original TEXT');

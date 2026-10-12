@@ -18,7 +18,7 @@ const timeOf = (ev: EventItem): string =>
   ev.dateOnly ? 'All day' : new Date(ev.startTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
 export default function Calendar({ user }: { user: User | null }) {
-  const { events, error, mark } = useEvents();
+  const { events, error, mark, setGoing } = useEvents();
   const [view, setView] = useState<View>('agenda');
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState<string | null>(null);
@@ -55,7 +55,7 @@ export default function Calendar({ user }: { user: User | null }) {
       <span className="calrow__time">{timeOf(ev)}</span>
       <span className="calrow__bar" style={{ background: categoryColour(ev.category || 'Event') }} />
       <span className="calrow__body">
-        <span className="calrow__title">{ev.starred && '★ '}{decodeEntities(ev.title)}</span>
+        <span className="calrow__title">{ev.starred && '★ '}{decodeEntities(ev.title)}{ev.community && <span className="eventbadge eventbadge--community">Community</span>}</span>
         <span className="hint">📍 {decodeEntities(ev.venueName || ev.address) || 'Location unknown'}</span>
       </span>
     </button>
@@ -126,10 +126,10 @@ export default function Calendar({ user }: { user: User | null }) {
                   <div className="calcell__num">{d.getDate()}</div>
                   {/* Each chip opens its event; the rest of the cell picks the day, which lists all of them below the grid. */}
                   {dayEvents.slice(0, 3).map((ev) => (
-                    <button key={ev.group} type="button" className="calcell__ev" title={`${timeOf(ev)} · ${decodeEntities(ev.title)}`}
+                    <button key={ev.group} type="button" className="calcell__ev" title={`${ev.community ? 'Community · ' : ''}${timeOf(ev)} · ${decodeEntities(ev.title)}`}
                       onClick={(e) => { e.stopPropagation(); setOpen(ev.group); }}>
                       <span className="calcell__dot" style={{ background: categoryColour(ev.category || 'Event') }} />
-                      {decodeEntities(ev.title)}
+                      {ev.community && '👥 '}{decodeEntities(ev.title)}
                     </button>
                   ))}
                   {dayEvents.length > 3 && <div className="hint">+{dayEvents.length - 3} more</div>}
@@ -149,7 +149,7 @@ export default function Calendar({ user }: { user: User | null }) {
         </>
       )}
 
-      {openEvent && <EventDetail ev={openEvent} onClose={() => setOpen(null)} onMark={onMark} />}
+      {openEvent && <EventDetail ev={openEvent} user={user} onClose={() => setOpen(null)} onMark={onMark} onGoing={user ? setGoing : undefined} />}
     </div>
   );
 }

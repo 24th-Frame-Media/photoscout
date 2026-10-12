@@ -1179,3 +1179,20 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
   font-weight: 600;
 }
 .signin__providers a:hover { background: #ffb83d; }
+
+/* ── Profiles, the Kit, community events ── */
+.eventbadge--community { color: var(--accent); border-color: var(--accent); }
+.topbar a.meta, .topbar a.topbar__nav-meta { text-decoration: none; }
+.profile__head { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.profile__head h1 { margin: 0; }
+.profile__avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; }
+.profile__actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.profile__bio { white-space: pre-wrap; max-width: 70ch; }
+.profile__gear { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.kititem { border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 10px; margin-bottom: 10px; }
+.kitphotos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.kitphotos img { width: 96px; height: 72px; object-fit: cover; border-radius: var(--radius-xs); display: block; }
+.kitphotos__item { position: relative; }
+.kitphotos__item button { position: absolute; top: 2px; right: 2px; padding: 0 6px; line-height: 18px; }
+.kitphotos__add { display: inline-flex; align-items: center; justify-content: center; width: 96px; height: 72px; border: 1px dashed var(--border); border-radius: var(--radius-xs); cursor: pointer; color: var(--muted); font-size: 13px; }
+.locpicker { width: 100%; height: 280px; border-radius: var(--radius-xs); border: 1px solid var(--border); margin-bottom: 10px; }

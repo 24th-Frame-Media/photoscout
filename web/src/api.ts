@@ -10,6 +10,9 @@ export interface User {
   role: Role;
   banned: boolean;
   created_at: string;
+  bio: string;
+  /** A handle without the @, empty when none. */
+  instagram: string;
 }
 
 export type Provider = 'google' | 'discord';
@@ -256,6 +259,33 @@ export interface EventItem {
   url: string;
   starred: boolean;
   hidden: boolean;
+  /** Set only on an event somebody here made (see CommunityEvent); a scraped one leaves all of these out. */
+  community?: boolean;
+  communityId?: string;
+  ownerId?: string;
+  organiser?: string;
+  going?: number;
+  isGoing?: boolean;
+}
+export interface KitPhoto { id: string; url: string; thumbUrl: string; w: number; h: number }
+export interface RideInput { kind: 'car' | 'motorbike'; make: string; model: string; year: number | null; nickname: string; notes: string }
+export interface Ride extends RideInput { id: string; ownerId: string; photos: KitPhoto[]; createdAt: string; updatedAt: string }
+export interface GearInput { kind: 'camera' | 'lens' | 'other'; brand: string; name: string; notes: string }
+export interface Gear extends GearInput { id: string; ownerId: string; createdAt: string; updatedAt: string }
+export interface CatalogItem { brand: string; name: string; kind: 'camera' | 'lens' }
+export interface ProfileHit { username: string; avatar: string }
+export interface Profile extends ProfileHit {
+  id: string; bio: string; instagram: string; createdAt: string;
+  followers: number; following: number; isFollowing: boolean; rides: Ride[]; gear: Gear[];
+}
+
+/** An event somebody here made (server/src/app.ts), kept apart from the scraped feed above. */
+export interface CommunityEventInput {
+  title: string; description: string; startTime: string; endTime: string | null; venueName: string; address: string;
+  lat: number; lng: number; priceText: string; visibility: 'public' | 'unlisted';
+}
+export interface CommunityEvent extends CommunityEventInput {
+  id: string; ownerId: string; owner: ProfileHit; going: number; isGoing: boolean; createdAt: string; updatedAt: string;
 }
 export interface EventState { starred: boolean; hidden: boolean }
 
@@ -348,6 +378,8 @@ export const api = {
   // --- auth ---
   authStatus: () => fetch('/api/auth/status').then((r) => json<AuthStatus>(r)),
   logout: () => fetch('/api/auth/logout', { method: 'POST' }).then((r) => json<{ ok: boolean }>(r)),
+  saveProfile: (patch: { username?: string; bio?: string; instagram?: string }) =>
+    fetch('/api/auth/me', { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(patch) }).then((r) => json<User>(r)),
   setHandle: (username: string) =>
     fetch('/api/auth/me', { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ username }) }).then((r) => json<User>(r)),
 
@@ -453,6 +485,44 @@ export const api = {
   // --- Event Scout ---
   spotNearby: (spotId: string) => fetch(`/api/spots/${spotId}/nearby`).then((r) => json<NearbyResult>(r)),
   placeNearby: (placeId: string) => fetch(`/api/places/${placeId}/nearby`).then((r) => json<NearbyResult>(r)),
+
+  // --- profiles, follows, the Kit ---
+  profile: (username: string) => fetch(`/api/profiles/${encodeURIComponent(username)}`).then((r) => json<Profile>(r)),
+  searchProfiles: (q: string) => fetch(`/api/profiles?q=${encodeURIComponent(q)}`).then((r) => json<ProfileHit[]>(r)),
+  follows: () => fetch('/api/follows').then((r) => json<ProfileHit[]>(r)),
+  follow: (username: string) => fetch(`/api/follows/${encodeURIComponent(username)}`, { method: 'PUT' }).then((r) => json<{ following: boolean }>(r)),
+  unfollow: (username: string) => fetch(`/api/follows/${encodeURIComponent(username)}`, { method: 'DELETE' }).then((r) => json<{ following: boolean }>(r)),
+  createRide: (ride: RideInput) =>
+    fetch('/api/kit/rides', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(ride) }).then((r) => json<Ride>(r)),
+  updateRide: (id: string, ride: Partial<RideInput>) =>
+    fetch(`/api/kit/rides/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(ride) }).then((r) => json<Ride>(r)),
+  deleteRide: (id: string) => fetch(`/api/kit/rides/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
+  uploadRidePhoto: (rideId: string, photo: Blob, thumb: Blob, size: { w: number; h: number }) => {
+    const form = new FormData();
+    form.append('photo', photo);
+    form.append('thumb', thumb);
+    form.append('w', String(size.w));
+    form.append('h', String(size.h));
+    return fetch(`/api/kit/rides/${rideId}/photos`, { method: 'POST', body: form }).then((r) => json<Ride>(r));
+  },
+  deleteRidePhoto: (id: string) => fetch(`/api/kit/photos/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
+  createGear: (gear: GearInput) =>
+    fetch('/api/kit/gear', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(gear) }).then((r) => json<Gear>(r)),
+  updateGear: (id: string, gear: Partial<GearInput>) =>
+    fetch(`/api/kit/gear/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(gear) }).then((r) => json<Gear>(r)),
+  deleteGear: (id: string) => fetch(`/api/kit/gear/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
+  gearCatalog: (q: string) => fetch(`/api/gear/catalog?q=${encodeURIComponent(q)}`).then((r) => json<CatalogItem[]>(r)),
+
+  // --- community events (readable by visitors; making one and saying you are going need a session) ---
+  communityEvents: () => fetch('/api/community-events').then((r) => json<CommunityEvent[]>(r)),
+  communityEvent: (id: string) => fetch(`/api/community-events/${id}`).then((r) => json<CommunityEvent>(r)),
+  createCommunityEvent: (ev: CommunityEventInput) =>
+    fetch('/api/community-events', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(ev) }).then((r) => json<CommunityEvent>(r)),
+  updateCommunityEvent: (id: string, ev: Partial<CommunityEventInput>) =>
+    fetch(`/api/community-events/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(ev) }).then((r) => json<CommunityEvent>(r)),
+  deleteCommunityEvent: (id: string) => fetch(`/api/community-events/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
+  setGoing: (id: string, going: boolean) =>
+    fetch(`/api/community-events/${id}/rsvp`, { method: going ? 'PUT' : 'DELETE' }).then((r) => json<CommunityEvent>(r)),
 
   // --- events (open to visitors; starring and hiding need a session and are your own) ---
   events: () => fetch('/api/events').then((r) => json<EventItem[]>(r)),
