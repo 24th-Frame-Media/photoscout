@@ -90,7 +90,32 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 }
 .topbar nav a:hover { color: var(--text); text-decoration: none; background: var(--panel-2); }
 .topbar nav a.active { color: var(--accent); background: var(--accent-soft); }
-.topbar .meta { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.topbar__signin { margin-left: auto; white-space: nowrap; }
+
+/* Your own pages and the tools, under your name at the far end of the bar. */
+.account { position: relative; margin-left: auto; }
+.account__button { background: none; border: none; color: var(--muted); font: inherit; font-weight: 500; padding: 6px 13px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
+.account__button:hover { color: var(--text); background: var(--panel-2); }
+.account__button.active { color: var(--accent); }
+.account__menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 190px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.5);
+}
+.account__menu.is-open { display: flex; }
+.account__menu button { background: none; border: none; border-top: 1px solid var(--border); border-radius: 0; margin-top: 4px; color: var(--muted); font: inherit; font-weight: 500; text-align: left; padding: 9px 13px 6px; cursor: pointer; }
+.account__menu button:hover { color: var(--text); }
+/* Under the bar (1100), over the page: a click anywhere else closes the menu. */
+.account__scrim { position: fixed; inset: 0; z-index: 1050; }
 
 .page { max-width: 1280px; margin: 0 auto; padding: 18px 22px 60px; }
 
@@ -180,10 +205,6 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
  * menu, and refresh.
  */
 .topbar__burger { display: none; }
-.topbar__nav-meta { display: none; }
-.topbar__nav-signout { display: none; }
-.topbar__signout { display: inline-block; }
-
 @media (max-width: 820px) {
   .topbar { gap: 10px; padding: 10px 14px; }
   .topbar__burger {
@@ -196,8 +217,6 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   }
   /* Takes the space the nav had, so the refresh button still sits hard right. */
   .topbar .logo { flex: 1; font-size: 16px; }
-  .topbar .meta { display: none; }
-  .topbar__signout { display: none; }
 
   .topbar nav {
     display: none;
@@ -215,28 +234,12 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   .topbar nav.is-open { display: flex; }
   /* Roomy enough to hit with a thumb rather than a cursor. */
   .topbar nav a { padding: 11px 14px; font-size: 16px; }
-  .topbar__nav-meta {
-    display: block;
-    color: var(--muted);
-    font-size: 12.5px;
-    margin-top: 4px;
-    padding: 10px 14px 2px;
-    border-top: 1px solid var(--border);
-  }
-  .topbar__nav-signout {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: none;
-    color: var(--text);
-    padding: 11px 14px;
-    font-size: 16px;
-    border-radius: var(--radius-sm);
-  }
-  .topbar__nav-signout:hover {
-    background: var(--panel-2);
-  }
+  /* In the burger menu the account's links are simply the rest of the list. */
+  .account { margin: 4px 0 0; padding-top: 4px; border-top: 1px solid var(--border); }
+  .account__button { display: none; }
+  .account__menu { display: flex; position: static; padding: 0; border: none; box-shadow: none; background: none; }
+  .account__menu button { padding: 11px 14px; font-size: 16px; }
+  .account__scrim { display: none; }
 
   /* Under the bar, which is 1100, so the open menu stays above the scrim. */
   .topbar__scrim { position: fixed; inset: 0; z-index: 1050; background: rgba(0, 0, 0, 0.45); }
@@ -1182,7 +1185,7 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
 
 /* ── Profiles, the Kit, community events ── */
 .eventbadge--community { color: var(--accent); border-color: var(--accent); }
-.topbar a.meta, .topbar a.topbar__nav-meta { text-decoration: none; }
+a.chip { text-decoration: none; }
 .profile__head { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 .profile__head h1 { margin: 0; }
 .profile__avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; }

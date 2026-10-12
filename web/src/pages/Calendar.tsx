@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import type { EventItem, User } from '../api.js';
 import { categoriesOf, categoryColour, dayKey, decodeEntities, groupByDay, isOver } from '../events.js';
@@ -67,6 +68,10 @@ export default function Calendar({ user }: { user: User | null }) {
   return (
     <div className="page">
       <div className="filterbar">
+        <div className="chiprow">
+          <Link className="chip" to="/events">List</Link>
+          <Link className="chip active" to="/calendar">Calendar</Link>
+        </div>
         <div className="chiprow">
           {VIEWS.map((v) => (
             <button key={v.key} className={`chip ${view === v.key ? 'active' : ''}`} onClick={() => setView(v.key)}>{v.label}</button>

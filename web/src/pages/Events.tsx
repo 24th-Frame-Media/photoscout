@@ -28,6 +28,10 @@ export default function Events({ user }: { user: User | null }) {
   return (
     <div className="page">
       <div className="filterbar">
+        <div className="chiprow">
+          <Link className="chip active" to="/events">List</Link>
+          <Link className="chip" to="/calendar">Calendar</Link>
+        </div>
         <input className="search" placeholder="Search events, venues…" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
         <div className="chiprow">
           {DATE_CHIPS.map((c) => (

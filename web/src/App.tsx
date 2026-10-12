@@ -17,17 +17,20 @@ import Feed from './pages/Feed.js';
 import Chat from './pages/Chat.js';
 import Moderation from './pages/Moderation.js';
 
-const NAV = [['/', 'Map'], ['/events', 'Events'], ['/feed', 'Feed'], ['/chat', 'Chat'], ['/calendar', 'Calendar'], ['/kit', 'Kit'], ['/plan', 'Plan shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
+/** What everybody comes for sits in the bar; what is yours, or is a tool, sits under your name. */
+const NAV = [['/', 'Map'], ['/events', 'Events'], ['/feed', 'Feed'], ['/chat', 'Chat']] as const;
+const MORE = [['/kit', 'Kit'], ['/plan', 'Plan a shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
 
 export default function App() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
   const refresh = () => api.authStatus().then(setStatus);
   useEffect(() => { void refresh(); }, []);
-  useEffect(() => setMenuOpen(false), [location.pathname]);
+  useEffect(() => { setMenuOpen(false); setAccountOpen(false); }, [location.pathname]);
 
   if (!status) return <div className="page"><p className="hint">Loading…</p></div>;
 
@@ -44,7 +47,7 @@ export default function App() {
   }
 
   const user = status.authed ? status.user : null;
-  const active = (path: string) => (path === '/' ? location.pathname === '/' : location.pathname.startsWith(path));
+  const active = (path: string) => (path === '/' ? location.pathname === '/' : location.pathname.startsWith(path) || (path === '/events' && location.pathname === '/calendar'));
 
   return (
     <TimeProvider>
@@ -52,26 +55,27 @@ export default function App() {
         <button className="topbar__burger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">☰</button>
         <Link className="logo" to="/">Photo<span>Scout</span></Link>
         <nav className={menuOpen ? 'is-open' : ''}>
-          {NAV.filter(([path]) => user || (path !== '/import' && path !== '/settings' && path !== '/kit' && path !== '/chat')).map(([path, label]) => (
+          {NAV.filter(([path]) => user || path !== '/chat').map(([path, label]) => (
             <Link key={path} to={path} className={active(path) ? 'active' : ''}>{label}</Link>
           ))}
-          {(user?.role === 'admin' || user?.role === 'moderator') && <Link to="/moderation" className={active('/moderation') ? 'active' : ''}>Moderation</Link>}
           {user && (
-            <>
-              <Link className="topbar__nav-meta" to={`/u/${encodeURIComponent(user.username)}`}>{user.username} ({user.role})</Link>
-              <button type="button" className="topbar__nav-signout" onClick={() => { setMenuOpen(false); void logout(); }}>Sign out</button>
-            </>
+            <div className="account">
+              <button type="button" className={`account__button${MORE.some(([p]) => active(p)) || active('/u/') || active('/moderation') ? ' active' : ''}`}
+                aria-haspopup="menu" aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}>{user.username} ▾</button>
+              <div className={`account__menu${accountOpen ? ' is-open' : ''}`}>
+                <Link to={`/u/${encodeURIComponent(user.username)}`} className={active('/u/') ? 'active' : ''}>Profile</Link>
+                {MORE.map(([path, label]) => (
+                  <Link key={path} to={path} className={active(path) ? 'active' : ''}>{label}</Link>
+                ))}
+                {(user.role === 'admin' || user.role === 'moderator') && <Link to="/moderation" className={active('/moderation') ? 'active' : ''}>Moderation</Link>}
+                <button type="button" onClick={() => void logout()}>Sign out</button>
+              </div>
+            </div>
           )}
         </nav>
-        {user ? (
-          <>
-            <Link className="meta" to={`/u/${encodeURIComponent(user.username)}`}>{user.username} ({user.role})</Link>
-            <button className="topbar__signout" onClick={logout}>Sign out</button>
-          </>
-        ) : (
-          <Link to="/login">Sign in</Link>
-        )}
+        {!user && <Link className="topbar__signin" to="/login">Sign in</Link>}
       </div>
+      {accountOpen && <div className="account__scrim" onClick={() => setAccountOpen(false)} />}
       {menuOpen && <div className="topbar__scrim" onClick={() => setMenuOpen(false)} />}
       <Routes>
         <Route path="/places/:id" element={<PlacePage />} />
