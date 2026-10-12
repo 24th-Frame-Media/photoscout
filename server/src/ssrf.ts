@@ -61,13 +61,31 @@ export async function assertPublicUrl(rawUrl: string, allowPrivate = false): Pro
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_FETCH_BYTES = 25 * 1024 * 1024;
 
-/** A guarded fetch: SSRF-checked, timed out, and capped in size. */
+const MAX_REDIRECTS = 3;
+
+/**
+ * A guarded fetch: SSRF-checked, timed out, and capped in size.
+ *
+ * Redirects are followed by hand so each hop is checked like the first: left
+ * to fetch, a public address answering "302, go to 169.254.169.254" walked
+ * straight past the check.
+ * ponytail: the address is checked and then looked up again by fetch, so a
+ * host that changes its DNS answer in between still gets through. Pin the
+ * resolved address with an undici dispatcher if remotes are ever opened to
+ * non-admins; until then the container's egress rules are the backstop.
+ */
 export async function guardedFetch(rawUrl: string, allowPrivate = false): Promise<Buffer> {
-  const url = await assertPublicUrl(rawUrl, allowPrivate);
+  let url = await assertPublicUrl(rawUrl, allowPrivate);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    let res = await fetch(url, { signal: controller.signal, redirect: 'manual' });
+    for (let hop = 0; res.status >= 300 && res.status < 400; hop++) {
+      const location = res.headers.get('location');
+      if (!location || hop >= MAX_REDIRECTS) throw new Error(`${url} redirected too many times`);
+      url = await assertPublicUrl(new URL(location, url).toString(), allowPrivate);
+      res = await fetch(url, { signal: controller.signal, redirect: 'manual' });
+    }
     if (!res.ok) throw new Error(`${url} returned ${res.status}`);
     const contentLength = Number(res.headers.get('content-length') ?? '0');
     if (contentLength > MAX_FETCH_BYTES) throw new Error('Response too large');

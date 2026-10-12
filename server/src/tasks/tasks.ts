@@ -2,6 +2,7 @@ import { createRegistry } from './registry.js';
 import { db } from '../db.js';
 import { getSettings, Settings, tfnswKey } from '../settings.js';
 import { syncRemote } from '../share.js';
+import { deleteExpiredSessions } from '../authStore.js';
 import { runRailTask } from '../sources/rail.js';
 import { runCandidatesTask } from '../sources/osm.js';
 import { importStaticGtfs, TrainFeedName } from '../feeds/trains.js';
@@ -42,6 +43,20 @@ tasks.register({
       }
     }
     return { ok: failed === 0, message: `${ok} synced, ${failed} failed` };
+  },
+});
+
+tasks.register({
+  name: 'housekeeping',
+  label: 'Housekeeping',
+  description: 'Drop expired sessions and cached answers that have passed their date.',
+  schedule: '30 3 * * *',
+  intervalMinutes: () => 24 * 60,
+  enabled: () => true,
+  run: async () => {
+    deleteExpiredSessions(db);
+    const { changes } = db.handle.prepare('DELETE FROM kv WHERE expires_at IS NOT NULL AND expires_at < ?').run(new Date().toISOString());
+    return { ok: true, message: `${changes} expired cache rows dropped` };
   },
 });
 

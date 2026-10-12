@@ -3,17 +3,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, photosDir } from './db.js';
+import helmet from 'helmet';
+import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import {
-  InstanceMode, SessionUser, Visibility,
-  canEdit, canRead, needsAuth, readCookie, SESSION_COOKIE,
-  loginBlockedFor, noteLoginFailure, noteLoginSuccess,
+  SessionUser, Visibility,
+  canEdit, canRead, needsAuth, originAllowed, readCookie, secureEqual, HANDLE, OAUTH_COOKIE, SESSION_COOKIE,
 } from './auth.js';
 import {
-  checkUserPassword, createUser, deleteUser, findUserById, listUsers,
-  newSessionToken, seedAdminFromEnv, sessionUser, setUserPassword, setUserRole, userCount,
+  accountIdOf, createSession, deleteSession, deleteUser, findUserById, listUsers,
+  sessionUser, setUserBanned, setUserRole, setUsername, upsertOAuthUser, usernameTaken,
 } from './authStore.js';
+import { bodyProblem } from './bodyLimits.js';
+import { configuredProviders, generateCodeVerifier, generateState, provider, publicUrl } from './oauth.js';
 import { corsDecision, readOrigins } from './cors.js';
-import { applySettingsUpdate, getSettings, publicSettings, tfnswKey } from './settings.js';
+import { applySettingsUpdate, getSettings, memberSettings, publicSettings, tfnswKey } from './settings.js';
 import { geocode } from './geocode.js';
 import { bboxFromRadius, haversine, parseBbox, parseLatLng } from './geo.js';
 import { parseGoodTimes, GoodTimesError, DEFAULT_GOOD_TIMES } from './goodTimes.js';
@@ -50,13 +53,7 @@ declare global {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(express.json({ limit: '2mb' }));
-
-seedAdminFromEnv(db);
-
-function instanceMode(): InstanceMode {
-  return process.env.INSTANCE_MODE === 'public' ? 'public' : 'private';
-}
+app.disable('x-powered-by');
 
 function trustProxySetting(raw: string | undefined): boolean | number | string | undefined {
   const value = raw?.trim();
@@ -68,7 +65,38 @@ function trustProxySetting(raw: string | undefined): boolean | number | string |
 const trustProxy = trustProxySetting(process.env.TRUST_PROXY);
 if (trustProxy !== undefined) app.set('trust proxy', trustProxy);
 
-// --- CORS, then the session, then the gate ---------------------------------
+// --- headers ----------------------------------------------------------------
+
+// The map draws tiles, terrain and radar from a dozen hosts and runs its
+// shadow maths in blob workers, so images, fetches and workers are open to
+// https; scripts are not, which is the part that matters.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        'default-src': ["'self'"],
+        'script-src': ["'self'"],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+        'connect-src': ["'self'", 'https:'],
+        'worker-src': ["'self'", 'blob:'],
+        'font-src': ["'self'", 'data:', 'https:'],
+        'object-src': ["'none'"],
+        'base-uri': ["'self'"],
+        'form-action': ["'self'"],
+        'frame-ancestors': ["'none'"],
+      },
+    },
+    // Photos and exports are fetched by other PhotoScouts through a share link.
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  })
+);
+
+app.use(express.json({ limit: '2mb' }));
+
+// --- CORS, the session, the origin check, the limits, then the gate ----------
 
 app.use('/api', (req, res, next) => {
   const decision = corsDecision(
@@ -78,8 +106,7 @@ app.use('/api', (req, res, next) => {
       path: req.baseUrl + req.path,
       requestMethod: req.headers['access-control-request-method'] as string | undefined,
     },
-    readOrigins(getSettings(db).corsOrigins),
-    instanceMode()
+    readOrigins(getSettings(db).corsOrigins)
   );
   if (decision) {
     res.vary(decision.vary);
@@ -95,9 +122,66 @@ app.use('/api', (req, _res, next) => {
 });
 
 app.use('/api', (req, res, next) => {
-  if (!needsAuth(req.method, req.baseUrl + req.path, instanceMode())) return next();
+  if (originAllowed(req.method, req.headers.origin, publicUrl())) return next();
+  res.status(403).json({ error: 'Cross-site request refused' });
+});
+
+/**
+ * Limits by who is asking: the account when there is one, otherwise the
+ * address. Counted in memory, which is right for one process and wrong for
+ * several.
+ * ponytail: per-process counters; move to a shared store if this ever runs as more than one instance.
+ */
+const limitKey = (req: express.Request): string => (req.user ? `u:${req.user.id}` : ipKeyGenerator(req.ip ?? ''));
+const limit = (windowMs: number, max: number, what: string) =>
+  rateLimit({
+    windowMs,
+    limit: max,
+    keyGenerator: limitKey,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    skip: () => process.env.RATE_LIMITS === 'off',
+    message: { error: `Too many ${what} — slow down and try again shortly` },
+  });
+
+const MINUTE = 60_000;
+// Everything, as a ceiling. A map screen makes a burst of requests when it
+// opens, so this is generous; the tighter ones below are what bite.
+app.use('/api', limit(MINUTE, 600, 'requests'));
+// Sign-in round trips, by address: nobody has an account yet at this point.
+app.use('/api/auth', limit(10 * MINUTE, 40, 'sign-in attempts'));
+// Anything that changes something.
+app.use('/api', (req, res, next) =>
+  req.method === 'GET' || req.method === 'HEAD' ? next() : writeLimit(req, res, next)
+);
+const writeLimit = limit(MINUTE, 90, 'changes');
+// Routes that make this server ask somebody else's: each request here costs a
+// third party one, so they are counted on their own and kept low.
+const upstreamLimit = limit(MINUTE, 60, 'lookups');
+app.use(
+  ['/api/geocode', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates'],
+  upstreamLimit
+);
+app.use(/^\/api\/(spots|places)\/[^/]+\/(nearby|commons|trains)$/, upstreamLimit);
+/** Photo uploads: each is held in memory while it is checked, so few at a time. */
+const uploadLimit = limit(10 * MINUTE, 60, 'uploads');
+
+app.use('/api', (req, res, next) => {
+  if (!needsAuth(req.method, req.baseUrl + req.path)) return next();
   if (req.user) return next();
   res.status(401).json({ error: 'Sign in required' });
+});
+
+/**
+ * Sizes and ranges for what people type into a place, a spot or a route.
+ * The handlers below check what each field means; this only refuses the
+ * shapes none of them should ever be handed, in one place.
+ */
+app.use(['/api/places', '/api/spots', '/api/routes'], (req, res, next) => {
+  if (req.method !== 'POST' && req.method !== 'PATCH') return next();
+  const problem = bodyProblem((req.body ?? {}) as Record<string, unknown>);
+  if (problem) return res.status(400).json({ error: problem });
+  next();
 });
 
 function requireAdmin(req: express.Request, res: express.Response): boolean {
@@ -108,65 +192,74 @@ function requireAdmin(req: express.Request, res: express.Response): boolean {
 
 // --- auth -------------------------------------------------------------------
 
+const secureCookie = { httpOnly: true, secure: true, sameSite: 'lax' as const, path: '/' };
+
 app.get('/api/auth/status', (req, res) => {
-  const mode = instanceMode();
   res.json({
-    mode,
-    needsSetup: userCount(db) === 0,
     authed: Boolean(req.user),
     user: req.user ? findUserById(db, req.user.id) : null,
-    allowSignup: getSettings(db).allowSignup,
+    // What to put in ADMIN_IDS to make this account an admin. Its own, and only to itself.
+    account: req.user ? accountIdOf(db, req.user.id) : null,
+    providers: configuredProviders(),
   });
 });
 
-/** First run: create the admin, once, while there are no users at all. */
-app.post('/api/auth/setup', (req, res) => {
-  if (userCount(db) > 0) return res.status(409).json({ error: 'Already set up' });
-  const { username, password } = req.body as { username?: string; password?: string };
-  if (!username || !password || password.length < 8) {
-    return res.status(400).json({ error: 'username and an 8+ character password are required' });
-  }
-  const user = createUser(db, username, password, 'admin');
-  const { token, maxAgeMs } = newSessionToken(db, user);
-  res.cookie(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'lax', maxAge: maxAgeMs });
-  res.json({ ok: true, user: { id: user.id, username: user.username, role: user.role } });
+/** Send the browser to the provider, remembering what was sent so the answer can be checked. */
+app.get('/api/auth/:provider/start', (req, res) => {
+  const p = provider(req.params.provider);
+  if (!p) return res.status(404).json({ error: 'That sign-in is not set up' });
+  const state = generateState();
+  const verifier = generateCodeVerifier();
+  res.cookie(OAUTH_COOKIE, `${req.params.provider}.${state}.${verifier}`, { ...secureCookie, maxAge: 10 * MINUTE });
+  res.redirect(p.authorizationUrl(state, verifier).toString());
 });
 
-app.post('/api/auth/signup', (req, res) => {
-  if (!getSettings(db).allowSignup) return res.status(403).json({ error: 'Sign-up is switched off' });
-  const { username, password } = req.body as { username?: string; password?: string };
-  if (!username || !password || password.length < 8) {
-    return res.status(400).json({ error: 'username and an 8+ character password are required' });
+/**
+ * The provider's answer. The state in the query has to be the one in the
+ * cookie this browser was given at the start, which is what stops somebody
+ * else's sign-in being finished in this browser.
+ */
+app.get('/api/auth/:provider/callback', async (req, res) => {
+  const fail = (why: string) => res.redirect(`/login?error=${encodeURIComponent(why)}`);
+  const [name, state, verifier] = (readCookie(req.headers.cookie, OAUTH_COOKIE) ?? '').split('.');
+  res.clearCookie(OAUTH_COOKIE, secureCookie);
+  const p = provider(req.params.provider);
+  const code = typeof req.query.code === 'string' ? req.query.code : '';
+  const returned = typeof req.query.state === 'string' ? req.query.state : '';
+  if (!p || !code || !state || !verifier || name !== req.params.provider || !secureEqual(returned, state)) {
+    return fail('Sign-in could not be completed. Please try again.');
   }
-  if (findUserByUsernameSafe(username)) return res.status(409).json({ error: 'Username taken' });
-  const user = createUser(db, username, password, 'contributor');
-  const { token, maxAgeMs } = newSessionToken(db, user);
-  res.cookie(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'lax', maxAge: maxAgeMs });
-  res.json({ ok: true, user: { id: user.id, username: user.username, role: user.role } });
-});
-function findUserByUsernameSafe(username: string) {
-  return db.handle.prepare('SELECT id FROM users WHERE username = ?').get(username);
-}
-
-app.post('/api/auth/login', (req, res) => {
-  const ip = req.ip ?? 'unknown';
-  const blocked = loginBlockedFor(ip);
-  if (blocked > 0) return res.status(429).json({ error: `Too many attempts — try again in ${Math.ceil(blocked / 1000)}s` });
-  const { username, password } = req.body as { username?: string; password?: string };
-  const user = typeof username === 'string' && typeof password === 'string' ? checkUserPassword(db, username, password) : null;
-  if (!user) {
-    noteLoginFailure(ip);
-    return res.status(401).json({ error: 'Wrong username or password' });
+  try {
+    const profile = await p.profile(code, verifier);
+    const user = upsertOAuthUser(db, { provider: req.params.provider, ...profile });
+    if (user.banned) return fail('This account has been suspended.');
+    const { token, maxAgeMs } = createSession(db, user.id);
+    res.cookie(SESSION_COOKIE, token, { ...secureCookie, maxAge: maxAgeMs });
+    res.redirect('/');
+  } catch (err) {
+    console.error(`[auth] ${req.params.provider} sign-in failed:`, (err as Error).message);
+    fail('Sign-in could not be completed. Please try again.');
   }
-  noteLoginSuccess(ip);
-  const { token, maxAgeMs } = newSessionToken(db, { id: user.id, role: user.role });
-  res.cookie(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'lax', maxAge: maxAgeMs });
-  res.json({ ok: true, user: { id: user.id, username: user.username, role: user.role } });
 });
 
-app.post('/api/auth/logout', (_req, res) => {
-  res.clearCookie(SESSION_COOKIE);
+app.post('/api/auth/logout', (req, res) => {
+  deleteSession(db, readCookie(req.headers.cookie, SESSION_COOKIE));
+  res.clearCookie(SESSION_COOKIE, secureCookie);
   res.json({ ok: true });
+});
+
+/** Change your own handle. */
+app.patch('/api/auth/me', (req, res) => {
+  const username = (req.body as { username?: unknown } | undefined)?.username;
+  if (typeof username !== 'string' || !HANDLE.test(username)) {
+    return res.status(400).json({ error: 'A handle is 3 to 24 letters, digits or underscores' });
+  }
+  const me = findUserById(db, req.user!.id);
+  if (me && me.username.toLowerCase() !== username.toLowerCase() && usernameTaken(db, username)) {
+    return res.status(409).json({ error: 'That handle is taken' });
+  }
+  setUsername(db, req.user!.id, username);
+  res.json(findUserById(db, req.user!.id));
 });
 
 // --- users (admin) -----------------------------------------------------------
@@ -175,26 +268,22 @@ app.get('/api/users', (req, res) => {
   if (!requireAdmin(req, res)) return;
   res.json(listUsers(db));
 });
-app.post('/api/users', (req, res) => {
-  if (!requireAdmin(req, res)) return;
-  const { username, password, role } = req.body as { username?: string; password?: string; role?: string };
-  if (!username || !password || password.length < 8) return res.status(400).json({ error: 'username and an 8+ character password are required' });
-  if (role !== 'admin' && role !== 'contributor') return res.status(400).json({ error: 'role must be admin or contributor' });
-  if (findUserByUsernameSafe(username)) return res.status(409).json({ error: 'Username taken' });
-  res.json(createUser(db, username, password, role));
-});
 app.patch('/api/users/:id', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { role, password } = req.body as { role?: string; password?: string };
-  if (role) {
+  if (!findUserById(db, req.params.id)) return res.status(404).json({ error: 'No such user' });
+  const { role, banned } = (req.body ?? {}) as { role?: unknown; banned?: unknown };
+  const self = req.params.id === req.user!.id;
+  if (role !== undefined) {
     if (role !== 'admin' && role !== 'contributor') return res.status(400).json({ error: 'role must be admin or contributor' });
+    if (self) return res.status(400).json({ error: 'Cannot change your own role' });
     setUserRole(db, req.params.id, role);
   }
-  if (password) {
-    if (password.length < 8) return res.status(400).json({ error: 'password must be 8+ characters' });
-    setUserPassword(db, req.params.id, password);
+  if (banned !== undefined) {
+    if (typeof banned !== 'boolean') return res.status(400).json({ error: 'banned must be true or false' });
+    if (self) return res.status(400).json({ error: 'Cannot suspend your own account' });
+    setUserBanned(db, req.params.id, banned);
   }
-  res.json(findUserById(db, req.params.id) ?? null);
+  res.json(findUserById(db, req.params.id));
 });
 app.delete('/api/users/:id', (req, res) => {
   if (!requireAdmin(req, res)) return;
@@ -205,7 +294,10 @@ app.delete('/api/users/:id', (req, res) => {
 
 // --- settings -----------------------------------------------------------------
 
-app.get('/api/settings', (_req, res) => res.json(publicSettings(getSettings(db))));
+app.get('/api/settings', (req, res) => {
+  const settings = getSettings(db);
+  res.json(req.user?.role === 'admin' ? publicSettings(settings) : memberSettings(settings));
+});
 app.put('/api/settings', (req, res) => {
   if (!requireAdmin(req, res)) return;
   const { settings, keyChanged } = applySettingsUpdate(db, (req.body ?? {}) as Record<string, unknown>);
@@ -234,7 +326,6 @@ app.get('/api/version', (_req, res) => res.json(versionInfo()));
 
 /** SQL fragment (with its params) restricting rows to what `user` may list. Unlisted rows never appear in a list. */
 function listVisibilityWhere(user: SessionUser | null | undefined): { sql: string; params: string[] } {
-  if (user?.role === 'admin') return { sql: "visibility IN ('public','private')", params: [] };
   if (user) return { sql: "(visibility = 'public' OR (visibility = 'private' AND owner_id = ?))", params: [user.id] };
   return { sql: "visibility = 'public'", params: [] };
 }
@@ -458,11 +549,17 @@ function photoJson(r: PhotoRow) {
   };
 }
 
-app.post('/api/spots/:id/photos', async (req, res, next) => {
+/** Photos one account may add in a day. Disk is the thing a public upload form runs out of. */
+const MAX_PHOTOS_PER_DAY = 200;
+
+app.post('/api/spots/:id/photos', uploadLimit, async (req, res, next) => {
   try {
     const spot = db.handle.prepare('SELECT * FROM spots WHERE id = ?').get(req.params.id) as unknown as SpotRow | undefined;
     if (!spot) return res.status(404).json({ error: 'Not found' });
     if (!canEdit(spot.owner_id, req.user)) return res.status(403).json({ error: 'Forbidden' });
+    const today = db.handle.prepare('SELECT COUNT(*) AS n FROM photos WHERE owner_id = ? AND created_at > ?')
+      .get(req.user!.id, new Date(Date.now() - 86_400_000).toISOString()) as { n: number };
+    if (today.n >= MAX_PHOTOS_PER_DAY) return res.status(429).json({ error: 'Daily photo limit reached. Try again tomorrow.' });
 
     const { fields, files } = await parseMultipart(req, MAX_PHOTO_BYTES * 2 + 4096);
     if (!files.photo || !detectImageType(files.photo)) return res.status(400).json({ error: 'photo must be a JPEG, PNG or WebP file' });
@@ -481,7 +578,7 @@ app.post('/api/spots/:id/photos', async (req, res, next) => {
     db.handle
       .prepare('INSERT INTO photos (id, spot_id, owner_id, kind, file, thumb, w, h, taken_at, caption, created_at, focal_length, date_time_original) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, spot.id, req.user!.id, kind, file, thumb, Number(fields.w ?? 0) || 0, Number(fields.h ?? 0) || 0,
-        takenAt, fields.caption ?? '', now, focalLength, dateTimeOriginal);
+        takenAt, String(fields.caption ?? '').slice(0, 2000), now, focalLength, dateTimeOriginal);
     res.status(201).json(photoJson(db.handle.prepare('SELECT * FROM photos WHERE id = ?').get(id) as unknown as PhotoRow));
   } catch (err) { next(err); }
 });
@@ -558,11 +655,16 @@ app.get('/api/shares', (req, res) => {
   res.json(rows);
 });
 
+/** Live share links one account may hold. A link hands over everything its owner has, private rows included. */
+const MAX_SHARES = 20;
+
 app.post('/api/shares', (req, res) => {
+  const live = db.handle.prepare('SELECT COUNT(*) AS n FROM shares WHERE owner_id = ? AND revoked_at IS NULL').get(req.user!.id) as { n: number };
+  if (live.n >= MAX_SHARES) return res.status(400).json({ error: `You can have ${MAX_SHARES} share links at once: revoke one first` });
   const token = crypto.randomBytes(18).toString('base64url');
   db.handle
     .prepare('INSERT INTO shares (token, owner_id, filter, created_at) VALUES (?, ?, ?, ?)')
-    .run(token, req.user!.id, JSON.stringify(req.body ?? {}), new Date().toISOString());
+    .run(token, req.user!.id, '{}', new Date().toISOString());
   res.status(201).json({ token });
 });
 
@@ -600,16 +702,17 @@ app.get('/api/share/:token/photos/:id/:variant', (req, res) => {
 
 interface RemoteRow { id: string; owner_id: string; url: string; last_sync: string | null; last_error: string | null; created_at: string }
 
-app.get('/api/remotes', (req, res) => {
-  const rows = req.user!.role === 'admin'
-    ? db.handle.prepare('SELECT * FROM remotes').all()
-    : db.handle.prepare('SELECT * FROM remotes WHERE owner_id = ?').all(req.user!.id);
-  res.json(rows);
+// Admins only, all of it: a remote is a URL this server goes and fetches on a
+// timer, and on a public instance that is not something to hand every account.
+app.use('/api/remotes', (req, res, next) => { if (requireAdmin(req, res)) next(); });
+
+app.get('/api/remotes', (_req, res) => {
+  res.json(db.handle.prepare('SELECT * FROM remotes').all());
 });
 
 app.post('/api/remotes', async (req, res) => {
-  const { url } = req.body as { url?: string };
-  if (!url) return res.status(400).json({ error: 'url is required' });
+  const { url } = (req.body ?? {}) as { url?: unknown };
+  if (typeof url !== 'string' || !url || url.length > 2000) return res.status(400).json({ error: 'url is required' });
   try {
     await assertPublicUrl(url, getSettings(db).allowPrivateRemotes);
   } catch (err) {
@@ -645,6 +748,7 @@ app.post('/api/remotes/:id/sync', async (req, res, next) => {
 // --- tasks (read-only status; the scheduler drives the actual runs) -------------
 
 app.get('/api/tasks', (req, res) => {
+  if (!requireAdmin(req, res)) return;
   const since = Number(req.query.since ?? 0);
   res.json({ tasks: tasks.statuses(), ...tasks.since(since) });
 });
@@ -730,7 +834,10 @@ app.get('/api/buildings', async (req, res, next) => {
     const lng = Number(req.query.lng);
     const r = Number(req.query.r ?? 250);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'lat and lng are required' });
-    const radius = Number.isFinite(r) ? r : 250;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return res.status(400).json({ error: 'lat and lng are out of range' });
+    // Fifty-metre steps between 50 and 500: every distinct radius is its own
+    // cache row and its own Overpass query.
+    const radius = Math.min(500, Math.max(50, Math.round((Number.isFinite(r) ? r : 250) / 50) * 50));
     // Footprints barely change: cache per ~10 m cell for a week so Overpass outages don't blank building shade.
     const key = `buildings:${lat.toFixed(4)},${lng.toFixed(4)}:${Math.round(radius)}`;
     const cached = db.getKv(key);

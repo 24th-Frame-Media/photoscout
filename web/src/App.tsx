@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Link, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { api, AuthStatus } from './api.js';
 import { TimeProvider } from './time.js';
-import FirstRun from './pages/FirstRun.js';
 import Login from './pages/Login.js';
-import Signup from './pages/Signup.js';
 import MapPage from './pages/MapPage.js';
 import PlacePage from './pages/PlacePage.js';
 import PlanShoot from './pages/PlanShoot.js';
@@ -25,18 +23,10 @@ export default function App() {
 
   if (!status) return <div className="page"><p className="hint">Loading…</p></div>;
 
-  if (status.needsSetup) {
-    return <FirstRun onDone={() => refresh().then(() => navigate('/'))} />;
-  }
-
-  // Public mode lets anonymous visitors browse; private mode gates everything.
-  const mustSignIn = !status.authed && status.mode === 'private';
-  if (mustSignIn || location.pathname === '/login' || location.pathname === '/signup') {
-    if (location.pathname === '/signup' && status.allowSignup) {
-      return <Signup onDone={() => refresh().then(() => navigate('/'))} />;
-    }
-    if (!mustSignIn && location.pathname !== '/login') return null;
-    return <Login allowSignup={status.allowSignup} onDone={() => refresh().then(() => navigate('/'))} />;
+  // Visitors browse the public map; everything else asks them to sign in.
+  if (location.pathname === '/login') {
+    if (status.authed) return <Navigate to="/" replace />;
+    return <Login providers={status.providers} />;
   }
 
   async function logout() {
@@ -52,7 +42,7 @@ export default function App() {
     <TimeProvider>
       <div className="topbar">
         <button className="topbar__burger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">☰</button>
-        <Link className="logo" to="/">Location<span>Scout</span></Link>
+        <Link className="logo" to="/">Photo<span>Scout</span></Link>
         <nav className={menuOpen ? 'is-open' : ''}>
           {NAV.filter(([path]) => user || (path !== '/import' && path !== '/settings')).map(([path, label]) => (
             <Link key={path} to={path} className={active(path) ? 'active' : ''}>{label}</Link>
@@ -79,7 +69,7 @@ export default function App() {
         <Route path="/plan" element={<PlanShoot />} />
         <Route path="/trip" element={<Navigate to={`/plan${location.search}`} replace />} />
         <Route path="/import" element={<ImportExport />} />
-        <Route path="/settings" element={<Settings user={user} />} />
+        <Route path="/settings" element={<Settings user={user} account={status.account} onChange={refresh} />} />
         <Route path="*" element={<MapPage user={user} />} />
       </Routes>
     </TimeProvider>

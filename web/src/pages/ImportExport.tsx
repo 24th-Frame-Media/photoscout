@@ -19,7 +19,7 @@ export default function ImportExport() {
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [shares, setShares] = useState<Share[]>([]);
-  const [remotes, setRemotes] = useState<Remote[]>([]);
+  const [remotes, setRemotes] = useState<Remote[] | null>(null);
   const [remoteUrl, setRemoteUrl] = useState('');
   const [copied, setCopied] = useState('');
 
@@ -135,7 +135,7 @@ export default function ImportExport() {
 
       <section>
         <h2>Share links</h2>
-        <p className="hint">Another Location Scout adds a link under Remotes and syncs your places, spots and photos. Revoke to cut it off.</p>
+        <p className="hint">Another PhotoScout adds a link under Remotes and syncs your places, spots and photos. Revoke to cut it off.</p>
         <button onClick={async () => { await api.createShare({}); void loadShares(); }}>+ New share link</button>
         <ul className="plainlist mt-8">
           {shares.map((s) => (
@@ -150,7 +150,7 @@ export default function ImportExport() {
         </ul>
       </section>
 
-      <section>
+      {remotes && <section>
         <h2>Remotes</h2>
         <p className="hint">Share links from other instances. Synced daily, or now.</p>
         <form className="feedrow" onSubmit={async (e) => {
@@ -178,7 +178,7 @@ export default function ImportExport() {
             </li>
           ))}
         </ul>
-      </section>
+      </section>}
     </div>
   );
 }

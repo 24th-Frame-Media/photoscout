@@ -6,16 +6,21 @@ export type Visibility = 'private' | 'unlisted' | 'public';
 export interface User {
   id: string;
   username: string;
+  avatar: string;
   role: Role;
+  banned: boolean;
   created_at: string;
 }
 
+export type Provider = 'google' | 'discord';
+
 export interface AuthStatus {
-  mode: 'private' | 'public';
-  needsSetup: boolean;
   authed: boolean;
   user: User | null;
-  allowSignup: boolean;
+  /** `provider:id` for the signed-in account: what an operator puts in ADMIN_IDS. */
+  account: string | null;
+  /** The sign-in providers this instance has set up. */
+  providers: Provider[];
 }
 
 export type Phase = 'sunrise' | 'golden_am' | 'day' | 'golden_pm' | 'sunset' | 'blue' | 'night' | 'astro';
@@ -87,7 +92,6 @@ export interface Photo {
 export interface Settings {
   home: { name: string; lat: number; lng: number; radiusKm: number };
   areas: { name: string; lat: number; lng: number; radiusKm: number }[];
-  allowSignup: boolean;
   allowPrivateRemotes: boolean;
   eventScoutUrl: string;
   /** Never the key itself — only whether one is set, and whether the environment pins it. */
@@ -316,23 +320,13 @@ export interface WeatherForecast { lat: number; lng: number; fetchedAt: string; 
 export const api = {
   // --- auth ---
   authStatus: () => fetch('/api/auth/status').then((r) => json<AuthStatus>(r)),
-  setup: (username: string, password: string) =>
-    fetch('/api/auth/setup', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ username, password }) })
-      .then((r) => json<{ ok: boolean; user: User }>(r)),
-  signup: (username: string, password: string) =>
-    fetch('/api/auth/signup', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ username, password }) })
-      .then((r) => json<{ ok: boolean; user: User }>(r)),
-  login: (username: string, password: string) =>
-    fetch('/api/auth/login', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ username, password }) })
-      .then((r) => json<{ ok: boolean; user: User }>(r)),
   logout: () => fetch('/api/auth/logout', { method: 'POST' }).then((r) => json<{ ok: boolean }>(r)),
+  setHandle: (username: string) =>
+    fetch('/api/auth/me', { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ username }) }).then((r) => json<User>(r)),
 
   // --- users (admin) ---
   users: () => fetch('/api/users').then((r) => json<User[]>(r)),
-  createUser: (username: string, password: string, role: Role) =>
-    fetch('/api/users', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ username, password, role }) })
-      .then((r) => json<User>(r)),
-  updateUser: (id: string, patch: { role?: Role; password?: string }) =>
+  updateUser: (id: string, patch: { role?: Role; banned?: boolean }) =>
     fetch(`/api/users/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(patch) }).then((r) => json<User>(r)),
   deleteUser: (id: string) => fetch(`/api/users/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
 

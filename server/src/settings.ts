@@ -4,7 +4,6 @@ import { Db } from './db.js';
 export interface Settings {
   home: { name: string; lat: number; lng: number; radiusKm: number };
   areas: { name: string; lat: number; lng: number; radiusKm: number }[];
-  allowSignup: boolean;
   /** Lets remotes resolve to a private/loopback/link-local IP. For LAN setups. */
   allowPrivateRemotes: boolean;
   eventScoutUrl: string;
@@ -17,7 +16,6 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   home: { name: 'Bathurst', lat: -33.419, lng: 149.577, radiusKm: 100 },
   areas: [],
-  allowSignup: false,
   allowPrivateRemotes: false,
   eventScoutUrl: '',
   tfnswApiKey: '',
@@ -53,6 +51,46 @@ export function publicSettings(settings: Settings): PublicSettings {
 }
 
 /**
+ * What an account that is not an admin is told: where the map opens and
+ * which optional feeds are switched on. Not where event-scout lives, which is
+ * an address inside the operator's network, nor who may read the API from
+ * elsewhere.
+ */
+export function memberSettings(settings: Settings) {
+  return {
+    home: settings.home,
+    areas: settings.areas,
+    tfnswApiKeySet: Boolean(settings.tfnswApiKey),
+    eventScoutSet: Boolean(settings.eventScoutUrl),
+  };
+}
+
+const isArea = (v: unknown): v is Settings['home'] => {
+  const a = v as Settings['home'];
+  return Boolean(a) && typeof a === 'object' && typeof a.name === 'string' && a.name.length <= 100 &&
+    Number.isFinite(a.lat) && Math.abs(a.lat) <= 90 && Number.isFinite(a.lng) && Math.abs(a.lng) <= 180 &&
+    Number.isFinite(a.radiusKm) && a.radiusKm > 0 && a.radiusKm <= 1000;
+};
+
+/**
+ * The settings a PUT may change, each checked. Anything else in the body is
+ * dropped: it used to be spread straight into what was stored.
+ */
+export function cleanSettingsBody(body: Record<string, unknown>): Partial<Settings> {
+  const out: Partial<Settings> = {};
+  if (isArea(body.home)) out.home = { name: body.home.name, lat: body.home.lat, lng: body.home.lng, radiusKm: body.home.radiusKm };
+  if (Array.isArray(body.areas) && body.areas.length <= 50 && body.areas.every(isArea)) {
+    out.areas = body.areas.map((a) => ({ name: a.name, lat: a.lat, lng: a.lng, radiusKm: a.radiusKm }));
+  }
+  if (typeof body.allowPrivateRemotes === 'boolean') out.allowPrivateRemotes = body.allowPrivateRemotes;
+  if (typeof body.eventScoutUrl === 'string' && body.eventScoutUrl.length <= 500) out.eventScoutUrl = body.eventScoutUrl.trim();
+  if (Array.isArray(body.corsOrigins) && body.corsOrigins.length <= 50 && body.corsOrigins.every((o) => typeof o === 'string' && o.length <= 300)) {
+    out.corsOrigins = body.corsOrigins as string[];
+  }
+  return out;
+}
+
+/**
  * Apply a PUT body. The key is only replaced by a non-empty string, cleared by
  * `clearTfnswApiKey: true`, and otherwise kept. Returns whether it changed.
  */
@@ -60,7 +98,7 @@ export function applySettingsUpdate(db: Db, body: Record<string, unknown>): { se
   const raw = db.getKv('settings');
   const stored: Settings = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
   const { tfnswApiKey, clearTfnswApiKey, tfnswApiKeySet: _s, tfnswApiKeyFromEnv: _e, ...rest } = body;
-  const next: Settings = { ...stored, ...(rest as Partial<Settings>), tfnswApiKey: stored.tfnswApiKey ?? '' };
+  const next: Settings = { ...stored, ...cleanSettingsBody(rest), tfnswApiKey: stored.tfnswApiKey ?? '' };
   // Don't persist env-pinned values as if the user typed them.
   if (process.env.EVENT_SCOUT_URL) next.eventScoutUrl = stored.eventScoutUrl;
   let keyChanged = false;

@@ -3,7 +3,7 @@ import { api, GeocodeResult, Role, Settings as SettingsType, TaskStatus, TrainsS
 
 type Area = SettingsType['home'];
 
-export default function Settings({ user }: { user: User | null }) {
+export default function Settings({ user, account, onChange }: { user: User | null; account: string | null; onChange: () => void }) {
   const isAdmin = user?.role === 'admin';
   const [draft, setDraft] = useState<SettingsType | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -136,16 +136,15 @@ export default function Settings({ user }: { user: User | null }) {
           ))}
         </section>}
 
-        {tab === 'instance' && <section>
+        {tab === 'account' && user && <Account user={user} account={account} onChange={onChange} />}
+
+        {tab === 'instance' && isAdmin && <section>
           <h2>🔗 Instance</h2>
           <div className="formrow"><label>Event Scout URL</label>
             <input value={draft.eventScoutUrl} placeholder="http://event-scout:3001" onChange={(e) => { set({ eventScoutUrl: e.target.value }); setScoutTest(null); }} />
             <button type="button" onClick={() => void testScout()} disabled={!draft.eventScoutUrl || scoutTesting}>{scoutTesting ? 'Testing…' : 'Test'}</button>
           </div>
           {scoutTest && <div className={`status-line ${scoutTest.ok ? 'ok' : 'error'}`}>{scoutTest.ok ? '●' : '✕'} {scoutTest.message}</div>}
-          <div className="formrow"><label>Allow sign-up</label>
-            <input type="checkbox" checked={draft.allowSignup} onChange={(e) => set({ allowSignup: e.target.checked })} />
-            <span className="hint">New accounts are contributors.</span></div>
           <div className="formrow"><label>Private remotes</label>
             <input type="checkbox" checked={draft.allowPrivateRemotes} onChange={(e) => set({ allowPrivateRemotes: e.target.checked })} />
             <span className="hint">Let remotes resolve to LAN addresses.</span></div>
@@ -194,10 +193,11 @@ export default function Settings({ user }: { user: User | null }) {
   );
 }
 
-type Tab = 'home' | 'instance' | 'feeds' | 'tasks' | 'users';
+type Tab = 'home' | 'account' | 'instance' | 'feeds' | 'tasks' | 'users';
 const TABS: { id: Tab; label: string; admin?: boolean }[] = [
   { id: 'home', label: 'Home & areas' },
-  { id: 'instance', label: 'Instance' },
+  { id: 'account', label: 'Account' },
+  { id: 'instance', label: 'Instance', admin: true },
   { id: 'feeds', label: 'Trains' },
   { id: 'tasks', label: 'Tasks', admin: true },
   { id: 'users', label: 'Users', admin: true },
@@ -237,11 +237,40 @@ function Tasks() {
   );
 }
 
+function Account({ user, account, onChange }: { user: User; account: string | null; onChange: () => void }) {
+  const [handle, setHandle] = useState(user.username);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    try {
+      await api.setHandle(handle.trim());
+      setMessage('Saved');
+      onChange();
+    } catch (err) { setError((err as Error).message); }
+  }
+
+  return (
+    <section>
+      <h2>👤 Account</h2>
+      <form className="formrow" onSubmit={save}>
+        <label>Handle</label>
+        <input value={handle} minLength={3} maxLength={24} pattern="[A-Za-z0-9_]+" onChange={(e) => setHandle(e.target.value)} required />
+        <button type="submit" disabled={handle.trim() === user.username}>Save</button>
+      </form>
+      <p className="hint">3 to 24 letters, digits or underscores. This is the name other people see.</p>
+      {message && <p className="status-line ok">{message}</p>}
+      {error && <p className="status-line error">{error}</p>}
+      {account && <p className="hint mt-12">Account id: <code>{account}</code></p>}
+    </section>
+  );
+}
+
 function Users({ me }: { me: User }) {
   const [users, setUsers] = useState<User[]>([]);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role>('contributor');
   const [error, setError] = useState('');
 
   const load = () => api.users().then(setUsers).catch((err) => setError((err as Error).message));
@@ -252,13 +281,6 @@ function Users({ me }: { me: User }) {
     try { await fn(); await load(); } catch (err) { setError((err as Error).message); }
   };
 
-  async function add(e: FormEvent) {
-    e.preventDefault();
-    await run(() => api.createUser(username, password, role));
-    setUsername('');
-    setPassword('');
-  }
-
   return (
     <section>
       <h2>👥 Users</h2>
@@ -267,7 +289,7 @@ function Users({ me }: { me: User }) {
         <tbody>
           {users.map((u) => (
             <tr key={u.id}>
-              <td>{u.username}{u.id === me.id && <span className="hint"> (you)</span>}</td>
+              <td>{u.username}{u.id === me.id && <span className="hint"> (you)</span>}{u.banned && <span className="hint"> · suspended</span>}</td>
               <td>
                 <select value={u.role} disabled={u.id === me.id} style={{ width: 'auto' }} onChange={(e) => void run(() => api.updateUser(u.id, { role: e.target.value as Role }))}>
                   <option value="contributor">contributor</option>
@@ -276,25 +298,13 @@ function Users({ me }: { me: User }) {
               </td>
               <td className="hint">{new Date(u.created_at).toLocaleDateString()}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
-                <button onClick={() => {
-                  const pw = prompt(`New password for ${u.username} (8+ characters)`);
-                  if (pw) void run(() => api.updateUser(u.id, { password: pw }));
-                }}>Reset password</button>{' '}
+                {u.id !== me.id && <button onClick={() => void run(() => api.updateUser(u.id, { banned: !u.banned }))}>{u.banned ? 'Reinstate' : 'Suspend'}</button>}{' '}
                 {u.id !== me.id && <button onClick={() => { if (confirm(`Delete ${u.username}?`)) void run(() => api.deleteUser(u.id)); }}>Delete</button>}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <form className="feedrow" style={{ marginTop: 12 }} onSubmit={add}>
-        <input value={username} placeholder="Username" onChange={(e) => setUsername(e.target.value)} required />
-        <input type="password" value={password} placeholder="Password (8+)" minLength={8} onChange={(e) => setPassword(e.target.value)} required />
-        <select value={role} style={{ width: 'auto' }} onChange={(e) => setRole(e.target.value as Role)}>
-          <option value="contributor">contributor</option>
-          <option value="admin">admin</option>
-        </select>
-        <button type="submit">Add user</button>
-      </form>
       {error && <p className="status-line error">{error}</p>}
     </section>
   );

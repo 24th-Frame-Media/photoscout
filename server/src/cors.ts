@@ -1,4 +1,4 @@
-import { InstanceMode, needsAuth } from './auth.js';
+import { needsAuth } from './auth.js';
 
 /**
  * Cross-origin reads, for the origins the operator named. Adapted from
@@ -39,7 +39,7 @@ export interface CorsDecision {
   preflight: boolean;
 }
 
-export function corsDecision(req: CorsRequest, allowed: string[], mode: InstanceMode): CorsDecision | null {
+export function corsDecision(req: CorsRequest, allowed: string[]): CorsDecision | null {
   if (allowed.length === 0) return null;
   const origin = matchOrigin(req.origin, allowed);
   if (!origin) return null;
@@ -47,7 +47,7 @@ export function corsDecision(req: CorsRequest, allowed: string[], mode: Instance
   const preflight = req.method === 'OPTIONS' && Boolean(req.requestMethod);
   const method = preflight ? req.requestMethod! : req.method;
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return null;
-  if (needsAuth(method, req.path, mode)) return null;
+  if (needsAuth(method, req.path)) return null;
 
   const headers: Record<string, string> = {
     'Access-Control-Allow-Origin': origin,

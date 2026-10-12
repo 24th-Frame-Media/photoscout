@@ -11,14 +11,29 @@ export const photosDir = path.join(dataDir, 'photos');
 fs.mkdirSync(photosDir, { recursive: true });
 
 const SCHEMA = `
+-- No passwords: an account is whoever a sign-in provider says it is.
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  username TEXT NOT NULL UNIQUE,
-  pw_hash TEXT NOT NULL,
-  pw_salt TEXT NOT NULL,
+  username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  provider TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  avatar TEXT NOT NULL DEFAULT '',
   role TEXT NOT NULL DEFAULT 'contributor',
-  created_at TEXT NOT NULL
+  banned INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  UNIQUE (provider, provider_id)
 );
+
+-- Kept here rather than signed into the cookie, so signing out, a ban or a
+-- change of role takes effect on the next request. The id is the SHA-256 of
+-- the cookie's value: a copy of this table signs nobody in.
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
 CREATE TABLE IF NOT EXISTS places (
   id TEXT PRIMARY KEY,
