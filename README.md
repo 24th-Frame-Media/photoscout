@@ -9,8 +9,8 @@ A map of photography spots, the events worth shooting, and when the light works 
 - **Spots and places.** Save spots (a point, a facing direction, a field of view, notes, photos, "good times") grouped into places with outlines. GPS is read from uploaded photos, then stripped before they're stored.
 - **Light on the map.** A time slider drives sun and moon position, golden and blue hour, terrain and building shadows, and sun/moon alignment with each spot's facing direction.
 - **Plan shoot.** Pick a spot and a date range, tick what you're after (golden light, open shade, alignment, clear sky, trains…), and get ranked time windows. Drill into a day's light, shade and weather, preview the view from the spot, or find the exact dates the sun lines up with a bearing on a small interactive map.
-- **Live feeds.** Planes overhead (adsb.lol), NSW passenger trains (TfNSW), a rail network layer with crowdsourced freight sightings, nearby crowds from [event-scout](../event-scout), Wikimedia Commons photos, and OpenStreetMap suggestions you can turn into spots.
-- **Events.** Upcoming events from event-scout on an Events page, a Calendar and a clustered map layer. Anyone can browse them; signed-in users keep their own shortlist and hide what they don't want. Managing sources, settings and merges stays in event-scout itself.
+- **Live feeds.** Planes overhead (adsb.lol), NSW passenger trains (TfNSW), a rail network layer with crowdsourced freight sightings, nearby crowds from the built-in events engine, Wikimedia Commons photos, and OpenStreetMap suggestions you can turn into spots.
+- **Events.** The events engine (what was event-scout) runs inside this server: it gathers upcoming events from the sources an admin switches on, places and culls them, and shows them on an Events page, a Calendar and a clustered map layer. Anyone can browse them; signed-in users keep their own shortlist and hide what they don't want. Admins manage areas, sources, the crawler, the local model and notifications under Settings.
 - **Import, export, share.** KML/KMZ, GPX, GeoJSON, CSV and Google Takeout in; GeoJSON, GPX or a zip with photos out. Share links, and syncing spots from other instances.
 - **Accounts.** Sign in with Google or Discord; there are no passwords. Anonymous visitors see public spots, places and routes, and the events. Signed-in contributors add and edit their own; admins manage everyone's, the users and the settings.
 
@@ -69,19 +69,20 @@ The session cookie is `Secure`, so run it behind HTTPS. Browsers make an excepti
 | `TRUST_PROXY` | — | Behind a reverse proxy: hops to trust `X-Forwarded-For` from. |
 | `DATA_DIR` | `data/` in the repo (`/app/data` in the image) | Where the database and photos are kept. |
 | `TFNSW_API_KEY` | — | TfNSW Open Data key, for passenger trains and live traffic cameras. |
-| `EVENT_SCOUT_URL` | — | event-scout base URL, for the Events pages and map layer, and nearby events and crowds. Wins over the URL in Settings. Only this server talks to event-scout, so it can stay internal; from a container, use a shared Docker network and its service name, or `http://host.docker.internal:<port>`. |
+| `EVENT_SCOUT_DATA` | `<DATA_DIR>/events` | Where the events engine keeps its own database (`event-scout.db`) and flyers. To bring an existing event-scout across, copy its `data/` folder here. |
 | `ADSB_URL` | `https://api.adsb.lol` | Planes feed; airplanes.live also works. |
 | `OVERPASS_URL` | — | OpenStreetMap Overpass server to try first (rail, suggestions); public mirrors are tried after it. |
 | `TZ` | `Australia/Sydney` | What counts as "today" and when daily tasks run. |
 
-Any feed without its key or URL shows "not configured" instead of failing; with no `EVENT_SCOUT_URL` the Events page is simply empty.
+Any feed without its key shows "not configured" instead of failing; until an admin sets a location under Settings → Events, the Events page is simply empty.
 
 ## How it works
 
 ```
 server/   Express API, SQLite (node:sqlite), feeds and background tasks
   src/feeds/    planes, trains (GTFS static + realtime), freight, weather, event-scout
-  src/events.ts the events list for visitors (cut down from event-scout, cached a minute) and each user's star/hide
+  src/events/   the events engine: sources, refresh, culling, geocoding, density, the local model, notifications, its tasks
+  src/events.ts the events list for visitors (cut down from the engine, cached a minute) and each user's star/hide
   src/sources/  OSM rail and candidates, Wikimedia Commons
   src/tasks/    scheduled background jobs (remote sync, feed imports)
 web/      React 19 + Vite + MapLibre
@@ -92,7 +93,7 @@ docs/     API reference and research notes
 
 - **Sun and moon** positions use [suncalc](https://github.com/mourner/suncalc) in `web/src/map/sun.ts`, all client-side, so the time slider is instant.
 - **Shadows** are one raster. Terrain shadows are ray-marched over elevation tiles (AWS Terrain Tiles) in a worker, and building footprints are drawn into the same mask so overlaps don't darken twice.
-- **Events.** event-scout is never exposed to the browser. This server fetches its list, drops what it has culled or hidden, passes on only the fields the pages need, and keeps the result for a minute so visitors can't make it hammer event-scout.
+- **Events.** The engine's own API (`/api/events-admin/*`) is for admins only. Everyone else gets a cut-down list: what the engine has culled or hidden is dropped, only the fields the pages need are passed on, and the result is kept for a minute so visitors can't make the server rebuild it on every request. The crawler, which drives a headless browser against other people's sites, stays a separate container.
 - **Remotes and shares.** A share link is a token that returns a GeoJSON bundle. Another instance adds it as a remote and syncs daily. Remote URLs are SSRF-guarded.
 - **Trains.** Passenger trains come from TfNSW timetables plus realtime positions. Freight has no public feed ([why](docs/freight-schedule-research.md)), so it's built from logged sightings snapped to the rail network.
 

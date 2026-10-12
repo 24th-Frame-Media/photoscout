@@ -5,8 +5,8 @@ import type {
 
 export * from './types.js';
 
-/** Every call goes through PhotoScout's admin-only proxy; the browser never talks to the events service. */
-const BASE = '/api/eventscout/proxy';
+/** The events engine's own API, which the server only opens to admins. */
+const BASE = '/api/events-admin';
 
 /** The events service has no address yet (the proxy answers 503). */
 export class NotSetUp extends Error {

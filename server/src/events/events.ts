@@ -1,0 +1,602 @@
+import crypto from 'node:crypto';
+import { db, getSettings } from './db.js';
+import { groupStart, isOver } from './validate.js';
+import { normalizeTitle } from './dedupe.js';
+import { localityOf, regionOf } from './regions.js';
+import { flyerHref } from './flyers.js';
+import { storedPath } from './flyerStore.js';
+import { countriesOfAreas, hubsFromSettings, placeEvents, regionsOfAreas } from './places.js';
+import { cachedGeocode } from './geocode.js';
+import { AREA_SLACK, haversineKm } from './shared/geo.js';
+import { cullReason, localSites, siteOf, vetting } from './cull.js';
+import { anchorQueries, coordsDisagree, isPlace, pickAnchor, pickAreaHit, statedOf } from './locate.js';
+import { vettingOn } from './enrich/pipeline.js';
+import { chooseFields, EditError, orderMembers, parseEditPatch } from './merge.js';
+import type { EditableField } from './merge.js';
+
+export { EditError } from './merge.js';
+import type { EnrichedBy, EventRow } from './merge.js';
+
+// Re-exported so an event's shape stays importable from one place.
+export { chooseFields } from './merge.js';
+export type { ChosenFields, EnrichedBy, EventRow } from './merge.js';
+
+export interface EventMember {
+  id: number;
+  source: string;
+  title: string;
+  url: string;
+  imageUrl: string;
+  startTime: string;
+  venueName: string;
+  /** Picked by hand as the listing that speaks for the event. */
+  parent: boolean;
+}
+
+export interface MergedEvent {
+  group: string;
+  title: string;
+  /** The title as the listing gave it, when a model's name for the event is shown instead; '' otherwise. */
+  rawTitle: string;
+  description: string;
+  startTime: string;
+  endTime: string | null;
+  venueName: string;
+  address: string;
+  /** The suburb or town the address names, '' when it names none. */
+  locality: string;
+  /**
+   * The town this rounds to, out of the ones the user searches — or, further
+   * out inside one of their areas, its own town. '' means nowhere near any of
+   * them. See places.ts.
+   */
+  place: string;
+  /** The searched area it lies in, '' when none: Bathurst for a Portland event. */
+  area: string;
+  lat: number | null;
+  lng: number | null;
+  imageUrl: string;
+  category: string;
+  priceText: string;
+  isOnline: boolean;
+  /**
+   * The start carries a day and no clock time: the listing said "Thursday"
+   * and nothing more. Shown as the day alone rather than a made-up hour.
+   */
+  dateOnly: boolean;
+  photoScore: number;
+  starred: boolean;
+  hidden: boolean;
+  /**
+   * When the first of its listings was found, or null when one of them
+   * predates the app keeping track. The earliest rather than the latest: a
+   * second site listing an event already known is not a new event.
+   */
+  firstSeenAt: string | null;
+  /**
+   * When it could first be seen: firstSeenAt, or later, when it waited for the
+   * model to check it. What "new" means to notifications. See vetting below.
+   */
+  shownAt: string | null;
+  /** The model's reason this is not an event, '' when it is or has not said. */
+  notEvent: string;
+  /** New and waiting for the model to check it, so kept out of sight for now. */
+  pending: boolean;
+  /** The model is checking listings and has not passed this one. */
+  unvetted?: boolean;
+  /**
+   * No coordinates, no venue, no address, no town: nothing to say where it is.
+   * Shown as "Unknown location", and culled unless something else says it is
+   * local. See unplacedReason in cull.ts.
+   */
+  unknownLocation: boolean;
+  /**
+   * Why this is out of sight on its own — outside every area, or in a category
+   * switched off in Settings — or null when it is not. See cull.ts.
+   */
+  culled: string | null;
+  sources: { source: string; url: string }[];
+  /** Every distinct image across the members, best first. */
+  images: string[];
+  /** The listings behind this event, so a merge can be reviewed and undone. */
+  members: EventMember[];
+  /** True when a person merged these rather than the deduper. */
+  manual: boolean;
+  /**
+   * The repeating series this is one date of: the same name at the same place.
+   * Every date is its own event — the calendar needs them apart — and the
+   * Events page folds a series into one card. See seriesKey.
+   */
+  series: string;
+  /**
+   * A line of practical detail read off the flyer — when gates open, which
+   * entrance to use. Shown as it is; nothing is derived from it, least of all
+   * the start time, which flyers and models between them get wrong.
+   */
+  note: string;
+  /**
+   * Which of the fields above you are reading a model's answer for.
+   *
+   * The columns have always been kept apart in the database, but everything
+   * above this line is the result of choosing between them, and by the time it
+   * reaches a reader a rewritten blurb looks exactly like a scraped one. This
+   * says which is which: `model` for the text pass, `flyer` for the vision one.
+   * Absent fields are as the source published them.
+   */
+  enriched: Record<string, EnrichedBy>;
+  /**
+   * The fields a person changed by hand, in edit mode. These beat the scraped
+   * value, the flyer and the model alike, and clearing one puts back whatever
+   * would have been shown.
+   */
+  edited: string[];
+  /**
+   * The blurb as published, when what is shown is not it — a model rewrote it,
+   * or someone edited it. '' when the two are the same. The page offers it as a
+   * toggle, so a rewrite that lost something can be read as it was written.
+   */
+  rawDescription: string;
+}
+
+/**
+ * The key an event row groups under.
+ *
+ * A manual merge wins over the automatic one: the deduper reruns on every
+ * refresh and would otherwise pull a hand-merged pair back apart.
+ */
+function groupKey(row: EventRow): string {
+  return row.manual_group || row.dedupe_group || `solo-${row.id}`;
+}
+
+/**
+ * The same name at the same place, on whatever day.
+ *
+ * Orange council publishes a page per date for a class that runs all term —
+ * /event/highland-dancing-classes-during-school-terms/2026-09-11/, then the
+ * 15th, then the 18th — so it arrives as twenty-seven listings with twenty-
+ * seven addresses, and the deduper, rightly, keeps listings on different days
+ * apart. This is the key that says they are one thing happening repeatedly.
+ */
+function seriesKey(title: string, place: string): string {
+  return crypto
+    .createHash('sha1')
+    .update(`${normalizeTitle(title)}|${normalizeTitle(place)}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+/**
+ * Merge rows sharing a group into one event, preferring the richest fields.
+ *
+ * Upcoming events by default; `archived` asks for the past ones instead —
+ * everything archived, and everything over that the archive timer has not
+ * reached yet, which would otherwise be in neither list for up to a day.
+ */
+// ponytail: module-global counter, single process only — fine here since the
+// server runs as one process; a multi-instance deploy would need a shared
+// store (e.g. a DB row) instead.
+let version = 0;
+
+/** Bumped by every write that can change what getMergedEvents() returns. */
+export function bumpEventsVersion(): void {
+  version += 1;
+}
+
+/** The current cache generation, for building an ETag off it. */
+export function eventsVersion(): number {
+  return version;
+}
+
+const mergedCache = new Map<boolean, { version: number; data: MergedEvent[] }>();
+
+/**
+ * Cached wrapper around the actual computation below.
+ *
+ * Recomputing this list touches geocoding, region lookups and dedupe for
+ * every event on every request; it is the same answer until something writes
+ * to the events table, so it is kept until `bumpEventsVersion` says otherwise.
+ */
+export function getMergedEvents(opts: { archived?: boolean } = {}): MergedEvent[] {
+  const archived = opts.archived ?? false;
+  const hit = mergedCache.get(archived);
+  if (hit && hit.version === version) return hit.data;
+  const data = computeMergedEvents(archived);
+  mergedCache.set(archived, { version, data });
+  return data;
+}
+
+function computeMergedEvents(archived: boolean): MergedEvent[] {
+  const opts = { archived };
+  const rows = db
+    .prepare(
+      `SELECT e.*, x.ok AS enrichment_ok, x.note AS enrichment_note, x.enriched_at AS enrichment_at
+         FROM events e
+         LEFT JOIN event_enrichment x ON x.event_id = e.id
+        ${opts.archived ? '' : 'WHERE e.archived = 0 '}
+        ORDER BY e.start_time ASC`
+    )
+    .all() as unknown as (EventRow & { enrichment_ok: number | null; enrichment_note: string | null; enrichment_at: string | null })[];
+  const archivedGroups = new Set<string>();
+  const vetOn = vettingOn();
+
+  type MergedRow = EventRow & { enrichment_ok?: number | null; enrichment_note?: string | null; enrichment_at?: string | null };
+  const byGroup = new Map<string, MergedRow[]>();
+  for (const row of rows) {
+    const key = groupKey(row);
+    const list = byGroup.get(key);
+    if (list) list.push(row);
+    else byGroup.set(key, [row]);
+  }
+
+  const merged: MergedEvent[] = [];
+  for (const [group, found] of byGroup) {
+    // The listing that speaks for the event first: every field below is taken
+    // from the first member with something to say. See orderMembers.
+    const members = orderMembers(found);
+    const parent = members.find((m) => m.manual_parent === 1);
+    if (members.every((m) => m.archived === 1)) archivedGroups.add(group);
+    const chosen = chooseFields(members);
+    const bestDescription = chosen.description;
+    const { venueName, address, note, enriched } = chosen;
+    // A merge is worth doing partly for this: a listing with no picture
+    // inherits one from its twin. Distinct images are kept so nothing is lost.
+    const images = [...new Set(members.map((m) => m.image_url).filter(Boolean))];
+    // The stored copies go last, so the original is still preferred and the
+    // copy is only reached when the browser finds the original will not load.
+    // EventImage walks this list on error, so the fallback costs nothing here.
+    for (const m of members) {
+      if (!m.image_url) continue;
+      const kept = storedPath(m.image_url, m.start_time);
+      if (kept) images.push(flyerHref(kept));
+    }
+    // A flyer picked by hand leads, so the card and the detail both show it
+    // rather than whichever listing's picture happened to come first.
+    const shownImages = chosen.imageUrl
+      ? [chosen.imageUrl, ...images.filter((src) => src !== chosen.imageUrl)]
+      : images;
+
+    // Derived here rather than in the browser: reading a locality out of an
+    // address means knowing every country's postal tail, and that table
+    // belongs in one place. See regions.ts. The venue field is tried too,
+    // because a good few sources put the street address in it and leave the
+    // address empty — those are exactly the rows that need a locality most,
+    // since without one they head their own group by street number.
+    const locality = localityOf(address) || localityOf(venueName);
+    const firstSeenAt = members.some((m) => !m.first_seen_at)
+      ? null
+      : members.map((m) => m.first_seen_at as string).sort()[0];
+
+    merged.push({
+      group,
+      title: chosen.title,
+      rawTitle: chosen.rawTitle,
+      description: bestDescription,
+      // Not members[0]: rows arrive sorted by start, so a lone listing with a
+      // date a day early would set the whole group's day. The date most
+      // members agree on is the one to show.
+      // The main listing's own dates when one was picked: the posts merged in
+      // with it are about the event, and date themselves by when they posted.
+      ...groupStart(parent ? [parent] : members, chosen.startTime),
+      endTime: (parent ? parent.end_time : members.find((m) => m.end_time)?.end_time) ?? null,
+      venueName,
+      address,
+      locality,
+      // Filled in below, once every event is known: which town an event
+      // rounds to depends on what the others taught about its suburb.
+      place: '',
+      area: '',
+      lat: members.find((m) => m.lat != null)?.lat ?? null,
+      lng: members.find((m) => m.lng != null)?.lng ?? null,
+      imageUrl: shownImages[0] ?? '',
+      images: shownImages,
+      category: chosen.category,
+      priceText: chosen.priceText,
+      isOnline: members.every((m) => m.is_online === 1),
+      photoScore: chosen.photoScore,
+      starred: members.some((m) => m.starred === 1),
+      hidden: members.some((m) => m.hidden === 1),
+      firstSeenAt,
+      ...vetting(
+        members.map((m) => ({
+          llm_vet_note: m.llm_vet_note,
+          llm_vetted_at: m.llm_vetted_at,
+          enrichment_failed: m.enrichment_ok === 0,
+        })),
+        firstSeenAt,
+        vetOn
+      ),
+      unknownLocation:
+        !members.some((m) => m.lat != null && m.lng != null) && !venueName && !address && !locality,
+      // Decided below, with the place.
+      culled: null,
+      sources: members.map((m) => ({ source: m.source, url: m.url })),
+      members: members.map((m) => ({
+        id: m.id,
+        source: m.source,
+        title: m.title,
+        url: m.url,
+        imageUrl: m.image_url,
+        startTime: m.start_time,
+        venueName: m.venue_name,
+        parent: m.manual_parent === 1,
+      })),
+      manual: Boolean(members[0].manual_group),
+      series: seriesKey(chosen.title, venueName || locality || address),
+      note,
+      enriched,
+      edited: chosen.edited,
+      rawDescription: chosen.rawDescription === bestDescription ? '' : chosen.rawDescription,
+    });
+  }
+  // Events that have been and gone are dropped here as well as archived on a
+  // timer, so the list is right the moment it is read. Archiving used to be
+  // the only thing that removed them and it only ran inside a refresh — so a
+  // refresh that failed, or simply was not due, left yesterday at the top of
+  // the page. See isOver and archivePastEvents.
+  const live = opts.archived
+    ? merged.filter((ev) => archivedGroups.has(ev.group) || isOver(ev.startTime, ev.endTime))
+    : merged.filter((ev) => !isOver(ev.startTime, ev.endTime));
+
+  // After the past ones are gone, so that a town is offered on the strength of
+  // the events still to come rather than of last month's.
+  const settings = getSettings();
+  const positionOf = (name: string): { lat: number; lng: number } | null => pickAreaHit(cachedGeocode(name) ?? [], '');
+  // A position that contradicts the town the listing names is not believed:
+  // events placed before locate.ts existed sit on a street in the area that
+  // happens to share a far town's name. See coordsDisagree.
+  const hubs = hubsFromSettings(settings, positionOf);
+  const areaNames = [settings.city ?? '', ...(settings.eventAreas ?? []).map((a) => a.name)].filter(Boolean);
+  const countries = countriesOfAreas([
+    { name: settings.city ?? '', lat: settings.lat, lng: settings.lng },
+    ...(settings.eventAreas ?? []),
+  ].filter((a) => a.name));
+  for (const ev of live) {
+    if (ev.lat == null || ev.lng == null) continue;
+    const stated = statedOf(ev.venueName, ev.address);
+    const hits = anchorQueries(stated).flatMap((q) => cachedGeocode(q) ?? []);
+    const anchor = pickAnchor(hits, { region: stated.region, areas: hubs, slack: AREA_SLACK, countries });
+    // Dropped, never replaced. A town's own pin is the wrong place to put an
+    // event, and the cached answer for a bare town name is what put Penrith
+    // RSL in England; without coordinates the town still decides the heading.
+    if (anchor && isPlace(anchor) && coordsDisagree({ lat: ev.lat, lng: ev.lng }, anchor)) {
+      ev.lat = null;
+      ev.lng = null;
+    }
+  }
+  const areaRegions = regionsOfAreas(areaNames);
+  const regionOfEvent = (ev: MergedEvent): string => regionOf(ev.address) || regionOf(ev.venueName);
+  placeEvents(live.map((ev) => ({ ...ev, region: regionOfEvent(ev) })), hubs).forEach(({ place, area, badCoords }, i) => {
+    live[i].place = place;
+    live[i].area = area;
+    // A position from the wrong state — a Bolton Street in Bathurst for one
+    // in Eltham, Victoria — is not drawn, measured or culled by.
+    if (badCoords || pinFarFromItsArea(live[i], area, hubs)) {
+      live[i].lat = null;
+      live[i].lng = null;
+    }
+  });
+  // After the places, since an event that rounds to one of the towns is in it
+  // whatever its coordinates say. A town looked up by name counts only where
+  // it is in the region the address states, for the same reason as above.
+  const local = localSites(
+    live.map((ev) => ({
+      url: ev.sources[0]?.url,
+      area: ev.area,
+      elsewhere: !ev.area && (ev.lat != null || Boolean(ev.locality) || Boolean(regionOfEvent(ev))),
+    }))
+  );
+  for (const ev of live) {
+    const region = regionOfEvent(ev);
+    const localSite = local.has(siteOf(ev.sources[0]?.url));
+    ev.culled = cullReason({ ...ev, region, localSite }, hubs, { ...settings, areaRegions }, (name) =>
+      (cachedGeocode(name) ?? []).filter((hit) => !region || !regionOf(hit.displayName) || regionOf(hit.displayName) === region)
+    );
+  }
+
+  live.sort((a, b) =>
+    opts.archived ? b.startTime.localeCompare(a.startTime) : a.startTime.localeCompare(b.startTime)
+  );
+  return live;
+}
+
+/**
+ * Whether an event filed under an area by its town's name has a pin nowhere
+ * near that area.
+ *
+ * The name is the better evidence: Kelso is a suburb of Bathurst that every
+ * other Kelso listing taught, and the pin on this one was the Kelso in
+ * Scotland, found while the areas' country could not be told. Dropping the
+ * pin keeps the event under its town and off the wrong side of the map.
+ */
+export function pinFarFromItsArea(
+  ev: { lat: number | null; lng: number | null },
+  area: string,
+  hubs: { name: string; lat: number | null; lng: number | null; radiusKm: number }[]
+): boolean {
+  const hub = hubs.find((h) => h.name === area);
+  if (!hub || hub.lat == null || hub.lng == null || ev.lat == null || ev.lng == null) return false;
+  return haversineKm(ev.lat, ev.lng, hub.lat, hub.lng) > hub.radiusKm * AREA_SLACK;
+}
+
+/**
+ * One event by its group key, upcoming or past.
+ *
+ * Merged through the same path as the list rather than assembled from the rows
+ * directly, because `place` is decided by looking at every other event — a
+ * suburb rounds to a town on the strength of what its neighbours taught. Built
+ * alone it would sometimes differ from the same event in the list, which is a
+ * worse trade than the cost of merging twice.
+ */
+/**
+ * The list view's shape: everything the Events grid uses, minus the two
+ * fields only the detail view reads (rawTitle, rawDescription) and the
+ * per-member detail (url/imageUrl/startTime/venueName) the grid never shows —
+ * it only counts members and reads their source/title. Full members and raw
+ * text are one `GET /api/events/:group` away when a card is opened.
+ */
+export type EventListItem = Omit<MergedEvent, 'rawTitle' | 'rawDescription' | 'members'> & {
+  members: Pick<EventMember, 'id' | 'source' | 'title' | 'parent'>[];
+};
+
+export function toListItem(ev: MergedEvent): EventListItem {
+  const { rawTitle: _rawTitle, rawDescription: _rawDescription, members, ...rest } = ev;
+  return { ...rest, members: members.map(({ id, source, title, parent }) => ({ id, source, title, parent })) };
+}
+
+export function getMergedEvent(group: string): MergedEvent | undefined {
+  return (
+    getMergedEvents().find((ev) => ev.group === group) ??
+    getMergedEvents({ archived: true }).find((ev) => ev.group === group)
+  );
+}
+
+/** The rows behind a group key, whichever kind of group it is. */
+function memberRows(group: string): EventRow[] {
+  if (group.startsWith('solo-')) {
+    const row = db
+      .prepare("SELECT * FROM events WHERE id = ? AND manual_group = ''")
+      .get(Number(group.slice(5))) as unknown as EventRow | undefined;
+    return row ? [row] : [];
+  }
+  return db
+    .prepare(
+      "SELECT * FROM events WHERE manual_group = ? OR (manual_group = '' AND dedupe_group = ?)"
+    )
+    .all(group, group) as unknown as EventRow[];
+}
+
+/** Wire field name -> the column its override lives in. */
+const EDIT_COLUMNS: Record<EditableField, string> = {
+  title: 'edit_title',
+  description: 'edit_description',
+  startTime: 'edit_start_time',
+  venueName: 'edit_venue_name',
+  address: 'edit_address',
+  category: 'edit_category',
+  priceText: 'edit_price_text',
+  imageUrl: 'edit_image_url',
+  photoScore: 'edit_photo_score',
+};
+
+/**
+ * Save hand edits onto every listing behind an event.
+ *
+ * Written to all the members rather than against the group, because a group id
+ * is derived from the title and the date — edit either and the id changes, and
+ * an override stored against the old one would be orphaned by the very edit
+ * that made it. The rows outlive that, which is why starred and hidden live
+ * there too.
+ */
+export function editGroup(group: string, patch: Record<string, unknown>): { updated: EditableField[] } {
+  const ids = memberRows(group).map((r) => r.id);
+  if (ids.length === 0) throw new EditError(`Unknown event: ${group}`);
+
+  const edits = parseEditPatch(patch);
+  const sets: string[] = [];
+  const values: (string | number)[] = [];
+  for (const { field, value } of edits) {
+    // The column name comes from this table, never from the request.
+    const column = EDIT_COLUMNS[field];
+    if (value === null) {
+      sets.push(`${column} = NULL`);
+    } else {
+      sets.push(`${column} = ?`);
+      values.push(value);
+    }
+  }
+
+  const stmt = db.prepare(`UPDATE events SET ${sets.join(', ')} WHERE id = ?`);
+  db.exec('BEGIN');
+  try {
+    for (const id of ids) stmt.run(...values, id);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  bumpEventsVersion();
+  return { updated: edits.map((e) => e.field) };
+}
+
+export function setGroupFlag(group: string, flag: 'starred' | 'hidden', value: boolean): void {
+  const ids = memberRows(group).map((r) => r.id);
+  if (ids.length === 0) return;
+  const stmt = db.prepare(`UPDATE events SET ${flag} = ? WHERE id = ?`);
+  for (const id of ids) stmt.run(value ? 1 : 0, id);
+  bumpEventsVersion();
+}
+
+/**
+ * Merge several groups into one.
+ *
+ * Every row behind every group is stamped with a shared manual group, so
+ * merging an already-merged event folds its members in too. The id is derived
+ * from the member ids, which makes the same merge idempotent.
+ */
+export function mergeGroups(groups: string[], parentGroup?: string): { group: string; merged: number } {
+  const ids = [...new Set(groups.flatMap((g) => memberRows(g).map((r) => r.id)))].sort((a, b) => a - b);
+  if (ids.length < 2) throw new Error('Merging needs at least two distinct events');
+
+  // The event picked as the main one gives its lead listing. Without a pick,
+  // any main listing chosen before is kept and the rest is left to orderMembers.
+  let parentId: number | undefined;
+  if (parentGroup) {
+    parentId = orderMembers(memberRows(parentGroup))[0]?.id;
+    if (parentId === undefined || !ids.includes(parentId)) {
+      throw new Error('The main listing has to be one of the events being merged');
+    }
+  }
+
+  const manual = 'm' + crypto.createHash('sha1').update(ids.join(',')).digest('hex').slice(0, 15);
+  const stmt = parentId === undefined
+    ? db.prepare('UPDATE events SET manual_group = ? WHERE id = ?')
+    : db.prepare('UPDATE events SET manual_group = ?, manual_parent = ? WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    for (const id of ids) {
+      if (parentId === undefined) stmt.run(manual, id);
+      else stmt.run(manual, id === parentId ? 1 : 0, id);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  bumpEventsVersion();
+  return { group: manual, merged: ids.length };
+}
+
+/**
+ * Make one listing the one that speaks for its event.
+ *
+ * On every member at once, so there is only ever one: the id has to be one of
+ * the rows behind the group, and the rest are cleared.
+ */
+export function setMergeParent(group: string, id: number): void {
+  const ids = memberRows(group).map((r) => r.id);
+  if (ids.length === 0) throw new EditError(`Unknown event: ${group}`);
+  if (!ids.includes(id)) throw new EditError(`Listing ${id} is not one of this event's`);
+  const stmt = db.prepare('UPDATE events SET manual_parent = ? WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    for (const member of ids) stmt.run(member === id ? 1 : 0, member);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  bumpEventsVersion();
+}
+
+/**
+ * Undo a manual merge. The members fall back to whatever the deduper says,
+ * which may still hold some of them together — that is the correct outcome,
+ * since those were duplicates before anyone intervened.
+ */
+export function unmergeGroup(group: string): { split: number } {
+  const info = db
+    .prepare("UPDATE events SET manual_group = '', manual_parent = 0 WHERE manual_group = ?")
+    .run(group);
+  bumpEventsVersion();
+  return { split: Number(info.changes) };
+}

@@ -1,0 +1,782 @@
+import express from 'express';
+import { db, getKv, getSettings, saveSettings } from './db.js';
+import { mergeSecrets, redactSettings } from './secrets.js';
+import { flyerRelative, isSafeFlyerPath } from './flyers.js';
+import { store } from './flyerStore.js';
+import { bumpEventsVersion, editGroup, EditError, eventsVersion, getMergedEvent, getMergedEvents, mergeGroups, setGroupFlag, setMergeParent, toListItem, unmergeGroup } from './events.js';
+import { filterEvents, paginate, parseEventQuery, QueryError } from './query.js';
+import { geocode } from './geocode.js';
+import { buildIcs } from './ics.js';
+import { crawlerBase, syncCrawler } from './sources/crawler.js';
+import { feedUrl, readFeed } from './sources/ical.js';
+import { assertPublicUrl } from './nethost.js';
+import { addManualEvent, archivePastEvents, getProgress, getStatuses, isRefreshing } from './refresh.js';
+import { readEventPage } from './importer.js';
+import { notifyStatus, sendLooks, sendTest, startMatrix } from './notify/index.js';
+import { validateDates } from './validate.js';
+import { getPhotoConditions } from './photo.js';
+import { listAreas, renderArea, venueHistory, venueReadings } from './density/pipeline.js';
+import { pickAreas } from './density/areas.js';
+import { getDensityStatus } from './densityRefresh.js';
+import { clearEnrichment, getLlmStatus } from './enrich/pipeline.js';
+import { clearVision } from './enrich/visionPipeline.js';
+import { ENRICH_JOBS } from './enrich/schema.js';
+import { tasks } from './tasks/tasks.js';
+import { runDueTasksOnStartup, startScheduler } from './tasks/scheduler.js';
+import { DEFAULT_SETTINGS, Settings } from './sources/types.js';
+import { ALL_CATEGORIES, EVENT_TOPICS } from './sources/topics.js';
+import { versionInfo } from './version.js';
+
+/**
+ * The events engine's own API, mounted by app.ts behind the admin check.
+ *
+ * This was a service of its own with its own sign-in; that front door is gone
+ * and whoever reaches a route here has already been let in as an admin. What
+ * visitors see of events goes through events.ts, not through this.
+ */
+export const eventsApi = express();
+const app = eventsApi;
+app.use(express.json({ limit: '1mb' }));
+
+/**
+ * The credentials are never sent back — see secrets.ts. The page is told which
+ * are set, which is all it has ever needed to know.
+ */
+app.get('/api/settings', (_req, res) => {
+  res.json(redactSettings(getSettings()));
+});
+
+app.put('/api/settings', (req, res) => {
+  const current = getSettings();
+  const body = req.body as Partial<Settings>;
+  const next: Settings = {
+    ...current,
+    ...body,
+    enabledSources: { ...current.enabledSources, ...(body.enabledSources ?? {}) },
+    // After the spread, so a blanked credential coming back from the page
+    // cannot overwrite the stored one. Null is how a caller asks to clear one.
+    ...mergeSecrets(current, (req.body ?? {}) as Record<string, unknown>),
+  };
+  // Keep arrays sane if the client sends junk
+  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'excludedCategories', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins', 'crawlerUrls', 'notifyTargets'] as const) {
+    if (!Array.isArray(next[key])) (next as unknown as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key];
+  }
+  const bot = (next.matrixBot && typeof next.matrixBot === 'object' ? next.matrixBot : {}) as Partial<Settings['matrixBot']>;
+  next.matrixBot = {
+    enabled: bot.enabled === true,
+    homeserver: typeof bot.homeserver === 'string' ? bot.homeserver.trim() : '',
+    commandPrefix: typeof bot.commandPrefix === 'string' && bot.commandPrefix.trim() ? bot.commandPrefix.trim().slice(0, 5) : '!',
+    allowedUsers: Array.isArray(bot.allowedUsers) ? bot.allowedUsers.map((u) => String(u).trim()).filter(Boolean) : [],
+    commandsEverywhere: bot.commandsEverywhere !== false,
+    chat: {
+      enabled: bot.chat?.enabled === true,
+      eventContext: bot.chat?.eventContext !== false,
+      model: typeof bot.chat?.model === 'string' ? bot.chat.model.trim() : '',
+      systemPrompt: typeof bot.chat?.systemPrompt === 'string' ? bot.chat.systemPrompt.slice(0, 4000) : '',
+      historyMessages: Math.min(40, Math.max(0, Math.round(Number(bot.chat?.historyMessages ?? 12)) || 0)),
+    },
+  };
+  next.appUrl = typeof next.appUrl === 'string' ? next.appUrl.trim() : '';
+  saveSettings(next);
+  // Area/city/category changes reshuffle place, area and culled on every
+  // event, so the cached list has to be recomputed, not just re-served.
+  bumpEventsVersion();
+  // A changed token, homeserver or switch takes effect now, not at the next restart.
+  startMatrix();
+  // Told at once rather than at the next refresh, which can be six hours off:
+  // a site added to the crawl list, or the source switched off, should take
+  // effect on the crawler's next cycle. Not awaited, and it never throws — a
+  // crawler that is down must not make saving settings fail.
+  void syncCrawler(next);
+  // Redacted on the way out too, or the answer would hand straight back what
+  // the request was careful not to ask for.
+  res.json(redactSettings(next));
+});
+
+// Open, and deliberately so: "what is this instance running" is the first
+// question when something looks wrong, and needing to sign in to ask it would
+// be the wrong way round.
+app.get('/api/version', (_req, res) => {
+  res.json(versionInfo());
+});
+
+app.get('/api/topics', (_req, res) => {
+  // Every category an event can be filed under, for excluding some in Settings.
+  res.json({ topics: EVENT_TOPICS, categories: ALL_CATEGORIES });
+});
+
+/**
+ * Geocoding is open to readers but forwards to Nominatim, whose usage policy
+ * allows about one request a second. A small per-address allowance keeps an
+ * anonymous caller from spending that on this server's behalf.
+ */
+const GEOCODE_PER_MINUTE = 20;
+const geocodeHits = new Map<string, number[]>();
+function geocodeAllowed(ip: string, now = Date.now()): boolean {
+  const recent = (geocodeHits.get(ip) ?? []).filter((t) => now - t < 60_000);
+  if (recent.length >= GEOCODE_PER_MINUTE) {
+    geocodeHits.set(ip, recent);
+    return false;
+  }
+  recent.push(now);
+  geocodeHits.set(ip, recent);
+  if (geocodeHits.size > 1000) {
+    for (const [key, times] of geocodeHits) if (times.every((t) => now - t >= 60_000)) geocodeHits.delete(key);
+  }
+  return true;
+}
+
+app.get('/api/geocode', async (req, res) => {
+  const q = String(req.query.q ?? '').trim().slice(0, 300);
+  if (!q) return res.status(400).json({ error: 'q is required' });
+  if (!geocodeAllowed(req.ip ?? 'unknown')) return res.status(429).json({ error: 'Too many lookups; try again in a minute.' });
+  try {
+    res.json(await geocode(q));
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * The list, whole or narrowed.
+ *
+ * With no parameters this answers exactly what it always has — every upcoming
+ * event, as an array — because the web app fetches once and filters in the
+ * browser. The filters are for everything else, which would otherwise pull a
+ * megabyte to answer a question about one weekend in one town.
+ *
+ * The page is still a bare array rather than an envelope, so adding this broke
+ * nothing; the count it was taken from goes in a header. Express already
+ * answers a matching `If-None-Match` with a 304, so a poller that has not
+ * missed anything pays for the headers only.
+ */
+app.get('/api/events', (req, res) => {
+  let query;
+  try {
+    query = parseEventQuery(req.query as Record<string, unknown>);
+  } catch (err) {
+    if (err instanceof QueryError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  // Weak because the body is one of many equivalent JSON encodings of the
+  // same data, not the literal bytes; version covers every DB write and the
+  // query string covers the filters, so it changes whenever the answer would.
+  const etag = `W/"ev-${eventsVersion()}-${req.query ? req.originalUrl.split('?')[1] ?? '' : ''}"`;
+  res.set('ETag', etag);
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+  const found = filterEvents(getMergedEvents({ archived: query.archived }), query);
+  const { page, total } = paginate(found, query);
+  res.set('X-Total-Count', String(total));
+  // Slimmed for the list: rawTitle/rawDescription and full member detail are
+  // only there for the detail view, which fetches them via GET /api/events/:group.
+  res.json(page.map(toListItem));
+});
+
+/**
+ * Change an event by hand, from edit mode on the Events page.
+ *
+ * A write, so the password gates it like any other. Send only the fields you
+ * are changing; send a field as "" or null to drop the override and put back
+ * whatever the sources, the flyer or the model would have shown.
+ */
+app.patch('/api/events/:group', (req, res) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    res.json({ ...editGroup(req.params.group, body), event: getMergedEvent(req.params.group) });
+  } catch (err) {
+    if (err instanceof EditError) {
+      return res.status(/^Unknown event/.test(err.message) ? 404 : 400).json({ error: err.message });
+    }
+    throw err;
+  }
+});
+
+app.get('/api/events/:group', (req, res) => {
+  const event = getMergedEvent(req.params.group);
+  if (!event) return res.status(404).json({ error: `Unknown event: ${req.params.group}` });
+  res.json(event);
+});
+
+app.post('/api/archive', (_req, res) => {
+  const result = archivePastEvents();
+  bumpEventsVersion();
+  res.json(result);
+});
+
+/**
+ * A stored flyer.
+ *
+ * Open, like everything else that only reads: the picture is already on the
+ * card, and a copy of it is no more secret than the original. Both halves of
+ * the path are checked against the shapes this app writes before anything
+ * touches the disk, so a request cannot climb out of the folder.
+ */
+app.get('/api/flyer/:day/:name', (req, res) => {
+  const { day, name } = req.params;
+  if (!isSafeFlyerPath(day, name)) return res.status(404).json({ error: 'No such flyer' });
+  const relative = flyerRelative(day, name);
+  if (!store.has(relative)) return res.status(404).json({ error: 'No such flyer' });
+  // Named by a hash of the address it came from, so it never changes once
+  // written and can be cached hard.
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  res.sendFile(store.absolute(relative));
+});
+
+app.get('/api/photo', async (req, res) => {
+  res.json(await getPhotoConditions(req.query.force === '1'));
+});
+
+// --- density ----------------------------------------------------------------
+
+app.get('/api/density/status', (_req, res) => {
+  res.json(getDensityStatus());
+});
+
+// Kept as the buttons the density panel already links to; both go through the
+// registry so they take the same browser lock as everything else.
+app.post('/api/density/refresh', async (_req, res) => {
+  const result = await tasks.run('density', { force: true });
+  res.status(result.ok ? 200 : 409).json(result);
+});
+
+app.post('/api/density/discover', async (_req, res) => {
+  const result = await tasks.run('densityDiscover', { force: true });
+  res.status(result.ok ? 200 : 409).json(result);
+});
+
+app.get('/api/density/areas', (_req, res) => {
+  res.json({ areas: listAreas() });
+});
+
+app.get('/api/density/:area', (req, res) => {
+  const [area] = pickAreas([req.params.area]);
+  if (!area) return res.status(404).json({ error: `Unknown area: ${req.params.area}` });
+
+  const rawHours = req.query.hours != null && String(req.query.hours).trim() !== ''
+    ? Number(req.query.hours)
+    : NaN;
+  const hours = Number.isFinite(rawHours) && rawHours > 0 ? rawHours : undefined;
+
+  const rawHour = req.query.hour != null && String(req.query.hour).trim() !== ''
+    ? Number(req.query.hour)
+    : NaN;
+  const hourOfDay = Number.isInteger(rawHour) && rawHour >= 0 && rawHour <= 23 ? rawHour : undefined;
+
+  const parsedDays = req.query.days != null
+    ? String(req.query.days)
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s !== '')
+        .map(Number)
+        .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+    : undefined;
+  const daysOfWeek = parsedDays && parsedDays.length > 0 ? parsedDays : undefined;
+
+  // Rendered on demand, so the map always reflects the latest pass.
+  const geojson = renderArea(area, {
+    hours,
+    all: req.query.all === '1',
+    hourOfDay,
+    daysOfWeek,
+  });
+  if (!geojson) return res.status(404).json({ error: 'No observations for that area yet.' });
+  res.json(geojson);
+});
+
+app.get('/api/density/:area/history', (req, res) => {
+  const [area] = pickAreas([req.params.area]);
+  if (!area) return res.status(404).json({ error: `Unknown area: ${req.params.area}` });
+  const name = String(req.query.venue ?? '');
+  if (!name) return res.status(400).json({ error: 'venue is required' });
+
+  const rawDays = req.query.days != null && String(req.query.days).trim() !== ''
+    ? Number(req.query.days)
+    : NaN;
+  const days = Number.isFinite(rawDays) && rawDays > 0 ? rawDays : 14;
+
+  const history = venueHistory(area, name, days);
+  if (!history) return res.status(404).json({ error: `Unknown venue: ${name}` });
+  res.json(history);
+});
+
+app.get('/api/density/:area/venues', (req, res) => {
+  const [area] = pickAreas([req.params.area]);
+  if (!area) return res.status(404).json({ error: `Unknown area: ${req.params.area}` });
+  res.json(venueReadings(area));
+});
+
+app.post('/api/merge', (req, res) => {
+  const { groups, parent } = req.body as { groups?: string[]; parent?: unknown };
+  if (!Array.isArray(groups) || groups.length < 2) {
+    return res.status(400).json({ error: 'Pick at least two events to merge' });
+  }
+  try {
+    res.json(mergeGroups(groups, typeof parent === 'string' && parent ? parent : undefined));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+app.post('/api/unmerge/:group', (req, res) => {
+  res.json(unmergeGroup(req.params.group));
+});
+
+/**
+ * Choose the listing that speaks for an event: its title, date, picture and
+ * details win over the others behind it. Body: `{ id }`, a member's row id.
+ */
+app.post('/api/events/:group/parent', (req, res) => {
+  try {
+    setMergeParent(req.params.group, Number((req.body ?? {}).id));
+    res.json({ event: getMergedEvent(req.params.group) ?? null });
+  } catch (err) {
+    if (err instanceof EditError) {
+      return res.status(/^Unknown event/.test(err.message) ? 404 : 400).json({ error: err.message });
+    }
+    throw err;
+  }
+});
+
+app.post('/api/groups/:group', (req, res) => {
+  const { starred, hidden } = req.body as { starred?: boolean; hidden?: boolean };
+  if (typeof starred === 'boolean') setGroupFlag(req.params.group, 'starred', starred);
+  if (typeof hidden === 'boolean') setGroupFlag(req.params.group, 'hidden', hidden);
+  res.json({ ok: true });
+});
+
+app.get('/api/status', (_req, res) => {
+  res.json({
+    sources: getStatuses(),
+    lastRefresh: getKv('lastRefresh'),
+    refreshing: isRefreshing(),
+    // What the run is doing and what it has found so far. Cheap enough to
+    // send on every poll: it is a few dozen short strings held in memory.
+    progress: getProgress(),
+    density: getDensityStatus(),
+  });
+});
+
+app.post('/api/refresh', async (_req, res) => {
+  // Through the registry rather than straight to refreshAll, so the Tasks page
+  // records a hand-driven refresh the same as a scheduled one.
+  const result = await tasks.run('events', { force: true });
+  if (!result.ok) return res.status(409).json({ error: result.message });
+  bumpEventsVersion();
+  res.json({ sources: getStatuses(), lastRefresh: getKv('lastRefresh') });
+});
+
+// --- local model ------------------------------------------------------------
+
+app.get('/api/llm/status', async (_req, res) => {
+  res.json({ ...(await getLlmStatus()), availableJobs: ENRICH_JOBS });
+});
+
+/**
+ * Events currently queued for checking or recently vetted by the model.
+ *
+ * Lets Settings display the raw events in the database waiting for inference,
+ * confirming they were put in and showing their current status.
+ */
+app.get('/api/llm/queue', (req, res) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+  const filter = String(req.query.status ?? 'all');
+
+  let sql = `
+    SELECT e.id, e.title, e.start_time, e.source, e.venue_name, e.address, e.url, e.last_seen_at,
+           e.llm_vet_note, e.llm_vetted_at, x.ok AS enrichment_ok, x.enriched_at,
+           CASE
+             WHEN e.llm_vetted_at != '' AND e.llm_vet_note != '' THEN 'rejected'
+             WHEN e.llm_vetted_at != '' THEN 'accepted'
+             WHEN x.ok = 0 THEN 'failed'
+             WHEN x.ok = 1 THEN 'enriched'
+             ELSE 'waiting'
+           END AS status
+    FROM events e
+    LEFT JOIN event_enrichment x ON x.event_id = e.id
+    WHERE e.archived = 0
+  `;
+
+  if (filter === 'pending') {
+    sql += ` AND (e.llm_vetted_at = '' OR e.llm_vetted_at IS NULL) AND (x.ok IS NULL OR x.ok = 0)`;
+  } else if (filter === 'vetted') {
+    sql += ` AND (e.llm_vetted_at != '' OR x.ok = 1)`;
+  }
+
+  sql += ` ORDER BY e.id DESC LIMIT ?`;
+
+  const rows = db.prepare(sql).all(limit) as Record<string, unknown>[];
+  const totalWaiting = (
+    db.prepare(`SELECT count(*) as c FROM events WHERE archived = 0 AND (llm_vetted_at = '' OR llm_vetted_at IS NULL)`).get() as { c: number }
+  ).c;
+
+  res.json({
+    queue: rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      startTime: r.start_time,
+      source: r.source,
+      venueName: r.venue_name,
+      address: r.address,
+      url: r.url,
+      vettedAt: r.llm_vetted_at,
+      vetNote: r.llm_vet_note,
+      status: r.status,
+    })),
+    totalWaiting,
+    count: rows.length,
+  });
+});
+
+// Forget every verdict so the next pass reconsiders everything. What you reach
+// for after changing model or prompt; the scraped values are untouched.
+app.post('/api/llm/reset', (_req, res) => {
+  res.json({ ok: true, cleared: clearEnrichment() });
+});
+
+app.post('/api/vision/reset', (_req, res) => {
+  res.json({ ok: true, cleared: clearVision() });
+});
+
+// --- tasks ------------------------------------------------------------------
+
+app.get('/api/tasks', (req, res) => {
+  // ?since= returns only console lines newer than that sequence number, so the
+  // page's three-second poll carries the two lines that are new rather than the
+  // five hundred it already has.
+  const since = Number(req.query.since);
+  const log = tasks.since(Number.isFinite(since) ? since : 0);
+  res.json({ tasks: tasks.statuses(), log: log.entries, seq: log.seq });
+});
+
+/**
+ * What the crawler has been doing, passed through.
+ *
+ * A proxy rather than a link, because the crawler is deliberately not published
+ * to anything but this app — the page has no route to it, and giving it one
+ * would mean exposing a second port. Read-only, and everything it returns is
+ * the crawler's own reckoning of itself.
+ */
+app.get('/api/crawler/status', async (_req, res) => {
+  const base = crawlerBase(getSettings());
+  if (!base) return res.status(200).json({ reachable: false, problem: 'No crawler address set.' });
+  try {
+    const [status, feeds] = await Promise.all([
+      fetch(`${base}/status`, { signal: AbortSignal.timeout(8000) }),
+      fetch(`${base}/feeds`, { signal: AbortSignal.timeout(8000) }),
+    ]);
+    if (!status.ok) throw new Error(`HTTP ${status.status}`);
+    const body = (await status.json()) as Record<string, unknown>;
+    const feedList = feeds.ok ? ((await feeds.json()) as { feeds?: unknown[] }).feeds ?? [] : [];
+    res.json({ reachable: true, url: base, ...body, feedList });
+  } catch (err) {
+    const reason = (err as Error).name === 'TimeoutError' ? 'No answer' : (err as Error).message;
+    res.status(200).json({ reachable: false, url: base, problem: `${reason} from ${base}` });
+  }
+});
+
+/** The pages the crawler has read, most-read or latest first, passed through. */
+app.get('/api/crawler/pages', async (req, res) => {
+  const base = crawlerBase(getSettings());
+  if (!base) return res.json({ pages: [], problem: 'No crawler address set.' });
+  const sort = req.query.sort === 'recent' ? 'recent' : 'reads';
+  try {
+    const answer = await fetch(`${base}/pages?sort=${sort}&limit=200`, { signal: AbortSignal.timeout(8000) });
+    if (!answer.ok) return res.json({ pages: [], problem: `HTTP ${answer.status} from the crawler` });
+    res.json(await answer.json());
+  } catch (err) {
+    res.json({ pages: [], problem: `Cannot reach the crawler: ${(err as Error).message}` });
+  }
+});
+
+/**
+ * Read one page now and say what was on it.
+ *
+ * For checking a site before adding it to the list, and for a page someone
+ * has just been sent a link to. The crawler obeys robots.txt here as it does
+ * everywhere else, and queues the page's own links, so a site read this way is
+ * followed on its next cycle as well. Behind the password, like every write.
+ */
+app.post('/api/crawler/crawl', async (req, res) => {
+  const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+  if (!/^https?:\/\/\S+$/i.test(url)) {
+    return res.status(400).json({ ok: false, message: 'Give a full address, starting http:// or https://.' });
+  }
+  const base = crawlerBase(getSettings());
+  if (!base) return res.status(400).json({ ok: false, message: 'No crawler address set.' });
+  try {
+    const answer = await fetch(`${base}/crawl`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+      // Robots, then the page, each allowed fifteen seconds by the crawler.
+      signal: AbortSignal.timeout(45000),
+    });
+    res.status(answer.status).json(await answer.json());
+  } catch (err) {
+    res.status(502).json({ ok: false, message: `Cannot reach the crawler: ${(err as Error).message}` });
+  }
+});
+
+/** Start a crawl now. The crawler answers at once; a cycle runs for minutes. */
+app.post('/api/crawler/run', async (_req, res) => {
+  const base = crawlerBase(getSettings());
+  if (!base) return res.status(400).json({ ok: false, message: 'No crawler address set.' });
+  try {
+    const answer = await fetch(`${base}/run`, { method: 'POST', signal: AbortSignal.timeout(8000) });
+    res.status(answer.status).json(await answer.json());
+  } catch (err) {
+    res.status(502).json({ ok: false, message: `Cannot reach the crawler: ${(err as Error).message}` });
+  }
+});
+
+/**
+ * All events the crawler is currently holding, unfiltered.
+ *
+ * No lat/lng filter is sent to the crawler so that every find is returned,
+ * regardless of whether it has coordinates. The Settings page uses this to
+ * show the raw queue so the user can see what is being held before the server
+ * refresh picks it up.
+ */
+app.get('/api/crawler/events', async (_req, res) => {
+  const base = crawlerBase(getSettings());
+  if (!base) return res.json({ events: [], count: 0, problem: 'No crawler address set.' });
+  try {
+    const answer = await fetch(`${base}/events`, { signal: AbortSignal.timeout(8000) });
+    if (!answer.ok) return res.json({ events: [], count: 0, problem: `HTTP ${answer.status}` });
+    res.json(await answer.json());
+  } catch (err) {
+    res.json({ events: [], count: 0, problem: `Cannot reach the crawler: ${(err as Error).message}` });
+  }
+});
+
+/**
+ * Read a calendar feed and say what is in it, without adding it.
+ *
+ * Through the same reader the Calendar feeds source uses, so what this shows is
+ * exactly what adding the feed would bring in. A POST behind the password
+ * rather than an open GET, because it has this server fetch an address it was
+ * handed. Always 200 once the address is well-formed: the outcome is the body.
+ */
+app.post('/api/ical/preview', async (req, res) => {
+  const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+  if (!/^(https?|webcals?):\/\/\S+$/i.test(url)) {
+    return res.status(400).json({ ok: false, message: 'Give a full address, starting https:// or webcal://.' });
+  }
+  try {
+    await assertPublicUrl(feedUrl(url));
+  } catch {
+    return res.status(400).json({ ok: false, message: 'Private or invalid network address' });
+  }
+  try {
+    const feed = await readFeed(url, '');
+    const events = [...feed.events].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    res.json({
+      ok: true,
+      url,
+      calendarName: feed.calendarName,
+      total: feed.total,
+      upcoming: events.length,
+      events: events.slice(0, 100).map((e) => ({
+        title: e.title,
+        startTime: e.startTime,
+        dateOnly: e.dateOnly ?? false,
+        where: e.address ?? '',
+        url: e.url ?? '',
+      })),
+    });
+  } catch (err) {
+    const reason = (err as Error).name === 'TimeoutError' ? 'no answer within 20 seconds' : (err as Error).message;
+    res.json({ ok: false, url, message: `Could not read it: ${reason}.` });
+  }
+});
+
+/**
+ * "Add from a link": read a page for an event without keeping anything.
+ *
+ * A POST behind the password, because it has this server fetch an address it
+ * was handed; importer.ts checks every hop of it. Always 200 once the address
+ * is well-formed: the outcome is the body.
+ */
+app.post('/api/import/preview', async (req, res) => {
+  const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+  if (!/^https?:\/\/\S+$/i.test(url)) {
+    return res.status(400).json({ ok: false, url, candidates: [], message: 'Give a full address, starting http:// or https://.' });
+  }
+  res.json(await readEventPage(url, getSettings()));
+});
+
+/** Save an event a person checked in the "Add from a link" form. */
+app.post('/api/import', async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const text = (key: string, max: number): string => (typeof body[key] === 'string' ? (body[key] as string).trim().slice(0, max) : '');
+  const title = text('title', 300);
+  if (!title) return res.status(400).json({ error: 'The event needs a title' });
+  const start = Date.parse(text('startTime', 40));
+  if (!Number.isFinite(start)) return res.status(400).json({ error: 'The event needs a date' });
+  const dates = validateDates({ startTime: new Date(start).toISOString(), endTime: text('endTime', 40) || undefined });
+  if (!dates.ok) return res.status(400).json({ error: `That date will not do: ${dates.reason}` });
+  const url = text('url', 2000);
+  if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'The link must start http:// or https://' });
+  const imageUrl = text('imageUrl', 2000);
+  const group = await addManualEvent({
+    url,
+    title,
+    description: text('description', 4000),
+    startTime: dates.startTime,
+    dateOnly: body.dateOnly === true,
+    endTime: dates.endTime ?? '',
+    venueName: text('venueName', 300),
+    address: text('address', 300),
+    imageUrl: /^https?:\/\//i.test(imageUrl) ? imageUrl : '',
+    priceText: text('priceText', 100),
+    category: ALL_CATEGORIES.includes(text('category', 60)) ? text('category', 60) : '',
+  });
+  bumpEventsVersion();
+  res.json({ group, event: getMergedEvent(group) ?? null });
+});
+
+/** How the Matrix bot and each target are getting on. Gated: it names rooms and says why they fail. */
+app.get('/api/notify/status', (_req, res) => {
+  res.json(notifyStatus());
+});
+
+/** Send a sample to one saved target now. */
+app.post('/api/notify/test', async (req, res) => {
+  const id = typeof req.body?.id === 'string' ? req.body.id : '';
+  if (!id) return res.status(400).json({ ok: false, message: 'Which target?' });
+  res.json(await sendTest(id));
+});
+
+/** One sample per Matrix look to a saved room, to pick from. */
+app.post('/api/notify/looks', async (req, res) => {
+  const id = typeof req.body?.id === 'string' ? req.body.id : '';
+  if (!id) return res.status(400).json({ ok: false, message: 'Which target?' });
+  res.json(await sendLooks(id));
+});
+
+app.post('/api/tasks/:name/run', async (req, res) => {
+  const result = await tasks.run(req.params.name, { force: true });
+  res.status(result.ok ? 200 : 409).json(result);
+});
+
+app.post('/api/tasks/:name/enable', (req, res) => {
+  const { enabled } = req.body as { enabled?: boolean };
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+  const result = tasks.setEnabled(req.params.name, enabled);
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
+/**
+ * The calendar feed.
+ *
+ * Filters mirror the Calendar page, so whatever is on screen is what a
+ * subscriber gets. Served without Content-Disposition when subscribed to, since
+ * a download prompt is not what a calendar client wants.
+ */
+function calendarFeed(req: express.Request, res: express.Response, download: boolean): void {
+  const starredOnly = req.query.starred === '1';
+  const category = String(req.query.category ?? '').trim();
+  const days = Number(req.query.days);
+
+  let events = getMergedEvents().filter((ev) => !ev.hidden && !ev.culled);
+  if (starredOnly) events = events.filter((ev) => ev.starred);
+  if (category) events = events.filter((ev) => ev.category === category);
+  if (Number.isFinite(days) && days > 0) {
+    const until = Date.now() + days * 86400_000;
+    events = events.filter((ev) => Date.parse(ev.startTime) <= until);
+  }
+
+  const name = [
+    'Event Scout',
+    starredOnly ? 'shortlist' : null,
+    category || null,
+    getSettings().city || null,
+    // A plain hyphen, not the middle dot used elsewhere in the UI: Outlook is
+    // the fussiest consumer of this name and there is nothing to gain from
+    // putting a non-ASCII character in front of it.
+  ].filter(Boolean).join(' - ');
+
+  const ics = buildIcs(
+    events.map((ev) => ({
+      uid: ev.group,
+      title: ev.title,
+      description: ev.description,
+      startTime: ev.startTime,
+      endTime: ev.endTime,
+      venueName: ev.venueName,
+      address: ev.address,
+      url: ev.sources.find((s) => s.url)?.url ?? '',
+      category: ev.category,
+      lat: ev.lat,
+      lng: ev.lng,
+      dateOnly: ev.dateOnly,
+    })),
+    { name, description: `${events.length} events from Event Scout` }
+  );
+
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+  if (download) {
+    res.setHeader('Content-Disposition', 'attachment; filename="event-scout.ics"');
+  }
+  res.send(ics);
+}
+
+// Subscribe URL: no download prompt, so a calendar client can poll it.
+app.get('/api/calendar.ics', (req, res) => calendarFeed(req, res, false));
+
+app.get('/api/export.ics', (req, res) => {
+  // Kept as the shortlist download the Events page links to.
+  if (req.query.starred == null) req.query.starred = '1';
+  calendarFeed(req, res, true);
+});
+
+/**
+ * An unknown /api path is a 404 in JSON, not Express's HTML page.
+ *
+ * Placed after every route and before the handler below. Without it a client
+ * that misspelled a path — or called one this version does not have — got a
+ * page of markup where the API had promised an object.
+ */
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `Unknown endpoint: ${req.method} ${req.baseUrl}${req.path}` });
+});
+
+/**
+ * Every failure under /api answers in the shape the rest of the API uses.
+ *
+ * Without this, Express's own handler replies with an HTML page — so a client
+ * that sent a malformed JSON body got `<!DOCTYPE html>` where it was promised
+ * `{ "error": ... }`, which is reachable today and not hypothetical. Mounted on
+ * /api alone so the static frontend below keeps Express's behaviour.
+ *
+ * The message is only passed on for the 4xx range, where it describes what the
+ * caller did. A 500 is this app's fault, and what went wrong inside it is for
+ * the log rather than the response.
+ */
+app.use('/api', (err: Error & { status?: number; statusCode?: number }, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) return next(err);
+  const status = err.status ?? err.statusCode ?? 500;
+  if (status >= 500) console.error(`[api] ${req.method} ${req.originalUrl}:`, err);
+  res.status(status).json({ error: status >= 500 ? 'Something went wrong' : err.message || 'Bad request' });
+});
+
+/**
+ * The background jobs, all of them, on the schedules they have always run on.
+ *
+ * These were four hand-written cron entries with their state scattered behind
+ * them. They are task definitions now (see tasks/tasks.ts), which is what lets
+ * the Tasks page say when each last ran and run one on demand.
+ *
+ * Archiving still gets its own schedule rather than riding along with a
+ * refresh: events go stale whether or not new ones are arriving, and when a
+ * hung source held the refresh flag for ten days, yesterday events sat at the
+ * top of the list the whole time.
+ */
+export function startEvents(): void {
+  // The crawler keeps what it was last told, so this matters only when
+  // settings changed while it was down; the next refresh would catch it up.
+  void syncCrawler(getSettings());
+  startMatrix();
+  startScheduler();
+  runDueTasksOnStartup();
+}

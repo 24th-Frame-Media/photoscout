@@ -39,7 +39,7 @@ test('needsAuth: a visitor may read the public map and nothing else', () => {
   assert.equal(needsAuth('GET', '/api/events/solo-12/state'), true);
   for (const closed of ['/api/geocode', '/api/weather', '/api/planes', '/api/buildings', '/api/roads', '/api/cameras/1/image',
     '/api/spots/abc/nearby', '/api/spots/abc/commons', '/api/spots/abc/trains', '/api/settings/x', '/api/tasks', '/api/users',
-    '/api/export.geojson', '/api/remotes', '/api/candidates', '/api/eventscout/test', '/api/eventscout/proxy/settings', '/api/nothing',
+    '/api/export.geojson', '/api/remotes', '/api/candidates', '/api/events-admin/settings', '/api/events-admin/events', '/api/nothing',
     '/api/profiles', '/api/profiles?q=al', '/api/profiles/Alice/extra', '/api/follows', '/api/follows/Alice', '/api/gear/catalog', '/api/kit/rides', '/api/kit/gear',
     '/api/kit/photos/abc', '/api/kit/photos/abc/other', '/api/community-events/abc/rsvp', '/api/community-events/abc/extra',
     '/api/chat', '/api/chat/abc', '/api/reports', '/api/posts/abc', '/api/posts/abc/vote', '/api/feed/extra', '/api/posts/abc/comments/x', '/api/comments/abc']) {

@@ -1,14 +1,14 @@
 /**
- * Events from event-scout, for the Events pages and the map.
+ * Events for the Events pages and the map.
  *
- * Event Scout is an internal service that only this server may talk to, and it
- * answers with everything it knows: raw listing text, every source's address,
- * paths on its own disk. A visitor gets the cut-down shape below instead, and
- * only what event-scout has not itself taken out of sight. Which events a
- * person has starred or hidden is theirs and lives here (see user_event_state).
+ * The events engine (src/events/) knows everything about a listing: its raw
+ * text, every source's address, paths on this server's disk. A visitor gets the
+ * cut-down shape below instead, and only what has not been taken out of sight
+ * there. Which events a person has starred or hidden is theirs and lives here
+ * (see user_event_state).
  */
 import { Db } from './db.js';
-import { guardedFetch } from './ssrf.js';
+import { listEvents } from './events/local.js';
 
 export const MAX_GROUP_LENGTH = 100;
 const CACHE_MS = 60_000;
@@ -55,7 +55,7 @@ function webUrl(v: unknown, httpsOnly = false): string {
   }
 }
 
-/** Pure: one upstream event as the page gets it, or null when event-scout has it out of sight or it is malformed. */
+/** Pure: one upstream event as the page gets it, or null when the engine has it out of sight or it is malformed. */
 export function publicEvent(raw: unknown): EventItem | null {
   if (!raw || typeof raw !== 'object') return null;
   const ev = raw as Record<string, unknown>;
@@ -91,41 +91,32 @@ export function publicEvent(raw: unknown): EventItem | null {
 
 // --- the upstream list, kept for a minute -----------------------------------
 
-let cache: { url: string; at: number; events: EventItem[] } | null = null;
-let inflight: { url: string; promise: Promise<EventItem[]> } | null = null;
+/** Where the list is read from. A property so a test can stand in for the engine. */
+export const eventSource = { read: (): unknown[] => listEvents() };
+
+let cache: { at: number; events: EventItem[] } | null = null;
 
 /**
- * Every upcoming event event-scout shows, shared by all callers.
+ * Every upcoming event on show, shared by all callers.
  *
- * Kept for a minute so visitors cannot make this server hammer event-scout, and
- * one fetch is shared by callers who arrive while it is under way. When event-
- * scout cannot be reached the last list is served again for another minute
- * rather than an error. Nothing is configured: an empty list.
+ * Kept for a minute: putting the list together merges and culls every row, and
+ * a visitor should not be able to make the server do that on each request. If
+ * reading fails the last list is served again rather than an error.
  * ponytail: in-process, so one cache per instance; fine for the single instance this runs as.
  */
-export function eventList(baseUrl: string): Promise<EventItem[]> {
-  if (!baseUrl) return Promise.resolve([]);
-  if (cache && cache.url === baseUrl && Date.now() - cache.at < CACHE_MS) return Promise.resolve(cache.events);
-  if (inflight?.url === baseUrl) return inflight.promise;
-  const promise = guardedFetch(`${baseUrl.replace(/\/$/, '')}/api/events`, true)
-    .then((buf) => {
-      const raw = JSON.parse(buf.toString('utf8')) as unknown;
-      if (!Array.isArray(raw)) throw new Error('event-scout did not answer with a list');
-      const events = raw.map(publicEvent).filter((ev): ev is EventItem => ev !== null);
-      cache = { url: baseUrl, at: Date.now(), events };
-      return events;
-    })
-    .catch((err: Error) => {
-      console.error('[events] event-scout fetch failed:', err.message);
-      if (cache && cache.url === baseUrl) {
-        cache.at = Date.now();
-        return cache.events;
-      }
-      throw Object.assign(new Error('Events are unavailable right now'), { status: 502 });
-    })
-    .finally(() => { inflight = null; });
-  inflight = { url: baseUrl, promise };
-  return promise;
+export function eventList(): EventItem[] {
+  if (cache && Date.now() - cache.at < CACHE_MS) return cache.events;
+  try {
+    cache = { at: Date.now(), events: eventSource.read().map(publicEvent).filter((e): e is EventItem => e !== null) };
+    return cache.events;
+  } catch (err) {
+    console.error('[events] could not read the list:', (err as Error).message);
+    if (cache) {
+      cache.at = Date.now();
+      return cache.events;
+    }
+    throw Object.assign(new Error('Events are unavailable right now'), { status: 502 });
+  }
 }
 
 // --- one person's star and hide ---------------------------------------------

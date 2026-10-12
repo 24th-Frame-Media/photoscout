@@ -1,0 +1,104 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { buildIcs, foldLine } from '../../src/events/ics.js';
+import { useZone } from './zone.js';
+
+const EVENT = {
+  uid: 'abc123',
+  title: 'Ford Falcon Tribute Cruise',
+  description: 'A cruise; with punctuation, and\na newline.',
+  startTime: '2026-08-22T00:00:00.000Z',
+  endTime: null,
+  venueName: 'Mount Panorama',
+  address: 'Mountain Straight, Bathurst, NSW, 2795',
+  url: 'https://example.com/e/1',
+};
+
+/**
+ * Outlook refuses a calendar that breaks the spec and reports only that it
+ * cannot add it "right now", so the things it is strict about are worth
+ * asserting rather than eyeballing.
+ */
+
+test('ends with CRLF, the last line as much as the rest', () => {
+  const ics = buildIcs([EVENT]);
+  assert.ok(ics.endsWith('END:VCALENDAR\r\n'), 'must end END:VCALENDAR + CRLF');
+});
+
+test('every line ends CRLF and none is a bare LF', () => {
+  const ics = buildIcs([EVENT]);
+  assert.equal(/(?<!\r)\n/.test(ics), false, 'no LF without a CR before it');
+});
+
+test('no line exceeds 75 octets', () => {
+  const long = { ...EVENT, description: 'x'.repeat(600), title: 'é'.repeat(90) };
+  for (const line of buildIcs([long]).split('\r\n')) {
+    assert.ok(Buffer.byteLength(line, 'utf8') <= 75, `too long: ${line.slice(0, 40)}…`);
+  }
+});
+
+test('folding never splits a multi-byte character', () => {
+  // Em dashes are three octets each, so a naive 75-byte cut lands mid-character.
+  const folded = foldLine('SUMMARY:' + '—'.repeat(40));
+  assert.equal(folded.includes('\ufffd'), false, 'no replacement characters');
+  assert.equal(folded.split('\r\n ').join('').length, 8 + 40);
+});
+
+test('separators and newlines are escaped, not emitted raw', () => {
+  const ics = buildIcs([EVENT]);
+  const description = ics.split('\r\n').find((l) => l.startsWith('DESCRIPTION:'));
+  assert.ok(description);
+  // String.raw, so these are the two-character sequences the file must
+  // contain rather than the characters they escape.
+  assert.ok(description.includes(String.raw`\;`), 'semicolon escaped');
+  assert.ok(description.includes(String.raw`\,`), 'comma escaped');
+  assert.ok(description.includes(String.raw`\n`), 'newline escaped');
+  assert.equal(/(?<!\r)\n/.test(description), false, 'no raw newline inside a value');
+});
+
+test('carries a calendar name, which is what a subscriber sees', () => {
+  const ics = buildIcs([EVENT], { name: 'Event Scout · Bathurst' });
+  assert.ok(ics.includes('X-WR-CALNAME:Event Scout · Bathurst\r\n'));
+});
+
+test('an event with no end still gets a DTEND', () => {
+  const ics = buildIcs([EVENT]);
+  assert.ok(/DTEND:\d{8}T\d{6}Z/.test(ics), 'clients reject a VEVENT with neither DTEND nor DURATION');
+});
+
+test('carries no METHOD, which would make it an iTIP object', () => {
+  // Outlook reads a subscription feed with METHOD as an invitation in
+  // transit rather than a calendar, and refuses to add it.
+  assert.equal(/^METHOD:/m.test(buildIcs([EVENT])), false);
+});
+
+test('names the calendar in both the old and the standard spelling', () => {
+  const ics = buildIcs([EVENT], { name: 'Event Scout - Bathurst' });
+  assert.ok(ics.includes('X-WR-CALNAME:Event Scout - Bathurst\r\n'));
+  assert.ok(ics.includes('NAME:Event Scout - Bathurst\r\n'));
+});
+
+/**
+ * A day with no time is written as all-day, so a subscriber's calendar shows
+ * it across the top of the day rather than as a midnight appointment. The end
+ * is exclusive: a one-day event on the 8th ends on the 9th.
+ */
+test('a day with no clock time is an all-day event', (t) => {
+  useZone(t, 'Australia/Sydney');
+  const ics = buildIcs([{ ...EVENT, startTime: '2026-10-07T13:00:00.000Z', dateOnly: true }]);
+  assert.match(ics, /DTSTART;VALUE=DATE:20261008\r\n/);
+  assert.match(ics, /DTEND;VALUE=DATE:20261009\r\n/);
+  assert.doesNotMatch(ics, /DTSTART:2026/, 'no timed start alongside it');
+});
+
+test('a timed event is still written with its time', () => {
+  const ics = buildIcs([EVENT]);
+  assert.match(ics, /DTSTART:20260822T000000Z\r\n/);
+});
+
+test('one unreadable start time drops that event, not the whole feed', () => {
+  const ics = buildIcs([{ ...EVENT, uid: 'bad', startTime: 'not a date' }, EVENT]);
+  assert.ok(ics.includes('UID:abc123@event-scout'));
+  assert.ok(!ics.includes('UID:bad@event-scout'));
+});

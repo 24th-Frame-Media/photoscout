@@ -2,10 +2,11 @@ import test, { after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp } from './httpHarness.js';
 
-const app = await startApp({ EVENT_SCOUT_URL: 'http://event-scout.test' });
+const app = await startApp();
+const { eventSource } = await import('../src/events.js');
 after(() => app.close());
 
-/** What event-scout answers with: everything it knows, including what must not get out. */
+/** What the engine answers with: everything it knows, including what must not get out. */
 const upstream = (group: string, extra: Record<string, unknown> = {}) => ({
   group, title: `Event ${group}`, rawTitle: 'raw title', description: 'A description', rawDescription: 'raw <b>text</b>',
   startTime: '2030-01-05T09:00:00.000Z', endTime: null, venueName: 'The Venue', address: '1 Main St', locality: 'Bathurst',
@@ -23,17 +24,13 @@ const FEED = [
   upstream('hide-1', { hidden: true }),
 ];
 
-// event-scout, as far as the app can tell: its hostname never resolves, so the harness's fetch is wrapped again.
+// The engine, as far as the list can tell.
 let upstreamCalls = 0;
 let upstreamDown = false;
-const harnessFetch = globalThis.fetch;
-globalThis.fetch = async (input, init) => {
-  const url = new URL(input instanceof Request ? input.url : String(input));
-  if (url.hostname !== 'event-scout.test') return harnessFetch(input, init);
+eventSource.read = () => {
   upstreamCalls++;
-  if (upstreamDown) return new Response('down', { status: 500 });
-  assert.equal(url.pathname, '/api/events');
-  return new Response(JSON.stringify(FEED), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  if (upstreamDown) throw new Error('down');
+  return FEED;
 };
 
 const alice = app.client();
@@ -128,19 +125,3 @@ test('a state that is not a state is refused', async () => {
   assert.deepEqual((await alice('GET', '/api/events')).json.map((e: { group: string }) => e.group), ['ok-1', 'ok-2']);
 });
 
-test('with no event-scout set up the list is empty, not an error', async () => {
-  const set = process.env.EVENT_SCOUT_URL;
-  delete process.env.EVENT_SCOUT_URL;
-  try {
-    const calls = upstreamCalls;
-    const anon = app.client();
-    const list = await anon('GET', '/api/events');
-    assert.equal(list.status, 200);
-    assert.deepEqual(list.json, []);
-    assert.equal((await anon('GET', '/api/events/ok-1')).status, 404);
-    assert.equal((await alice('PUT', '/api/events/ok-1/state', { starred: true })).status, 404);
-    assert.equal(upstreamCalls, calls);
-  } finally {
-    process.env.EVENT_SCOUT_URL = set;
-  }
-});

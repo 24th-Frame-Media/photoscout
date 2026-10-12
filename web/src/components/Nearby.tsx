@@ -10,14 +10,14 @@ export default function Nearby({ spot }: { spot: Spot }) {
 
   useEffect(() => {
     setNearby(null); setTrains(null); setCommons(null);
-    api.spotNearby(spot.id).then(setNearby).catch(() => setNearby({ events: [], crowd: null, status: 'not_configured' }));
+    api.spotNearby(spot.id).then(setNearby).catch(() => setNearby({ events: [], crowd: null, status: 'ok' }));
     api.spotTrains(spot.id).then(setTrains).catch(() => setTrains({ configured: false, passes: [] }));
     api.spotCommons(spot.id).then(setCommons).catch(() => setCommons({ images: [], stats: null }));
   }, [spot.id]);
 
   return (
     <>
-      {nearby?.status === 'not_configured' && <p className="hint">Event Scout isn't set up — add its URL in Settings for nearby events and crowd levels.</p>}
+
       {nearby?.status === 'ok' && (
         <>
           {nearby.crowd && (

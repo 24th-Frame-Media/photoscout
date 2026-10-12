@@ -20,15 +20,10 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const [geoQuery, setGeoQuery] = useState('');
   const [geoResults, setGeoResults] = useState<GeocodeResult[] | null>(null);
   const [geoBusy, setGeoBusy] = useState(false);
-  const [scoutTest, setScoutTest] = useState<{ ok: boolean; message: string } | null>(null);
-  const [scoutTesting, setScoutTesting] = useState(false);
   const [trains, setTrains] = useState<TrainsStatus | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyMsg, setKeyMsg] = useState('');
-  const [tokenInput, setTokenInput] = useState('');
-  const [tokenBusy, setTokenBusy] = useState(false);
-  const [tokenMsg, setTokenMsg] = useState('');
   const [tab, setTabState] = useState<Tab>(() => {
     const h = window.location.hash.slice(1) as Tab;
     return TABS.some((t) => t.id === h) ? h : 'home';
@@ -82,29 +77,6 @@ export default function Settings({ user, account, onChange }: { user: User | nul
     } finally {
       setKeyBusy(false);
     }
-  };
-
-  // Like the TfNSW key: saved on its own, so it is only ever sent when typed in.
-  const saveToken = async (clear: boolean) => {
-    setTokenBusy(true); setTokenMsg('');
-    try {
-      const next = await api.saveSettings(clear ? { clearEventScoutToken: true } : { eventScoutToken: tokenInput.trim() });
-      setDraft((d) => (d ? { ...d, eventScoutTokenSet: next.eventScoutTokenSet, eventScoutTokenFromEnv: next.eventScoutTokenFromEnv } : next));
-      setTokenInput('');
-      setTokenMsg(clear ? 'Token cleared.' : 'Token saved.');
-    } catch (err) {
-      setTokenMsg(`Couldn't save: ${(err as Error).message}`);
-    } finally {
-      setTokenBusy(false);
-    }
-  };
-
-  const testScout = async () => {
-    setScoutTesting(true);
-    setScoutTest(null);
-    try { setScoutTest(await api.testEventScout(draft.eventScoutUrl)); }
-    catch (err) { setScoutTest({ ok: false, message: (err as Error).message }); }
-    finally { setScoutTesting(false); }
   };
 
   const fromResult = (r: GeocodeResult, radiusKm: number): Area => ({ name: r.displayName.split(',')[0], lat: r.lat, lng: r.lng, radiusKm });
@@ -166,25 +138,6 @@ export default function Settings({ user, account, onChange }: { user: User | nul
 
         {tab === 'instance' && isAdmin && <section>
           <h2>🔗 Instance</h2>
-          <div className="formrow"><label>Events service URL</label>
-            <input value={draft.eventScoutUrl} placeholder="http://event-scout:3001" onChange={(e) => { set({ eventScoutUrl: e.target.value }); setScoutTest(null); }} />
-            <button type="button" onClick={() => void testScout()} disabled={!draft.eventScoutUrl || scoutTesting}>{scoutTesting ? 'Testing…' : 'Test'}</button>
-          </div>
-          {scoutTest && <div className={`status-line ${scoutTest.ok ? 'ok' : 'error'}`}>{scoutTest.ok ? '●' : '✕'} {scoutTest.message}</div>}
-          {draft.eventScoutTokenFromEnv ? (
-            <p className="hint">The events service token is set by the <code>EVENT_SCOUT_TOKEN</code> environment variable — change it there.</p>
-          ) : (
-            <>
-              <div className="formrow"><label>Events service token</label>
-                <input type="password" autoComplete="off" value={tokenInput}
-                  placeholder={draft.eventScoutTokenSet ? '•••••••• (set — enter a new one to replace)' : 'Paste the service’s API token'}
-                  onChange={(e) => { setTokenInput(e.target.value); setTokenMsg(''); }} />
-                <button type="button" onClick={() => void saveToken(false)} disabled={!tokenInput.trim() || tokenBusy}>Save token</button>
-                {draft.eventScoutTokenSet && <button type="button" onClick={() => void saveToken(true)} disabled={tokenBusy}>Clear</button>}
-              </div>
-              <p className="hint">{draft.eventScoutTokenSet ? 'A token is set' : 'No token set'} — it's never shown or sent back here.{tokenMsg && <> {tokenMsg}</>}</p>
-            </>
-          )}
           <div className="formrow"><label>Private remotes</label>
             <input type="checkbox" checked={draft.allowPrivateRemotes} onChange={(e) => set({ allowPrivateRemotes: e.target.checked })} />
             <span className="hint">Let remotes resolve to LAN addresses.</span></div>

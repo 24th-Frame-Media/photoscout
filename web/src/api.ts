@@ -96,13 +96,10 @@ export interface Settings {
   home: { name: string; lat: number; lng: number; radiusKm: number };
   areas: { name: string; lat: number; lng: number; radiusKm: number }[];
   allowPrivateRemotes: boolean;
-  eventScoutUrl: string;
   /** Never the key itself — only whether one is set, and whether the environment pins it. */
   tfnswApiKeySet: boolean;
   tfnswApiKeyFromEnv: boolean;
   /** The events service's token: write-only, like the TfNSW key. */
-  eventScoutTokenSet: boolean;
-  eventScoutTokenFromEnv: boolean;
   corsOrigins: string[];
 }
 
@@ -235,7 +232,7 @@ export interface ScoutEvent {
 export interface NearbyResult {
   events: ScoutEvent[];
   crowd: { venue: string; live: number | null; typical: number | null; score: number | null; bestWindow: string | null } | null;
-  status: 'ok' | 'not_configured';
+  status: 'ok';
 }
 
 /** An event from event-scout as this server passes it on (server/src/events.ts); starred and hidden are the caller's own. */
@@ -409,7 +406,7 @@ export const api = {
 
   // --- settings ---
   settings: () => fetch('/api/settings').then((r) => json<Settings>(r)),
-  saveSettings: (s: Partial<Settings> & { tfnswApiKey?: string; clearTfnswApiKey?: boolean; eventScoutToken?: string; clearEventScoutToken?: boolean }) =>
+  saveSettings: (s: Partial<Settings> & { tfnswApiKey?: string; clearTfnswApiKey?: boolean }) =>
     fetch('/api/settings', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(s) }).then((r) => json<Settings>(r)),
 
   // --- geocode / version ---
@@ -587,7 +584,7 @@ export const api = {
   runTask: (name: string) => fetch(`/api/tasks/${name}/run`, { method: 'POST' }).then((r) => json<{ ok: boolean; message: string }>(r)),
 
   // --- Event Scout test (TfNSW status is under "trains" above; never the key itself) ---
-  testEventScout: (url: string) => fetch(`/api/eventscout/test?url=${encodeURIComponent(url)}`).then((r) => json<{ ok: boolean; message: string }>(r)),
+
 
   // --- routes ---
   routes: () => fetch('/api/routes').then((r) => json<Route[]>(r)),

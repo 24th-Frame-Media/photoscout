@@ -1,0 +1,447 @@
+import { getKv, getSettings, setKv } from '../db.js';
+import { Area, densityConfig, pickAreas, resolveAreas } from './areas.js';
+import { insertObservations, insertRun, selectObservations, venueCount, loadVenues, Observation } from './store.js';
+import { scrapePopular, discoverVenues, DAY_NAMES } from './sources/googlePopular.js';
+import { accumulate, buildGrid, colourFor, toCells } from './grid.js';
+import { bestWindow, lightBands, shootScore, Light, ShootVerdict } from './shootScore.js';
+import { sunForDay } from '../photo.js';
+
+/**
+ * The scrape and render pipeline.
+ *
+ * Called by the background scheduler and by the manual buttons; there is no CLI.
+ * Rendering happens on demand from stored observations rather than writing files
+ * to disk, so the map always reflects the latest pass without a build step.
+ */
+
+export interface AreaResult {
+  area: string;
+  name: string;
+  ok: boolean;
+  observations?: number;
+  bySource?: Record<string, number>;
+  error?: string;
+}
+
+/**
+ * When sampling may resume after Google served its limited view of Maps.
+ *
+ * The limited view is Google's verdict on the browser, not on any area or
+ * venue, so while it lasts every page load is a request that reads nothing —
+ * and more of them are not how it ends. Six hours rather than the next pass.
+ */
+const LIMITED_UNTIL_KEY = 'density:limitedUntil';
+const LIMITED_BACKOFF_MS = 6 * 3600_000;
+
+/** Scrape every enabled source for one area and store the result. */
+export async function scrapeArea(area: Area, log: (msg: string) => void = () => {}): Promise<AreaResult> {
+  const started = Date.now();
+  const blockedUntil = Number(getKv(LIMITED_UNTIL_KEY) ?? 0);
+  if (blockedUntil > started) {
+    const when = new Date(blockedUntil).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    log(`  skipped: Google Maps was showing a limited view; trying again after ${when}`);
+    return { area: area.slug, name: area.name, ok: false, error: `Google Maps is showing a limited view - trying again after ${when}` };
+  }
+  const ts = Math.floor(started / 1000);
+  const settings = getSettings();
+  const cfg = densityConfig(settings);
+  const observations: Observation[] = [];
+  const summary: Record<string, unknown> = {};
+
+  const popular = await scrapePopular(area, cfg, log);
+  observations.push(...popular.observations);
+  summary.googlePopular = popular.summary;
+
+  const durationMs = Date.now() - started;
+  const runId = insertRun({ ts, area: area.slug, bbox: area.bbox, summary, durationMs });
+  insertObservations(runId, ts, area.slug, observations);
+
+  const bySource: Record<string, number> = {};
+  for (const o of observations) bySource[o.source] = (bySource[o.source] ?? 0) + 1;
+
+  log(`  stored ${observations.length} observations in ${(durationMs / 1000).toFixed(1)}s`);
+  if (popular.summary.limited) {
+    setKv(LIMITED_UNTIL_KEY, String(Date.now() + LIMITED_BACKOFF_MS));
+    return {
+      area: area.slug, name: area.name, ok: false, observations: observations.length, bySource,
+      error: 'Google Maps is showing a limited view with no popular times - pausing for 6 hours',
+    };
+  }
+  return { area: area.slug, name: area.name, ok: true, observations: observations.length, bySource };
+}
+
+/** Scrape the selected areas, or all configured ones. */
+export async function runScrape(
+  areaNames?: string[], log: (msg: string) => void = () => {}
+): Promise<{ ok: boolean; areas: AreaResult[] }> {
+  const areas = pickAreas(areaNames);
+  if (areas.length === 0) return { ok: false, areas: [] };
+
+  const results: AreaResult[] = [];
+  for (const area of areas) {
+    log(`${area.name}:`);
+    try {
+      results.push(await scrapeArea(area, log));
+    } catch (err) {
+      log(`  ${area.name} failed: ${(err as Error).message}`);
+      results.push({ area: area.slug, name: area.name, ok: false, error: (err as Error).message });
+    }
+  }
+  return { ok: results.some((r) => r.ok), areas: results };
+}
+
+/** Rebuild venue lists for the selected areas. */
+export async function runDiscover(
+  areaNames?: string[], log: (msg: string) => void = () => {}
+): Promise<AreaResult[]> {
+  const cfg = densityConfig();
+  const results: AreaResult[] = [];
+  for (const area of pickAreas(areaNames)) {
+    log(`${area.name}:`);
+    try {
+      const res = await discoverVenues(area, cfg, log);
+      results.push({ area: area.slug, name: area.name, ok: true, observations: res.venues });
+    } catch (err) {
+      log(`  ${area.name} failed: ${(err as Error).message}`);
+      results.push({ area: area.slug, name: area.name, ok: false, error: (err as Error).message });
+    }
+  }
+  return results;
+}
+
+export interface RenderOpts {
+  hours?: number;
+  all?: boolean;
+  hourOfDay?: number;
+  daysOfWeek?: number[];
+  sources?: string[];
+}
+
+export function parseDensityParams(query: {
+  hours?: unknown;
+  all?: unknown;
+  hour?: unknown;
+  days?: unknown;
+}): RenderOpts {
+  const rawHours = query.hours != null && String(query.hours).trim() !== ''
+    ? Number(query.hours)
+    : NaN;
+  const hours = Number.isFinite(rawHours) && rawHours > 0 ? rawHours : undefined;
+
+  const rawHour = query.hour != null && String(query.hour).trim() !== ''
+    ? Number(query.hour)
+    : NaN;
+  const hourOfDay = Number.isInteger(rawHour) && rawHour >= 0 && rawHour <= 23 ? rawHour : undefined;
+
+  const parsedDays = query.days != null
+    ? String(query.days)
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s !== '')
+        .map(Number)
+        .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+    : undefined;
+  const daysOfWeek = parsedDays && parsedDays.length > 0 ? parsedDays : undefined;
+
+  return {
+    hours,
+    all: query.all === '1',
+    hourOfDay,
+    daysOfWeek,
+  };
+}
+
+export function parseHistoryDays(days: unknown, defaultDays = 14): number {
+  const rawDays = days != null && String(days).trim() !== ''
+    ? Number(days)
+    : NaN;
+  return Number.isFinite(rawDays) && rawDays > 0 ? rawDays : defaultDays;
+}
+
+/**
+ * Build the density grid for an area, as GeoJSON. Computed on demand — the
+ * grid is small enough that caching it would cost more than it saves.
+ */
+export function renderArea(area: Area, opts: RenderOpts = {}): unknown | null {
+  const hours = opts.hours != null && Number.isFinite(opts.hours) && opts.hours > 0 ? opts.hours : 24;
+  const hourOfDay = opts.hourOfDay != null && Number.isInteger(opts.hourOfDay) && opts.hourOfDay >= 0 && opts.hourOfDay <= 23 ? opts.hourOfDay : undefined;
+  const parsedDays = opts.daysOfWeek?.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+  const daysOfWeek = parsedDays && parsedDays.length > 0 ? parsedDays : undefined;
+
+  const rows = selectObservations({
+    area: area.slug,
+    sinceTs: opts.all ? undefined : Math.floor(Date.now() / 1000) - hours * 3600,
+    hourOfDay,
+    daysOfWeek,
+    sources: opts.sources,
+  });
+  if (rows.length === 0) return null;
+
+  const grid = buildGrid(area.bbox, area.cellMeters);
+  const acc = accumulate(grid, rows, area.kernelMeters);
+  const { cells, scale } = toCells(grid, acc);
+  const snapshots = new Set(rows.map((r) => r.ts)).size;
+
+  return {
+    type: 'FeatureCollection',
+    metadata: {
+      label: [
+        opts.all ? 'all history' : `last ${hours}h`,
+        opts.hourOfDay != null ? `hour ${String(opts.hourOfDay).padStart(2, '0')}:00` : null,
+        `${snapshots} snapshot${snapshots === 1 ? '' : 's'}`,
+      ].filter(Boolean).join(' - '),
+      area: area.name,
+      bbox: area.bbox,
+      observations: rows.length,
+      snapshots,
+      normaliseScale: Number(scale.toFixed(4)),
+      generatedAt: new Date().toISOString(),
+    },
+    features: cells.map((c) => ({
+      type: 'Feature',
+      properties: {
+        score: c.score, raw: c.raw, topName: c.topName,
+        breakdown: c.breakdown, colour: colourFor(c.score),
+      },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[
+          [c.west, c.south], [c.east, c.south],
+          [c.east, c.north], [c.west, c.north], [c.west, c.south],
+        ]],
+      },
+    })),
+  };
+}
+
+export interface VenueReading {
+  name: string;
+  lat: number;
+  lon: number;
+  live: number | null;
+  typical: number | null;
+  score: number;
+  observedAt: string | null;
+  busiestDay: string | null;
+  busiestHour: number | null;
+  quietestDay: string | null;
+  openDays: string[] | null;
+  /** How good a place this is to shoot at the moment it was read. */
+  shoot: ShootVerdict;
+}
+
+/**
+ * Each venue with its most recent reading. Newest wins rather than an average,
+ * since "how busy is it right now" is the question the map answers. The weekly
+ * profile is joined on from the venue record.
+ */
+export function venueReadings(area: Area): VenueReading[] {
+  const venues = loadVenues(area.slug);
+  const rows = selectObservations({ area: area.slug, sources: ['google-popular'] })
+    .sort((a, b) => b.ts - a.ts);
+
+  const latest = new Map<string, { live: number | null; typical: number | null; weight: number; ts: number }>();
+  for (const r of rows) {
+    const meta = r.meta as { name?: string; live?: number | null; typical?: number | null } | null;
+    if (!meta?.name || latest.has(meta.name)) continue;
+    latest.set(meta.name, {
+      live: meta.live ?? null, typical: meta.typical ?? null, weight: r.weight, ts: r.ts,
+    });
+  }
+
+  // One sun calculation per venue, reused for whatever hour its reading landed
+  // on. Doing it inside the loop below would repeat the same arithmetic for
+  // every venue in the area on every request.
+  const now = new Date();
+
+  return venues.map((v) => {
+    const reading = latest.get(v.name);
+    const at = reading ? new Date(reading.ts * 1000) : now;
+    const light = lightBands(sunForDay(at, v.lat, v.lon))(at.getHours());
+    return {
+      name: v.name,
+      lat: v.lat,
+      lon: v.lon,
+      live: reading?.live ?? null,
+      typical: reading?.typical ?? null,
+      score: reading?.weight ?? 0,
+      observedAt: reading ? new Date(reading.ts * 1000).toISOString() : null,
+      busiestDay: v.profile?.busiestDay ?? null,
+      busiestHour: v.profile?.busiestHour ?? null,
+      quietestDay: v.profile?.quietestDay ?? null,
+      openDays: v.profile?.openDays ?? null,
+      shoot: shootScore({
+        busy: reading?.live ?? reading?.typical ?? null,
+        typical: reading?.typical ?? null,
+        light,
+        estimated: reading?.live == null && reading?.typical != null,
+      }),
+    };
+  }).sort((a, b) => b.score - a.score);
+}
+
+export interface HistoryPoint {
+  ts: number;
+  live: number | null;
+  typical: number | null;
+}
+
+export interface ObservedHour {
+  avg: number;
+  samples: number;
+}
+
+export interface DaySummary {
+  /** Readings taken on this weekday, and how many carried a live figure. */
+  readings: number;
+  live: number;
+  /** The stretch of hours worth shooting, from the typical profile. */
+  best: { from: number; to: number; score: number; label: string } | null;
+}
+
+export interface VenueHistory {
+  name: string;
+  lat: number;
+  lon: number;
+  points: HistoryPoint[];
+  /** Google's own weekly profile, as the reference curve. */
+  byDay: Record<string, Record<string, number>> | null;
+  busiestDay: string | null;
+  busiestHour: number | null;
+  /**
+   * Measured averages as weekday -> hour -> reading, weekday being 0=Sunday to
+   * match `Date.getDay()`.
+   *
+   * Keyed by weekday and not by hour alone. Averaging a Tuesday lunchtime in
+   * with a Saturday one produced a single curve that was then drawn against
+   * whichever day you had selected, so every day showed the same dots and none
+   * of them described that day.
+   */
+  observedByDay: Record<number, Record<number, ObservedHour>>;
+  /** Per weekday, how much of the above there actually is. */
+  daySummary: Record<number, DaySummary>;
+  /** Which light band each hour falls in, at this venue, per weekday. */
+  lightByDay: Record<number, Record<number, Light>>;
+  /** How good it is to shoot right now. */
+  now: ShootVerdict | null;
+}
+
+/**
+ * Everything recorded for one venue over the last `days`.
+ *
+ * Two different things are returned deliberately: `points` is what we actually
+ * measured, and `byDay` is Google's typical profile. Comparing them is the
+ * whole point — "busier than usual" is the interesting signal, not the raw
+ * percentage.
+ */
+export function venueHistory(area: Area, venueName: string, days = 14): VenueHistory | null {
+  const venue = loadVenues(area.slug).find((v) => v.name === venueName);
+  if (!venue) return null;
+
+  const validDays = Number.isFinite(days) && days > 0 ? days : 14;
+  const since = Math.floor(Date.now() / 1000) - validDays * 86400;
+  const rows = selectObservations({ area: area.slug, sinceTs: since, sources: ['google-popular'] })
+    .filter((r) => (r.meta as { name?: string } | null)?.name === venueName)
+    .sort((a, b) => a.ts - b.ts);
+
+  const points: HistoryPoint[] = rows.map((r) => {
+    const meta = r.meta as { live?: number | null; typical?: number | null } | null;
+    return { ts: r.ts, live: meta?.live ?? null, typical: meta?.typical ?? null };
+  });
+
+  // Average what we measured, bucketed by weekday and then hour.
+  //
+  // Only readings that carried a live figure count. The fallback used to be
+  // `live ?? typical`, which quietly plotted Google's own typical curve as if
+  // it were a measurement -- so at hours when nothing is published live, the
+  // dots sat exactly on the bars and appeared to confirm them. A venue with no
+  // live coverage now honestly shows no dots, and `daySummary` says why.
+  const buckets = new Map<string, number[]>();
+  const summary: Record<number, DaySummary> = {};
+  for (let d = 0; d < 7; d++) summary[d] = { readings: 0, live: 0, best: null };
+
+  for (const p of points) {
+    const when = new Date(p.ts * 1000);
+    const day = when.getDay();
+    summary[day].readings++;
+    if (p.live == null) continue;
+    summary[day].live++;
+    const key = `${day}:${when.getHours()}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(p.live);
+  }
+
+  const observedByDay: Record<number, Record<number, ObservedHour>> = {};
+  for (const [key, values] of buckets) {
+    const [day, hour] = key.split(':').map(Number);
+    (observedByDay[day] ??= {})[hour] = {
+      avg: Math.round(values.reduce((a, b) => a + b, 0) / values.length),
+      samples: values.length,
+    };
+  }
+
+  // Sun times for the next occurrence of each weekday, at the venue's own
+  // coordinates. Sunset moves by a couple of minutes across a week, which is
+  // well under the hour granularity everything here is drawn at.
+  const lightByDay: Record<number, Record<number, Light>> = {};
+  const today = new Date();
+  for (let d = 0; d < 7; d++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + ((d - today.getDay() + 7) % 7));
+    const band = lightBands(sunForDay(date, venue.lat, venue.lon));
+    lightByDay[d] = Object.fromEntries(
+      Array.from({ length: 24 }, (_, h) => [h, band(h)])
+    ) as Record<number, Light>;
+  }
+
+  for (let d = 0; d < 7; d++) {
+    const profile = venue.profile?.byDay?.[DAY_NAMES[d]];
+    if (profile && Object.keys(profile).length > 0) {
+      summary[d].best = bestWindow(profile, (h) => lightByDay[d][h]);
+    }
+  }
+
+  const newest = points[points.length - 1];
+  const fresh = newest && Date.now() / 1000 - newest.ts < 2 * 3600;
+  const now = fresh
+    ? shootScore({
+        busy: newest.live ?? newest.typical,
+        typical: newest.typical,
+        light: lightByDay[new Date(newest.ts * 1000).getDay()][new Date(newest.ts * 1000).getHours()],
+        estimated: newest.live == null,
+      })
+    : null;
+
+  return {
+    name: venue.name,
+    lat: venue.lat,
+    lon: venue.lon,
+    points,
+    byDay: venue.profile?.byDay ?? null,
+    busiestDay: venue.profile?.busiestDay ?? null,
+    busiestHour: venue.profile?.busiestHour ?? null,
+    observedByDay,
+    daySummary: summary,
+    lightByDay,
+    now,
+  };
+}
+
+export interface AreaSummary {
+  slug: string;
+  name: string;
+  venues: number;
+  withProfile: number;
+}
+
+export function listAreas(): AreaSummary[] {
+  return resolveAreas().map((a) => {
+    const venues = loadVenues(a.slug);
+    return {
+      slug: a.slug,
+      name: a.name,
+      venues: venueCount(a.slug),
+      withProfile: venues.filter((v) => v.profile).length,
+    };
+  });
+}

@@ -1,0 +1,324 @@
+import { haversineKm } from './shared/geo.js';
+import { isCountry, localityOf, regionOf } from './regions.js';
+
+/**
+ * Working out where a listing is, without inventing an answer.
+ *
+ * The old order of business was: ask the geocoder for the venue and the
+ * address, and if neither names one of the towns being searched, ask again
+ * with a town's name stapled on. That last step is what put a Northern
+ * Territory motocross round 3.4 km from Bathurst: "Darwin, Bathurst" is a
+ * real result — Darwin Drive, Llanarth — and it was inside the area, so it
+ * was believed. "Newcastle, Bathurst" is Newcastle Place, Kelso. A listing
+ * from anywhere in the country could be dragged into the area this way, and
+ * once it had local coordinates nothing downstream could tell.
+ *
+ * So: the town a listing names is asked about first, on its own, and whatever
+ * comes back anchors everything else. A venue is only believed where it sits
+ * near that anchor, and a town's name is only stapled on when the listing
+ * names no town at all. A listing from a far town now gets that town's
+ * position — which is honest, and lets the area rule hide it — rather than a
+ * street in the area that happens to share a name.
+ *
+ * Pure: every function here takes what it needs and returns what it decided.
+ */
+
+export interface Stated {
+  /** The region the listing names ('nsw'), or '' when it names none. */
+  region: string;
+  /** The town or suburb it names, '' when none. */
+  locality: string;
+}
+
+export interface Hit {
+  displayName: string;
+  lat: number;
+  lng: number;
+  /** What the geocoder called it, "place:town". Absent in older cached answers. */
+  kind?: string;
+}
+
+/** An area being searched: enough of it to measure a result against. */
+export interface LocateArea {
+  lat: number | null;
+  lng: number | null;
+  radiusKm: number;
+  /** The area's own name, when known — "Bathurst Showground" is specific because it names its area. */
+  city?: string;
+}
+
+/** What a listing says about where it is, before anything is looked up. */
+export function statedOf(venueName: string, address: string): Stated {
+  return {
+    region: regionOf(address) || regionOf(venueName),
+    // The address only: a venue's name is not a town. "Royal Hotel" read as
+    // one anchored listings on whichever Royal Hotel the geocoder liked.
+    locality: localityOf(address),
+  };
+}
+
+/**
+ * How far from the town it names a listing's own position may sit.
+ *
+ * A town's own pin is its centre, and a venue can be well outside the built-up
+ * part — a speedway, a showground, a racetrack. Wide enough for those, far too
+ * narrow to reach the next town of the same name.
+ */
+export const ANCHOR_REACH_KM = 50;
+
+/**
+ * The queries that find the town itself, best first. Empty when the listing
+ * names no town.
+ *
+ * The region goes in first so the right one of the seven Newcastles comes
+ * back, and the bare name follows because that is what the answer was filed
+ * under before regions were asked for, and a cached answer costs nothing.
+ */
+export function anchorQueries(stated: Stated): string[] {
+  if (!stated.locality) return [];
+  return stated.region ? [`${stated.locality}, ${stated.region}`, stated.locality] : [stated.locality];
+}
+
+/**
+ * What a town, suburb or city comes back as. A pub, a park or a street may
+ * share a town's name — Darwin Drive, the Victoria Hotel — and cannot stand
+ * in for one.
+ */
+const PLACE_KINDS = new Set([
+  'city', 'town', 'village', 'hamlet', 'suburb', 'quarter', 'neighbourhood', 'locality',
+  'municipality', 'county', 'district', 'region', 'state', 'province', 'island',
+  // How most Australian suburbs and villages come back: as their boundary,
+  // not as a point. Without it O'Connell and Kelso could anchor nothing.
+  'administrative',
+]);
+
+/**
+ * Whether a result is a populated place rather than a thing inside one.
+ *
+ * An answer cached before the kind was kept says nothing either way, and is
+ * allowed: those were all looked up as towns. One cached with the type and no
+ * group before it (":city" — see toResult in geocode.ts) is judged on the
+ * type, which is enough: none of these types belongs to a street or a venue.
+ */
+export function isPlace(hit: Hit): boolean {
+  if (!hit.kind) return true;
+  const [group, type] = hit.kind.split(':');
+  return (group === 'place' || group === 'boundary' || group === '') && PLACE_KINDS.has(type);
+}
+
+/**
+ * A last try at the town, for a listing whose "town" is not one.
+ *
+ * Instagram and flyer text leaves things like "MXGP DARWIN AUSTRALIA" in the
+ * venue field: no address, no state, and localityOf can only hand back the
+ * whole shout. The geocoder reads it as Darwin, and a populated place is
+ * exactly what this needs — so the answer is taken only when it is one.
+ */
+export function textAnchorQuery(venueName: string, address: string, stated: Stated): string {
+  const text = (address || venueName).trim();
+  const locality = stated.locality || localityOf(venueName);
+  if (!text || !locality) return '';
+  // Only when the town on offer is not a plausible town: several words, or
+  // shouted. A real one has already been tried by anchorQueries.
+  const words = locality.trim().split(/\s+/);
+  const shouted = locality === locality.toUpperCase();
+  return words.length > 2 || shouted ? text.slice(0, 120) : '';
+}
+
+/**
+ * The queries that place the listing precisely, best first.
+ *
+ * With a town known, nothing here needs an area's name: the town is what makes
+ * the query specific. Only a listing that names no town at all falls back to
+ * the areas, which is the one case where "169 College Road" needs them — and
+ * where the answer is checked against the areas anyway.
+ */
+export function placeQueries(
+  venueName: string, address: string, stated: Stated, areas: { name: string }[]
+): string[] {
+  const out: string[] = [];
+  const push = (q: string): void => {
+    const trimmed = q.trim().replace(/^,|,$/g, '').trim().slice(0, 200);
+    if (trimmed && !out.includes(trimmed)) out.push(trimmed);
+  };
+
+  if (stated.locality) {
+    const hasStreetAddress = Boolean(address && /\d/.test(address));
+    if (hasStreetAddress) push(address);
+    if (venueName) {
+      push(`${venueName}, ${stated.locality}${stated.region ? `, ${stated.region}` : ''}`);
+      // A venue whose own name carries its town — "Sydney Motorsport Park" —
+      // answers better without the town repeated after it.
+      push(venueName);
+    }
+    if (address && !hasStreetAddress) push(address);
+    return out.slice(0, MAX_QUERIES);
+  }
+
+  // No town named: the areas are the only hint there is, and a hit is believed
+  // only where it lands inside one of them.
+  for (const area of areas) {
+    if (address) push(`${address}, ${area.name}`);
+    if (venueName) push(`${venueName}, ${area.name}`);
+  }
+  if (venueName.includes(',')) push(venueName.split(',')[0]);
+  return out.slice(0, MAX_QUERIES);
+}
+
+/** Lookups one listing may cost, so a stubborn one cannot eat a whole refresh. */
+export const MAX_QUERIES = 4;
+
+/** The country a result ends with, lowercased. '' when it names none. */
+export function countryOf(displayName: string): string {
+  const parts = displayName.split(',').map((p) => p.trim()).filter(Boolean);
+  const last = parts[parts.length - 1] ?? '';
+  return isCountry(last) ? last.toLowerCase() : '';
+}
+
+/**
+ * The town a listing means, out of everything that shares its name.
+ *
+ * There is a Penrith in England and an Orange in California, and the geocoder
+ * ranks both above the New South Wales ones. Taking its first answer pinned
+ * 121 events on the wrong continent. So: the region the listing states must
+ * match, the country must be one the areas are in, and of what is left an
+ * answer inside an area wins, then a populated place, then whatever remains.
+ */
+export function pickAnchor(
+  hits: Hit[],
+  opts: { region: string; areas: LocateArea[]; slack: number; countries: string[] }
+): Hit | null {
+  const candidates = hits.filter((hit) => {
+    // Strict, unlike a precise result: an anchor decides everything after it,
+    // and "Penrith, England" names no region this app would recognise.
+    if (opts.region && regionOf(hit.displayName) !== opts.region) return false;
+    const country = countryOf(hit.displayName);
+    return !(opts.countries.length > 0 && !opts.countries.includes(country));
+  });
+  // No candidates[0] fallback: a result that is neither in an area nor a
+  // populated place is exactly what let "Royal Hotel" anchor on a pub
+  // anywhere in the country, wrongly rejecting the real local venue and, via
+  // coordsDisagree, wiping its correct coordinates at display time. No
+  // anchor is better than a wrong one.
+  return (
+    candidates.find((h) => isPlace(h) && inAnyArea(h.lat, h.lng, opts.areas, opts.slack)) ??
+    candidates.find((h) => isPlace(h)) ??
+    null
+  );
+}
+
+/**
+ * The hit that names an area itself, out of everything Nominatim ranked
+ * above or below it.
+ *
+ * An area is typed in as a bare name — "Penrith", "Orange" — and geocoded
+ * once, blind, taking whatever came back first. Nominatim ranks a Cumbrian
+ * town or a Californian county above the Australian one those names were
+ * meant to find, so an area could end up centred on the wrong continent
+ * before a single listing was ever looked up against it. A populated place
+ * is preferred over anything else Nominatim returned, and among those the
+ * home country's, when one is known; a warning is logged when neither rule
+ * settles it and a guess had to be made.
+ */
+export function pickAreaHit(hits: Hit[], homeCountry: string): Hit | null {
+  const places = hits.filter(isPlace);
+  const pool = places.length > 0 ? places : hits;
+  if (pool.length === 0) return null;
+  const home = homeCountry ? pool.find((h) => countryOf(h.displayName) === homeCountry) : undefined;
+  const chosen = home ?? pool[0];
+  const countries = new Set(pool.map((h) => countryOf(h.displayName)).filter(Boolean));
+  if (!home && countries.size > 1) {
+    console.warn(`Area lookup for "${pool[0].displayName.split(',')[0]}" is ambiguous (${[...countries].join(', ')}); guessing ${chosen.displayName}`);
+  }
+  return chosen;
+}
+
+/** Whether a result names the region the listing does. A result that names none is allowed. */
+export function regionFits(hit: Hit, region: string): boolean {
+  if (!region) return true;
+  const found = regionOf(hit.displayName);
+  return !found || found === region;
+}
+
+export function inAnyArea(lat: number, lng: number, areas: LocateArea[], slack: number): boolean {
+  return areas.some(
+    (a) => a.lat != null && a.lng != null && haversineKm(a.lat, a.lng, lat, lng) <= a.radiusKm * slack
+  );
+}
+
+/**
+ * The result to believe for a listing, or null.
+ *
+ * With an anchor — the town's own position — a result counts when it names the
+ * right region and sits within reach of that town. Without one, only a result
+ * inside one of the areas counts, because the query had an area's name in it
+ * and a hit that landed outside is the geocoder reaching for anything.
+ */
+export function pickHit(
+  hits: Hit[],
+  opts: { region: string; anchor: Hit | null; areas: LocateArea[]; slack: number; venue?: string; address?: string }
+): Hit | null {
+  // Without an anchor a venue is only believed when the hit is that venue by
+  // name, and the name is one there could not be a dozen of: "Royal Hotel,
+  // Bathurst" finds Bathurst's Royal Hotel whichever town the listing meant.
+  const venue = opts.venue ? norm(opts.venue.split(',')[0]) : '';
+  // A generic venue that names its own area — "Bathurst Showground" — is
+  // specific despite the generic last word; only a bare "Showground" is not.
+  const namesAnArea = opts.areas.some((a) => a.city && venue.includes(norm(a.city)));
+  // The street the address leads with. A hit that is that street, inside an
+  // area, answers the address that was asked about — "Conrod Straight" for a
+  // listing at Mount Panorama Circuit — though it is not the venue by name.
+  // Only when the listing names its region: the area's name was added to the
+  // query, and every town has a Main Street for that to find.
+  const street = opts.address && opts.region ? norm(opts.address.split(',')[0]) : '';
+  if (!opts.anchor && venue && GENERIC_VENUE.test(venue) && !namesAnArea) return null;
+  for (const hit of hits) {
+    if (opts.anchor) {
+      if (!regionFits(hit, opts.region)) continue;
+      if (haversineKm(opts.anchor.lat, opts.anchor.lng, hit.lat, hit.lng) <= ANCHOR_REACH_KM) return hit;
+      continue;
+    }
+    // No anchor: the query had an area's name stapled on, and a listing that
+    // names its own region but not one this hit names is the same guesswork
+    // an anchor would have caught ("Victoria Park, SA" answering as Bathurst).
+    if (opts.region && regionOf(hit.displayName) !== opts.region) continue;
+    // The hazard this exists for: "Alpine Quest Adventure Race, Bathurst"
+    // with no venue in Bathurst comes back as Bathurst itself, inside the
+    // area by construction. A populated place answering a venue query is
+    // never the venue; a kindless (pre-`kind`) hit gets the same verdict
+    // only when it sits on top of an area's own centre, since older answers
+    // that are genuinely venues elsewhere still deserve to be believed.
+    if (hit.kind ? isPlace(hit) : nearAnyAreaCentre(hit.lat, hit.lng, opts.areas)) continue;
+    const name = norm(hit.displayName.split(',')[0]);
+    if (venue && !sameName(name, venue) && !sameName(name, street)) continue;
+    if (inAnyArea(hit.lat, hit.lng, opts.areas, opts.slack)) return hit;
+  }
+  return null;
+}
+
+/** Venues every town has one of, by their last word. */
+const GENERIC_VENUE =
+  /\b(showground|showgrounds|town hall|hall|speedway|park|hotel|pub|tavern|club|rsl|oval|racecourse|church|library|school|pool|stadium|reserve|arena|centre|center|museum|gallery)$/;
+
+const norm = (text: string): string => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const sameName = (a: string, b: string): boolean => Boolean(a && b) && (a.includes(b) || b.includes(a));
+
+/** Whether a point sits on top of one of the areas' own centres, not merely inside it. */
+export function nearAnyAreaCentre(lat: number, lng: number, areas: LocateArea[]): boolean {
+  return areas.some((a) => a.lat != null && a.lng != null && haversineKm(a.lat, a.lng, lat, lng) <= 0.3);
+}
+
+/**
+ * Whether stored coordinates contradict the town the listing names.
+ *
+ * For the listings placed before any of this: a Darwin event pinned in
+ * Bathurst still says Darwin, and the town is the more believable of the two.
+ * Read at display time as well as by the geocoder, so those pins stop being
+ * trusted without waiting for every row to be looked up again.
+ */
+export function coordsDisagree(
+  coords: { lat: number; lng: number }, anchor: Hit | null
+): boolean {
+  if (!anchor) return false;
+  return haversineKm(anchor.lat, anchor.lng, coords.lat, coords.lng) > ANCHOR_REACH_KM;
+}

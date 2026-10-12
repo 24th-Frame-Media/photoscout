@@ -35,6 +35,7 @@ import {
   buildPointPassesResponse, combinedFeedData, combinedRealtime, emptyFeedData, nextPasses, parsePointPassRequest, predictTrainPositions, tripCount, TRAIN_FEEDS,
 } from './feeds/trains.js';
 import { nearbyFor } from './feeds/eventScout.js';
+import { eventsApi } from './events/index.js';
 import { eventList, MAX_GROUP_LENGTH, setUserEventState, userEventStates, withState } from './events.js';
 import { getCachedRail, requestTilesForUnsnapped, trackGraphFor } from './sources/rail.js';
 import { commonsNearbyCached, lensStats } from './sources/commons.js';
@@ -849,7 +850,7 @@ app.get('/api/fires', async (_req, res, next) => {
 
 /** The shared list, with the caller's own star and hide laid over it when signed in. */
 async function eventsFor(req: express.Request) {
-  const events = await eventList(getSettings(db).eventScoutUrl);
+  const events = eventList();
   return withState(events, req.user ? userEventStates(db, req.user.id) : null);
 }
 
@@ -878,7 +879,7 @@ app.put('/api/events/:group/state', async (req, res, next) => {
       return res.status(400).json({ error: 'starred and hidden must be true or false' });
     }
     // Only for an event on the list, so this table cannot be filled with made-up keys.
-    if (!(await eventList(getSettings(db).eventScoutUrl)).some((ev) => ev.group === group)) {
+    if (!(eventList()).some((ev) => ev.group === group)) {
       return res.status(404).json({ error: 'No such event' });
     }
     res.json({ group, ...setUserEventState(db, req.user!.id, group, { starred, hidden }) });
@@ -1020,7 +1021,7 @@ app.get('/api/spots/:id/nearby', async (req, res, next) => {
     if (!spot || !canRead(spot.visibility, spot.owner_id, req.user)) return res.status(404).json({ error: 'Not found' });
     const origin = nearbyOriginForSpot(spot);
     const goodTimes = JSON.parse(spot.good_times) as { eventKeywords?: string[] };
-    res.json(await nearbyFor(db, getSettings(db).eventScoutUrl, origin.lat, origin.lng, goodTimes.eventKeywords ?? []));
+    res.json(await nearbyFor(db, origin.lat, origin.lng, goodTimes.eventKeywords ?? []));
   } catch (err) { next(err); }
 });
 
@@ -1028,7 +1029,7 @@ app.get('/api/places/:id/nearby', async (req, res, next) => {
   try {
     const place = db.handle.prepare('SELECT * FROM places WHERE id = ?').get(req.params.id) as unknown as PlaceRow | undefined;
     if (!place || !canRead(place.visibility, place.owner_id, req.user)) return res.status(404).json({ error: 'Not found' });
-    res.json(await nearbyFor(db, getSettings(db).eventScoutUrl, place.lat, place.lng, []));
+    res.json(await nearbyFor(db, place.lat, place.lng, []));
   } catch (err) { next(err); }
 });
 
@@ -1090,74 +1091,15 @@ app.post('/api/candidates/:id/promote', (req, res) => {
   res.status(201).json(spotJson(db.handle.prepare(`SELECT spots.*, ${SPOT_COVER_COLS} FROM spots WHERE id = ?`).get(id) as unknown as SpotRow));
 });
 
-app.get('/api/eventscout/test', async (req, res) => {
-  if (!requireAdmin(req, res)) return;
-  const url = String(req.query.url ?? getSettings(db).eventScoutUrl ?? '');
-  if (!url) return res.json({ ok: false, message: 'No URL set' });
-  try {
-    const buf = await guardedFetch(`${url.replace(/\/$/, '')}/api/density/areas`, true);
-    const data = JSON.parse(buf.toString('utf8')) as { areas?: unknown[] };
-    res.json({ ok: true, message: `Reached it — ${data.areas?.length ?? 0} density area(s)` });
-  } catch (err) {
-    res.json({ ok: false, message: (err as Error).message });
-  }
-});
-
 /**
- * Admin-only pass-through to the events service, which browsers can't reach.
- * Only these paths (under its /api/) are forwarded; nothing under auth/ ever is.
+ * The events engine's own API (settings, sources, tasks, the crawler, editing
+ * and merging events), for admins only. It was a service with its own address;
+ * its routes are under /api there, so the path is put back before handing over.
  */
-const EVENTSCOUT_ALLOWED = [
-  /^(settings|topics|geocode|status|refresh|version|archive|tasks|import|import\/preview|ical\/preview)$/,
-  /^llm\/(status|queue|reset)$/,
-  /^vision\/reset$/,
-  /^crawler\/(status|pages|events|run|crawl)$/,
-  /^tasks\/[a-z0-9_.:-]+\/(run|enable)$/,
-  /^notify\/(status|looks|test)$/,
-  /^density\/(status|refresh|discover|areas)$/,
-  /^density\/[a-z0-9_-]+\/venues$/,
-];
-const EVENTSCOUT_MAX_BYTES = 5 * 1024 * 1024;
-
-app.all('/api/eventscout/proxy/*', async (req, res) => {
+app.use('/api/events-admin', (req, res, next) => {
   if (!requireAdmin(req, res)) return;
-  // Judge the raw URL, before Express decodes anything.
-  const raw = req.originalUrl.split('?')[0].slice('/api/eventscout/proxy/'.length);
-  if (/\.\.|\/\/|\\|%2f|%2e|%5c/i.test(raw) || !/^[a-z0-9/_.:-]+$/i.test(raw)) return res.status(400).json({ error: 'Bad path' });
-  const rest = raw.replace(/\/$/, '');
-  if (!EVENTSCOUT_ALLOWED.some((re) => re.test(rest)) || rest.startsWith('auth')) return res.status(404).json({ error: 'Not found' });
-  const settings = getSettings(db);
-  const base = settings.eventScoutUrl.trim().replace(/\/$/, '');
-  if (!base) return res.status(503).json({ error: 'Events service is not set up' });
-  const query = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
-  const hasBody = !['GET', 'HEAD'].includes(req.method);
-  try {
-    const target = await assertPublicUrl(`${base}/api/${rest}${query}`, true); // http(s) only; private is the point
-    const upstream = await fetch(target, {
-      method: req.method,
-      redirect: 'error',
-      signal: AbortSignal.timeout(30_000),
-      headers: {
-        Accept: 'application/json',
-        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-        ...(settings.eventScoutToken ? { Authorization: `Bearer ${settings.eventScoutToken}` } : {}),
-      },
-      body: hasBody ? JSON.stringify(req.body ?? {}) : undefined,
-    });
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    for await (const chunk of upstream.body ?? []) {
-      total += chunk.length;
-      if (total > EVENTSCOUT_MAX_BYTES) return res.status(502).json({ error: 'Events service reply too large' });
-      chunks.push(chunk);
-    }
-    const text = Buffer.concat(chunks).toString('utf8');
-    let json: unknown;
-    try { json = JSON.parse(text); } catch { json = { text }; }
-    res.status(upstream.status).json(json);
-  } catch {
-    res.status(502).json({ error: 'Could not reach the events service' });
-  }
+  req.url = `/api${req.url}`;
+  eventsApi(req, res, next);
 });
 
 app.get('/api/spots/:id/commons', async (req, res, next) => {

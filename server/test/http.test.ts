@@ -26,7 +26,7 @@ test('a visitor can read the public map and nothing that costs anything', async 
     assert.equal((await anon('GET', closed)).status, 401, closed);
   }
   assert.equal((await anon('POST', '/api/spots', { name: 'x', lat: 0, lng: 0 })).status, 401);
-  assert.deepEqual(Object.keys((await anon('GET', '/api/settings')).json).sort(), ['areas', 'eventScoutSet', 'home', 'tfnswApiKeySet'], 'where the map opens, and no more');
+  assert.deepEqual(Object.keys((await anon('GET', '/api/settings')).json).sort(), ['areas', 'home', 'tfnswApiKeySet'], 'where the map opens, and no more');
   assert.equal((await anon('PUT', '/api/settings', {})).status, 401);
 });
 
@@ -160,15 +160,29 @@ test('private rows are their owner’s: not a visitor’s, not another account�
 
 test('running the place is for admins', async () => {
   const s = (await alice('GET', '/api/settings')).json;
-  assert.deepEqual(Object.keys(s).sort(), ['areas', 'eventScoutSet', 'home', 'tfnswApiKeySet']);
-  assert.equal((await alice('PUT', '/api/settings', { eventScoutUrl: 'http://10.0.0.1' })).status, 403);
+  assert.deepEqual(Object.keys(s).sort(), ['areas', 'home', 'tfnswApiKeySet']);
+  assert.equal((await alice('PUT', '/api/settings', { allowPrivateRemotes: true })).status, 403);
   for (const [method, url] of [['GET', '/api/tasks'], ['POST', '/api/tasks/housekeeping/run'], ['GET', '/api/users'],
-    ['GET', '/api/remotes'], ['POST', '/api/remotes'], ['GET', '/api/eventscout/test']] as const) {
+    ['GET', '/api/remotes'], ['POST', '/api/remotes'], ['GET', '/api/events-admin/settings'], ['PUT', '/api/events-admin/settings'], ['POST', '/api/events-admin/refresh'], ['GET', '/api/events-admin/auth/token']] as const) {
     assert.equal((await alice(method, url, method === 'POST' ? { url: 'https://example.com/api/share/x' } : undefined)).status, 403, `${method} ${url}`);
   }
   const full = (await admin('GET', '/api/settings')).json;
-  assert.ok('eventScoutUrl' in full && 'corsOrigins' in full);
+  assert.ok('allowPrivateRemotes' in full && 'corsOrigins' in full);
   assert.ok(!('tfnswApiKey' in full), 'the key itself is never sent');
+});
+
+test('the events engine answers an admin, and its old front door is gone', async () => {
+  const anon = app.client();
+  assert.equal((await anon('GET', '/api/events-admin/settings')).status, 401);
+  const settings = await admin('GET', '/api/events-admin/settings');
+  assert.equal(settings.status, 200);
+  assert.ok('radiusKm' in settings.json);
+  assert.equal((await admin('GET', '/api/events-admin/status')).status, 200);
+  // The service's own sign-in and tokens were not brought across.
+  for (const gone of ['/api/events-admin/auth/token', '/api/events-admin/auth/status', '/api/events-admin/auth/feed-token']) {
+    assert.equal((await admin('GET', gone)).status, 404, gone);
+  }
+  assert.equal((await admin('POST', '/api/events-admin/auth/password', { next: 'x' })).status, 404);
 });
 
 test('settings take the fields they know, checked, and drop the rest', async () => {
