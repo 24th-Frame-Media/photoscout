@@ -30,6 +30,9 @@ jobs:
           npx tsc --noEmit -p web
       - name: Unit tests
         run: npm test
+        # The containers run on Sydney time (docker-compose.yml); date tests assume the same.
+        env:
+          TZ: Australia/Sydney
       - name: Build
         run: npm run build
 
