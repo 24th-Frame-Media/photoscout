@@ -58,6 +58,12 @@ export function rotateByTrack(x: number, y: number, trackDeg: number): [number, 
   return [x * Math.cos(t) + y * Math.sin(t), -x * Math.sin(t) + y * Math.cos(t)];
 }
 
+/** MapLibre's text rotation is clockwise from the glyph's default east-facing direction; ADS-B track is clockwise from north. */
+export function flatPlaneRotation(trackDeg: number | null | undefined): number {
+  if (typeof trackDeg !== 'number' || !Number.isFinite(trackDeg)) return 0;
+  return ((trackDeg - 90) % 360 + 360) % 360;
+}
+
 /** Low-poly plane, triangles in local units (x east, y north = nose, z up), span 2 (wingtip to wingtip). */
 export const PLANE_MESH: [number, number, number][] = [
   // fuselage + wings (flat arrow)

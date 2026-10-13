@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { altitudeM, MAX_PLANE_SHADOW_M, pitchBlend, zoomBlend, planeLabel, planeShadowPos, renderAltitude, rotateByTrack } from '../src/map/planes3d.js';
+import { altitudeM, flatPlaneRotation, MAX_PLANE_SHADOW_M, pitchBlend, zoomBlend, planeLabel, planeShadowPos, renderAltitude, rotateByTrack } from '../src/map/planes3d.js';
 
 const near = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 
@@ -44,6 +44,14 @@ test('rotateByTrack: nose points along the track', () => {
   near(x, 1); near(y, 0);
   const [x2, y2] = rotateByTrack(0, 1, 180);
   near(x2, 0); near(y2, -1);
+});
+
+test('flatPlaneRotation: the east-facing glyph points along the compass track', () => {
+  assert.equal(flatPlaneRotation(0), 270);
+  assert.equal(flatPlaneRotation(90), 0);
+  assert.equal(flatPlaneRotation(180), 90);
+  assert.equal(flatPlaneRotation(270), 180);
+  assert.equal(flatPlaneRotation(null), 0);
 });
 
 test('zoomBlend: flat below z13.5, full 3D from z14.5', () => {

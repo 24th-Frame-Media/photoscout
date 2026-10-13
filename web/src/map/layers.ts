@@ -10,7 +10,7 @@ import { buildingShadows, MIN_SHADOW_ALT, type Footprint } from './shadows.js';
 import type { ShadowJob } from './shadows.worker.js';
 
 const SHADOW_COLOR = '#0a0c1a';
-import { altitudeM, pitchBlend, planeLabel, planeShadowPos, zoomBlend } from './planes3d.js';
+import { altitudeM, flatPlaneRotation, pitchBlend, planeLabel, planeShadowPos, zoomBlend } from './planes3d.js';
 import { Planes3dLayer } from './planes3dLayer.js';
 import { Trains3dLayer, trainsNo3d, type Train3d } from './trains3dLayer.js';
 import { registerTerrainShadowProtocol, setBuildingShadows, setTerrainShadowSun, setTerrainShadowTerrain, SHADOW_RASTER_MAX_Z } from './terrainShadowSource.js';
@@ -191,7 +191,7 @@ export function initFeedLayers(map: MlMap) {
   // Planes: an emoji symbol rotated to track, a dashed +15min projection, and a ghost at map time.
   map.addSource('planes', { type: 'geojson', data: empty() });
   map.addLayer({ id: 'planes', type: 'symbol', source: 'planes', layout: {
-    visibility: 'none', 'text-field': '✈', 'text-size': 18, 'text-rotate': ['get', 'track'], 'text-rotation-alignment': 'map', 'text-allow-overlap': true, 'text-ignore-placement': true,
+    visibility: 'none', 'text-field': '✈', 'text-size': 18, 'text-rotate': ['get', 'rotation'], 'text-rotation-alignment': 'map', 'text-allow-overlap': true, 'text-ignore-placement': true,
   }, paint: { 'text-halo-color': '#0e1014', 'text-halo-width': 1 } });
   map.addSource('planes-proj', { type: 'geojson', data: empty() });
   map.addLayer({ id: 'planes-proj', type: 'line', source: 'planes-proj', layout: { visibility: 'none' },
@@ -205,7 +205,7 @@ export function initFeedLayers(map: MlMap) {
   map.addSource('planes-shadow', { type: 'geojson', data: empty() });
   map.addLayer({ id: 'planes-shadow', type: 'symbol', source: 'planes-shadow', layout: {
     visibility: 'none', 'text-field': '✈', 'text-size': ['interpolate', ['linear'], ['zoom'], 8, 16, 14, 30],
-    'text-rotate': ['get', 'track'], 'text-rotation-alignment': 'map', 'text-pitch-alignment': 'map', 'text-allow-overlap': true, 'text-ignore-placement': true,
+    'text-rotate': ['get', 'rotation'], 'text-rotation-alignment': 'map', 'text-pitch-alignment': 'map', 'text-allow-overlap': true, 'text-ignore-placement': true,
   }, paint: { 'text-color': SHADOW_COLOR, 'text-opacity': 0 } }, 'planes');
   map.addSource('planes-label', { type: 'geojson', data: empty() });
   map.addLayer({ id: 'planes-label', type: 'symbol', source: 'planes-label', layout: {
@@ -357,7 +357,7 @@ export function updatePlanes(
 /** The parts of the planes layers that move with each plane: marker, 3D marker, label and shadow (called per animation frame). */
 export function updatePlanePositions(map: MlMap, planes: PlaneIn[], sun?: { azimuth: number; altitude: number }) {
   setData(map, 'planes', { type: 'FeatureCollection', features: planes.map((p) => ({
-    type: 'Feature', properties: { id: p.hex, track: p.track ?? 0 }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+    type: 'Feature', properties: { id: p.hex, rotation: flatPlaneRotation(p.track) }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
   })) });
   // 3D: planes with a known altitude. Shadow from the sun at map time (none at night).
   const withAlt = planes.map((p) => ({ p, alt: altitudeM(p.alt_baro) }));
@@ -369,7 +369,7 @@ export function updatePlanePositions(map: MlMap, planes: PlaneIn[], sun?: { azim
   if (sun) for (const { p, alt } of withAlt) {
     if (alt == null || alt <= 0) continue;
     const pos = planeShadowPos(p.lon, p.lat, alt, sun);
-    if (pos) shadows.push({ type: 'Feature', properties: { id: p.hex, track: p.track ?? 0 }, geometry: { type: 'Point', coordinates: pos } });
+    if (pos) shadows.push({ type: 'Feature', properties: { id: p.hex, rotation: flatPlaneRotation(p.track) }, geometry: { type: 'Point', coordinates: pos } });
   }
   setData(map, 'planes-shadow', { type: 'FeatureCollection', features: shadows });
 }
