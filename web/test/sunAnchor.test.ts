@@ -5,8 +5,10 @@ import {
   attachRotationHandle,
   type Coordinate,
   createMapProjectionAdapter,
+  closeSunAnchorTool,
   createSunAnchorElement,
   handleSunAnchorPlacementClick,
+  startSunAnchorTool,
   type MapProjectionAdapter,
   nudgeAnchor,
   pointToBearing,
@@ -115,6 +117,14 @@ test('shouldShowSunPlanner: an anchor can be planned without selecting a saved s
   assert.equal(shouldShowSunPlanner({ lat: -33.4, lng: 149.5 }, null), true);
   assert.equal(shouldShowSunPlanner(null, { lat: -33.4, lng: 149.5 }), true);
   assert.equal(shouldShowSunPlanner(null, null), false);
+});
+
+test('sun anchor tool: enables the sun overlay and closes back to a clean browse state', () => {
+  const visibility = { sun: false, spots: true, terrain: false };
+
+  assert.deepEqual(startSunAnchorTool(visibility), { sun: true, spots: true, terrain: false });
+  assert.deepEqual(visibility, { sun: false, spots: true, terrain: false }, 'does not mutate saved overlay choices');
+  assert.deepEqual(closeSunAnchorTool(), { anchor: null, bearing: null, mode: 'browse' });
 });
 
 test('selectedBearingProjectionGeoJSON: starts at anchor and projects along chosen compass bearing', () => {
