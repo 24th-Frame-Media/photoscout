@@ -5,6 +5,9 @@ import EventsGeneral from '../settings/events/General.js';
 import EventsSources from '../settings/events/Sources.js';
 import EventsCrawler from '../settings/events/Crawler.js';
 import EventsDensity from '../settings/events/Density.js';
+import EventsPlaces from '../settings/events/Places.js';
+import EventsConditions from '../settings/events/Conditions.js';
+import EventsBusyMap from '../settings/events/DensityView.js';
 import EventsModel from '../settings/events/Model.js';
 import EventsNotify from '../settings/events/Notify.js';
 import EventTasks from '../settings/events/EventTasks.js';
@@ -91,7 +94,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
         ))}
       </div>
       {/* Outside the fieldset below: your own account is yours to change, admin or not. */}
-      {tab === 'account' && user && <Account user={user} account={account} onChange={onChange} />}
+      {tab === 'account' && user && <><Account user={user} account={account} onChange={onChange} /><CalendarLink /></>}
       {!isAdmin && tab !== 'account' && <div className="banner">Only an admin can change these.</div>}
       <fieldset disabled={!isAdmin} className="bare">
         {tab === 'home' && <section>
@@ -180,12 +183,15 @@ export default function Settings({ user, account, onChange }: { user: User | nul
         </div>
       )}
 
-      {isAdmin && (tab === 'events' || tab === 'sources' || tab === 'crawler' || tab === 'density' || tab === 'model' || tab === 'notify') && (
+      {isAdmin && (tab === 'events' || tab === 'sources' || tab === 'crawler' || tab === 'density' || tab === 'places' || tab === 'busy' || tab === 'conditions' || tab === 'model' || tab === 'notify') && (
         <div className="evs">
           {tab === 'events' && <EventsGeneral />}
           {tab === 'sources' && <EventsSources />}
           {tab === 'crawler' && <EventsCrawler />}
           {tab === 'density' && <EventsDensity />}
+          {tab === 'places' && <EventsPlaces />}
+          {tab === 'busy' && <EventsBusyMap />}
+          {tab === 'conditions' && <EventsConditions />}
           {tab === 'model' && <EventsModel />}
           {tab === 'notify' && <EventsNotify />}
         </div>
@@ -196,7 +202,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   );
 }
 
-type Tab = 'home' | 'account' | 'instance' | 'events' | 'sources' | 'crawler' | 'density' | 'model' | 'notify' | 'feeds' | 'tasks' | 'users';
+type Tab = 'home' | 'account' | 'instance' | 'events' | 'sources' | 'crawler' | 'density' | 'places' | 'busy' | 'conditions' | 'model' | 'notify' | 'feeds' | 'tasks' | 'users';
 const TABS: { id: Tab; label: string; admin?: boolean }[] = [
   { id: 'home', label: 'Home & areas' },
   { id: 'account', label: 'Account' },
@@ -205,6 +211,9 @@ const TABS: { id: Tab; label: string; admin?: boolean }[] = [
   { id: 'sources', label: 'Sources', admin: true },
   { id: 'crawler', label: 'Crawler', admin: true },
   { id: 'density', label: 'Density', admin: true },
+  { id: 'places', label: 'Places', admin: true },
+  { id: 'busy', label: 'Busy map', admin: true },
+  { id: 'conditions', label: 'Conditions', admin: true },
   { id: 'model', label: 'Local model', admin: true },
   { id: 'notify', label: 'Notifications', admin: true },
   { id: 'feeds', label: 'Trains' },
@@ -274,6 +283,45 @@ function Account({ user, account, onChange }: { user: User; account: string | nu
       {message && <p className="status-line ok">{message}</p>}
       {error && <p className="status-line error">{error}</p>}
       {account && <p className="hint mt-12">Account id: <code>{account}</code></p>}
+    </section>
+  );
+}
+
+/**
+ * The secret link a calendar app subscribes to: the public events plus your shortlist.
+ * Only a hash is kept, so the link is shown once, when it is made; making another replaces the old one.
+ */
+function CalendarLink() {
+  const [exists, setExists] = useState<boolean | null>(null);
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.calendarLink().then((r) => setExists(r.exists)).catch((err) => setError((err as Error).message)); }, []);
+
+  const run = async (fn: () => Promise<void>) => {
+    setError('');
+    setBusy(true);
+    try { await fn(); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+  };
+  const make = () => run(async () => { setUrl((await api.makeCalendarLink()).url); setExists(true); });
+  const revoke = () => run(async () => { await api.revokeCalendarLink(); setUrl(''); setExists(false); });
+
+  return (
+    <section className="calendarlink">
+      <h2>📅 Calendar link</h2>
+      <p className="hint">Subscribe from Google Calendar, Apple Calendar or Outlook to see the public events, minus any you have hidden. Add <code>?starred=1</code> to the end for your shortlist only. Anyone with the link can read the feed, so keep it to yourself.</p>
+      {url && (
+        <>
+          <input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="Calendar link" />
+          <p className="hint">Copy it now. It cannot be shown again; make a new one if you lose it.</p>
+        </>
+      )}
+      <div className="eventcard__actions">
+        <button className="primary" disabled={busy || exists === null} onClick={() => void make()}>{exists ? 'Make a new link' : 'Make a link'}</button>
+        {exists && <button disabled={busy} onClick={() => void revoke()}>Turn it off</button>}
+        {exists && !url && <span className="hint">You have a link. Making a new one stops the old one working.</span>}
+      </div>
+      {error && <p className="status-line error">{error}</p>}
     </section>
   );
 }

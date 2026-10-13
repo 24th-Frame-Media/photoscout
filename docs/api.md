@@ -6,7 +6,7 @@ Sign-in is Google or Discord (see the README); a session is a `__Host-ps_session
 
 - Sign-in itself, `GET /api/auth/status` and `GET /api/version`.
 - Share-token reads under `/api/share/`: the token is the credential.
-- Reads an anonymous visitor may make: `GET` on `/api/places`, `/api/spots` and `/api/routes` (and one by id) and a spot's photos and photo files (public rows only, plus unlisted ones by id), `/api/settings` (a cut-down answer: where the map opens), `/api/rail`, `/api/fires`, `/api/aurora`, and `/api/events` (below). Anything that proxies a third-party service, or costs a request elsewhere, is not on this list.
+- Reads an anonymous visitor may make: `GET` on `/api/places`, `/api/spots` and `/api/routes` (and one by id) and a spot's photos and photo files (public rows only, plus unlisted ones by id), `/api/settings` (a cut-down answer: where the map opens), `/api/rail`, `/api/fires`, `/api/aurora`, `/api/events` (below), `/api/flyer/:day/:name` and the secret calendar links `/api/calendar/:token.ics` (the token is the credential). Anything that proxies a third-party service, or costs a request elsewhere, is not on this list.
 
 Also open to a visitor: `GET /api/feed` (`scope=all` only) and `GET /api/posts/:id/comments`.
 
@@ -63,7 +63,6 @@ Same auth rules as above: all of these need a session unless marked open.
 | GET | `/api/spots/:id/trains?hours=` | Next scheduled passes within ~2km of the spot. |
 | GET | `/api/trains/status` | Whether a key is set, last static import, trip count. |
 | GET | `/api/spots/:id/nearby`, `/api/places/:id/nearby` | Nearby Event Scout events (7 days, keyword-flagged) and venue busyness. |
-| GET | `/api/eventscout/test?url=` | Admin: try reaching an Event Scout URL. |
 | GET | `/api/events` | Open to visitors. Upcoming events from Event Scout (needs `EVENT_SCOUT_URL` or the Settings URL; an empty list without), see below. |
 | GET | `/api/events/:group` | Open to visitors. One event from that list, same shape; 404 if it isn't on it. |
 | PUT | `/api/events/:group/state` | Your own star and hide on an event. Body `{ starred?: boolean, hidden?: boolean }`, at least one; a field left out keeps its value. Replies `{ group, starred, hidden }`. 400 for anything else or a `group` over 100 characters, 404 for an event not on the list. |
@@ -93,6 +92,34 @@ Same auth rules as above: all of these need a session unless marked open.
 - `starred` and `hidden` are the caller's own, from `user_event_state`; always false for a visitor. event-scout's own star and hide are not used.
 - The upstream list is cached in memory for 60 seconds and shared by every caller, so listing costs event-scout one request a minute at most. If it can't be reached the last list is served; with none yet, 502. Unset, `[]`.
 
+- When the engine holds a copy of an event's flyer, `imageUrl` is that copy (`/api/flyer/<day>/<name>`) rather than the scraped address, which can stop answering.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/flyer/:day/:name` | Open to visitors. A flyer the engine has stored, read-only, for an event that is on the list; a hidden or culled event's flyer, one that belongs to no event, and any name or day that is not a shape the store writes (`YYYY-MM-DD` or `undated`, 16 hex characters and a known image extension) are 404 without touching the disk. The type is from a fixed list (never sniffed), with `nosniff`, `Content-Disposition: inline` and a sandboxing CSP. |
+| GET | `/api/calendar-link` | Whether you have a calendar link: `{ exists, createdAt }`. The token cannot be read back. |
+| POST | `/api/calendar-link` | Make a link, or a new one that replaces the old (which stops working at once). Replies `201 { token, url }`; the only time the token is shown. Only its SHA-256 is stored. |
+| DELETE | `/api/calendar-link` | Turn your link off. |
+| GET | `/api/calendar/:token.ics` | Open; the token is the credential. The public events plus public community events, minus the ones you have hidden, as `text/calendar`. `?starred=1` narrows it to your shortlist. Any token that is not live (wrong, replaced, turned off, or its owner suspended or deleted) is a 404. Suspending someone deletes their link for good. |
+
+### Admin event screens
+
+`/api/events-admin/*` is the events engine's own API, admin only (401 without a session, 403 for anyone else). The Settings tabs and the Events page use these:
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/events-admin/photo` | Shooting conditions: golden and blue hour, sky and moon for today and tomorrow (Conditions tab). |
+| GET | `/api/events-admin/density/areas` | Tracked areas with venue counts (Places and Busy map tabs). |
+| GET | `/api/events-admin/density/:area/venues` | Every venue with its latest reading and shoot verdict. |
+| GET | `/api/events-admin/density/:area/history?venue=&days=` | One venue's weekly profile, measured readings and best windows. |
+| GET | `/api/events-admin/density/:area?hours=&all=1&hour=` | The area's density grid as GeoJSON; 404 when nothing was observed in the window. |
+| GET | `/api/events-admin/events`, `/events/:group` | The engine's whole upcoming list, hidden events included, and one event with its listings and the fields edited by hand. |
+| PATCH | `/api/events-admin/events/:group` | Edit by hand: `title, description, startTime, venueName, address, category, priceText, imageUrl, photoScore`; a field sent as `null` or `""` drops the override. The id changes if the title or date does. |
+| POST | `/api/events-admin/merge` | `{ groups: string[], parent? }`, at least two. `/unmerge/:group` splits a merge; `/events/:group/parent` `{ id }` picks the listing that speaks for it. |
+| POST | `/api/events-admin/groups/:group` | `{ hidden }`: take an event off every list for everybody, or put it back. |
+| POST | `/api/events-admin/archive` | Archive events that have been and gone. |
+
+After any write here the kept public list is dropped, so the change shows on the next read instead of within a minute.
 
 ### Feed, chat and reports
 
@@ -112,3 +139,13 @@ Bodies are plain text; the server never stores or returns markup.
 | POST | `/api/reports` | `{ targetKind: post\|comment\|chat\|community_event\|profile\|ride\|spot, targetId, reason<=300 }`. 409 if you already have an open report on it; 20 a day. |
 | GET | `/api/reports` | Staff: open reports oldest first, then recently settled, each with a text snapshot and the author. |
 | POST | `/api/reports/:id/resolve` | Staff: `{ action: dismiss\|hide }`. `hide` hides a post, comment or community event (hidden events 404 for everyone but the organiser and staff) and deletes a chat line; for a profile, ride or spot it only settles the report. |
+
+### Suggested spots
+
+A signed-in user can suggest a public spot; it waits for a moderator and is not on the map until approved.
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/suggestions` | `{ name<=120, notes<=1000, lat, lng }`. 400 for a bad body, 429 past 10 a day or 20 waiting. |
+| GET | `/api/suggestions` | Staff: waiting suggestions oldest first, then recently settled. |
+| POST | `/api/suggestions/:id/resolve` | Staff: `{ action: approve\|reject }`. Approving makes a public spot owned by the suggester and replies `{ ok, spotId }`. 409 if already settled. |

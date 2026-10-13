@@ -9,6 +9,7 @@
  */
 import { Db } from './db.js';
 import { listEvents } from './events/local.js';
+import { isSafeFlyerPath } from './events/flyers.js';
 
 export const MAX_GROUP_LENGTH = 100;
 const CACHE_MS = 60_000;
@@ -25,7 +26,7 @@ export interface EventItem {
   locality: string;
   lat: number | null;
   lng: number | null;
-  /** An https picture, or '' when there is none that a browser could load. */
+  /** A stored copy of the flyer (see /api/flyer) or an https picture, or '' when there is none that a browser could load. */
   imageUrl: string;
   category: string;
   priceText: string;
@@ -55,6 +56,12 @@ function webUrl(v: unknown, httpsOnly = false): string {
   }
 }
 
+/** The day and name in a stored flyer's address, if it is one this app could have written. */
+export function flyerPathOf(src: unknown): { day: string; name: string } | null {
+  const m = /^\/api\/flyer\/([^/]+)\/([^/]+)$/.exec(str(src));
+  return m && isSafeFlyerPath(m[1], m[2]) ? { day: m[1], name: m[2] } : null;
+}
+
 /** Pure: one upstream event as the page gets it, or null when the engine has it out of sight or it is malformed. */
 export function publicEvent(raw: unknown): EventItem | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -65,6 +72,8 @@ export function publicEvent(raw: unknown): EventItem | null {
   if (ev.hidden === true || ev.culled) return null;
   const images = Array.isArray(ev.images) ? ev.images : [ev.imageUrl];
   const sources = Array.isArray(ev.sources) ? ev.sources : [];
+  // The copy this server holds first: a scraped address can stop answering, and the copy cannot.
+  const stored = images.find((src) => flyerPathOf(src));
   return {
     group,
     title: str(ev.title),
@@ -76,7 +85,7 @@ export function publicEvent(raw: unknown): EventItem | null {
     locality: str(ev.locality),
     lat: coord(ev.lat),
     lng: coord(ev.lng),
-    imageUrl: images.map((src) => webUrl(src, true)).find(Boolean) ?? '',
+    imageUrl: typeof stored === 'string' ? stored : images.map((src) => webUrl(src, true)).find(Boolean) ?? '',
     category: str(ev.category),
     priceText: str(ev.priceText),
     isOnline: ev.isOnline === true,
@@ -94,7 +103,7 @@ export function publicEvent(raw: unknown): EventItem | null {
 /** Where the list is read from. A property so a test can stand in for the engine. */
 export const eventSource = { read: (): unknown[] => listEvents() };
 
-let cache: { at: number; events: EventItem[] } | null = null;
+let cache: { at: number; events: EventItem[]; flyers: Set<string> } | null = null;
 
 /**
  * Every upcoming event on show, shared by all callers.
@@ -107,8 +116,9 @@ let cache: { at: number; events: EventItem[] } | null = null;
 export function eventList(): EventItem[] {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.events;
   try {
-    cache = { at: Date.now(), events: eventSource.read().map(publicEvent).filter((e): e is EventItem => e !== null) };
-    return cache.events;
+    const events = eventSource.read().map(publicEvent).filter((e): e is EventItem => e !== null);
+    cache = { at: Date.now(), events, flyers: new Set(events.map((e) => e.imageUrl).filter((src) => flyerPathOf(src))) };
+    return events;
   } catch (err) {
     console.error('[events] could not read the list:', (err as Error).message);
     if (cache) {
@@ -117,6 +127,17 @@ export function eventList(): EventItem[] {
     }
     throw Object.assign(new Error('Events are unavailable right now'), { status: 502 });
   }
+}
+
+/** Drop the kept list, so an admin's edit shows on the next read instead of in a minute. */
+export function forgetEventList(): void {
+  cache = null;
+}
+
+/** Whether a stored flyer belongs to an event that is on show, so a hidden or culled event's picture is not served. */
+export function flyerIsShown(day: string, name: string): boolean {
+  eventList();
+  return cache?.flyers.has(`/api/flyer/${day}/${name}`) ?? false;
 }
 
 // --- one person's star and hide ---------------------------------------------

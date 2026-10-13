@@ -1,6 +1,6 @@
 import type {
-  CrawlerFind, CrawlerPageRow, CrawlerStatus, CrawlPageReport, DensityArea, DensityStatus, EventTopic, GeocodeResult,
-  IcalPreview, LlmQueueResponse, LlmStatus, LogEntry, NotifyStatus, Settings, StatusResponse, TaskStatus, VersionInfo,
+  AdminEvent, CrawlerFind, CrawlerPageRow, CrawlerStatus, CrawlPageReport, DensityArea, DensityGrid, DensityStatus, EventEdit, EventTopic, GeocodeResult,
+  IcalPreview, LlmQueueResponse, LlmStatus, LogEntry, NotifyStatus, PhotoConditions, Settings, StatusResponse, TaskStatus, VenueHistory, VenueReading, VersionInfo,
 } from './types.js';
 
 export * from './types.js';
@@ -75,5 +75,18 @@ export const api = {
   densityRefresh: () => call<Ok>('/density/refresh', 'POST', {}),
   densityDiscover: () => call<Ok>('/density/discover', 'POST', {}),
   densityAreas: () => call<{ areas: DensityArea[] }>('/density/areas'),
-  venues: (area: string) => call<{ name: string }[]>(`/density/${encodeURIComponent(area)}/venues`),
+  venues: (area: string) => call<VenueReading[]>(`/density/${encodeURIComponent(area)}/venues`),
+  venueHistory: (area: string, venue: string, days = 14) =>
+    call<VenueHistory>(`/density/${encodeURIComponent(area)}/history?venue=${encodeURIComponent(venue)}&days=${days}`),
+  densityGrid: (area: string, query = '') => call<DensityGrid>(`/density/${encodeURIComponent(area)}${query}`),
+  photo: () => call<PhotoConditions>('/photo'),
+  // The whole upcoming list as the engine has it, hidden events included (the public list leaves them out).
+  events: () => call<AdminEvent[]>('/events'),
+  event: (group: string) => call<AdminEvent>(`/events/${encodeURIComponent(group)}`),
+  editEvent: (group: string, patch: EventEdit) => call<{ updated: string[]; event: AdminEvent }>(`/events/${encodeURIComponent(group)}`, 'PATCH', patch),
+  mergeEvents: (groups: string[], parent?: string) => call<{ group: string; merged: number }>('/merge', 'POST', { groups, parent }),
+  unmergeEvent: (group: string) => call<{ split: number }>(`/unmerge/${encodeURIComponent(group)}`, 'POST', {}),
+  setEventParent: (group: string, id: number) => call<{ event: AdminEvent | null }>(`/events/${encodeURIComponent(group)}/parent`, 'POST', { id }),
+  hideEventForAll: (group: string, hidden: boolean) => call<{ ok: boolean }>(`/groups/${encodeURIComponent(group)}`, 'POST', { hidden }),
+  archivePast: () => call<{ archived?: number }>('/archive', 'POST', {}),
 };

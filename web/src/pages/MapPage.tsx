@@ -4,6 +4,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { GeoJSONSource, LngLatBounds, Map as MlMap, MapMouseEvent, Marker, NavigationControl, Point, Popup, ScaleControl, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+import { locateControl } from '../map/locateControl.js';
+import SuggestSpot from '../components/SuggestSpot.js';
 import { api, Candidate, type EventItem, FireIncident, Place, Plane, type PlaneInfo, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast } from '../api.js';
 import { sunLook } from '../map/sunLook.js';
 import { hourAt, pickRadarFrame, RAINVIEWER_INDEX, radarTileUrl, weatherIcon, type RadarIndex } from '../map/weather.js';
@@ -89,6 +91,9 @@ export default function MapPage({ user }: { user: User | null }) {
   const [selected, setSelected] = useState<Selection>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [stagingMode, setStagingMode] = useState(false);
+  /** Where a signed-in user is suggesting a public spot, once they have right-clicked, long-pressed or used the Add menu. */
+  const [suggestAt, setSuggestAt] = useState<{ lat: number; lng: number } | null>(null);
+  const canSuggest = useRef(false);
   const [mode, setMode] = useState<'browse' | 'pick-spot' | 'draw' | 'anchor'>('browse');
   const [sheetSize, setSheetSize] = useState<'peek' | 'half'>('peek');
   const editorKey = editing ? `${editing.type}:${(editing.draft as { id?: string }).id ?? 'new'}` : null;
@@ -158,6 +163,7 @@ export default function MapPage({ user }: { user: User | null }) {
     const m = new MlMap({ container: container.current!, style: STYLE_URL, center: [149.577, -33.419], zoom: 10, maxPitch: 70 });
     m.addControl(new NavigationControl({ visualizePitch: true }), 'top-right');
     m.addControl(homeControl(), 'top-right');
+    m.addControl(locateControl((message) => setFollowNote(message)), 'top-right');
     m.addControl(new ScaleControl({}), 'bottom-left');
     m.once('style.load', () => { initLayers(m); initFeedLayers(m); setMap(m); });
     // Compact attribution starts expanded (full width on phones); start it as the (i) button instead.
@@ -413,6 +419,34 @@ export default function MapPage({ user }: { user: User | null }) {
       window.removeEventListener('mouseup', up);
     };
   }, [map]);
+
+  // Suggest a spot: right-click, or hold a finger down for just over half a second, anywhere on the map.
+  canSuggest.current = !!user && mode === 'browse' && !editing && !stagingMode;
+  useEffect(() => {
+    if (!map) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cancel = () => { clearTimeout(timer); timer = undefined; };
+    const open = (at: { lat: number; lng: number }) => { if (canSuggest.current) setSuggestAt({ lat: at.lat, lng: at.lng }); };
+    const onContext = (e: MapMouseEvent) => { e.originalEvent.preventDefault(); open(e.lngLat); };
+    const onTouch = (e: { lngLat: { lat: number; lng: number }; points?: unknown[] }) => {
+      cancel();
+      if ((e.points?.length ?? 1) === 1) timer = setTimeout(() => open(e.lngLat), 600);
+    };
+    map.on('contextmenu', onContext);
+    map.on('touchstart', onTouch);
+    for (const ev of ['touchmove', 'touchend', 'touchcancel', 'dragstart', 'zoomstart'] as const) map.on(ev, cancel);
+    return () => {
+      cancel();
+      map.off('contextmenu', onContext);
+      map.off('touchstart', onTouch);
+      for (const ev of ['touchmove', 'touchend', 'touchcancel', 'dragstart', 'zoomstart'] as const) map.off(ev, cancel);
+    };
+  }, [map, user]);
+  useEffect(() => {
+    if (!map || !suggestAt) return;
+    const pin = new Marker({ color: '#f5a623' }).setLngLat([suggestAt.lng, suggestAt.lat]).addTo(map);
+    return () => { pin.remove(); };
+  }, [map, suggestAt?.lat, suggestAt?.lng]);
 
   // A followed vehicle that drops out of its feed (or the feed switched off): say so and stop.
   useEffect(() => {
@@ -1123,6 +1157,7 @@ export default function MapPage({ user }: { user: User | null }) {
         </div>
       )}
 
+      {suggestAt && <SuggestSpot at={suggestAt} onClose={() => setSuggestAt(null)} />}
       {openEvent && eventFeed.events?.find((e) => e.group === openEvent) && (
         <EventDetail ev={eventFeed.events.find((e) => e.group === openEvent)!} user={user} onClose={() => setOpenEvent(null)} onMark={user ? eventFeed.mark : undefined} onGoing={user ? eventFeed.setGoing : undefined} />
       )}
@@ -1165,6 +1200,7 @@ export default function MapPage({ user }: { user: User | null }) {
           ] },
           ...(user && !editing ? [{ label: '+ Add', items: [
             { key: 'spot', label: 'Spot (pick on map)', onSelect: () => setMode(mode === 'pick-spot' ? 'browse' : 'pick-spot') },
+            { key: 'suggest', label: 'Suggest a public spot', title: 'Send a place to the moderators for the public map. Right-click or long-press the map to pick the place', onSelect: () => setSuggestAt({ lat: centre.lat, lng: centre.lng }) },
             { key: 'spot-here', label: 'Spot here', onSelect: () => { setSelected(null); setEditing({ type: 'spot', draft: newSpot(centre.lat, centre.lng) }); } },
             { key: 'route', label: 'Route', onSelect: () => openRouteEdit(blankRouteDraft()) },
             { key: 'place', label: 'Place', onSelect: () => {

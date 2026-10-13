@@ -5,10 +5,14 @@ import { applyFilters, categoriesOf, DATE_CHIPS, DEFAULT_FILTERS, type Filters, 
 import { useEvents } from '../useEvents.js';
 import EventCard from '../components/EventCard.js';
 import EventDetail from '../components/EventDetail.js';
+import EventAdmin, { HiddenEvents } from '../components/EventAdmin.js';
+import { api as adminApi } from '../settings/events/api.js';
 
 /** Upcoming events from Event Scout, filtered in the browser. Anyone can read; a signed-in user keeps a shortlist and hides events. */
 export default function Events({ user }: { user: User | null }) {
-  const { events, error, mark, setGoing } = useEvents();
+  const { events, error, mark, setGoing, reload } = useEvents();
+  const admin = user?.role === 'admin';
+  const [adminNote, setAdminNote] = useState('');
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [open, setOpen] = useState<string | null>(null);
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
@@ -24,6 +28,10 @@ export default function Events({ user }: { user: User | null }) {
   const wanted = params.get('open');
   const openEvent = open ? all.find((e) => e.group === open) : wanted ? all.find((e) => e.communityId === wanted) : undefined;
   const close = () => { setOpen(null); if (wanted) setParams({}, { replace: true }); };
+
+  // An edit or a merge changes the event's id, so the open card is closed rather than left pointing at nothing.
+  const changed = () => { close(); reload(); };
+  const archive = () => adminApi.archivePast().then((r) => { setAdminNote(`Archived ${r.archived ?? 0} past events.`); reload(); }).catch((err) => setAdminNote((err as Error).message));
 
   return (
     <div className="page">
@@ -49,6 +57,7 @@ export default function Events({ user }: { user: User | null }) {
           </label>
         )}
         {user && <Link className="button" to="/events/new">+ Add an event</Link>}
+        {admin && <button title="Move events that have been and gone out of the list" onClick={() => void archive()}>Archive past events</button>}
         <label className="toggle">
           <input type="checkbox" checked={filters.showHidden} onChange={(e) => set({ showHidden: e.target.checked })} />
           Show hidden
@@ -56,6 +65,7 @@ export default function Events({ user }: { user: User | null }) {
       </div>
 
       {error && <p className="status-line error">{error}</p>}
+      {adminNote && <p className="hint">{adminNote}</p>}
       {events && (
         <p className="hint">
           {filtered.length} of {all.length} events
@@ -75,7 +85,10 @@ export default function Events({ user }: { user: User | null }) {
         </div>
       )}
 
-      {openEvent && <EventDetail ev={openEvent} user={user} onClose={close} onMark={onMark} onGoing={user ? setGoing : undefined} />}
+      {admin && <HiddenEvents refreshKey={events?.length ?? 0} onChanged={reload} />}
+
+      {openEvent && <EventDetail ev={openEvent} user={user} onClose={close} onMark={onMark} onGoing={user ? setGoing : undefined}
+        adminSlot={admin && !openEvent.community ? <EventAdmin ev={openEvent} others={all} onChanged={changed} /> : undefined} />}
     </div>
   );
 }

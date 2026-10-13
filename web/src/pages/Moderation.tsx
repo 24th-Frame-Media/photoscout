@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, type Report, type User } from '../api.js';
+import { api, type Report, type SpotSuggestion, type User } from '../api.js';
 import { ago } from '../ago.js';
 
 /** Kinds where "Hide" does something; for the rest it only settles the report. */
 const HIDES = new Set(['post', 'comment', 'chat', 'community_event']);
 
-/** The reports queue, for admins and moderators. Everything shown was written by a user and is rendered as plain text. */
+/** The reports queue and the spots people have suggested, for admins and moderators. Everything shown was written by a user and is rendered as plain text. */
 export default function Moderation({ user }: { user: User | null }) {
   const [reports, setReports] = useState<Report[] | null>(null);
+  const [suggestions, setSuggestions] = useState<SpotSuggestion[] | null>(null);
   const [error, setError] = useState('');
   const staff = user?.role === 'admin' || user?.role === 'moderator';
 
-  const load = () => api.reports().then(setReports).catch((err) => setError((err as Error).message));
+  const load = () => Promise.all([api.reports().then(setReports), api.suggestions().then(setSuggestions)]).catch((err) => setError((err as Error).message));
   useEffect(() => { if (staff) void load(); }, [staff]);
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -23,10 +24,29 @@ export default function Moderation({ user }: { user: User | null }) {
   if (!staff) return <div className="page"><p className="hint">Moderators and admins only.</p></div>;
   const open = (reports ?? []).filter((r) => !r.resolved_at);
   const settled = (reports ?? []).filter((r) => r.resolved_at);
+  const suggested = (suggestions ?? []).filter((s) => !s.resolvedAt);
   return (
     <div className="page moderation">
       <h1>Moderation</h1>
       {error && <p className="status-line error">{error}</p>}
+      <h2>Suggested spots</h2>
+      {suggested.length === 0 ? <p className="hint">No suggestions waiting.</p> : (
+        <div className="feed__list">
+          {suggested.map((s) => (
+            <article key={s.id} className="spotcard">
+              <p><span className="eventbadge">spot</span> <span className="hint">suggested by {s.suggestedBy ?? 'a deleted account'} · {ago(s.createdAt)}</span></p>
+              <h3>{s.name}</h3>
+              {s.notes && <p className="feedcard__text">{s.notes}</p>}
+              <p><Link to={`/?lat=${s.lat}&lng=${s.lng}`}>Look at it on the map</Link> <span className="hint">{s.lat.toFixed(5)}, {s.lng.toFixed(5)}</span></p>
+              <div className="eventcard__actions">
+                <button onClick={() => void run(() => api.resolveSuggestion(s.id, 'reject'))}>Reject</button>
+                <button className="primary" onClick={() => void run(() => api.resolveSuggestion(s.id, 'approve'))}>Approve (makes a public spot)</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+      <h2>Reports</h2>
       {!reports ? <p className="hint">Loading…</p> : open.length === 0 ? <p className="hint">Nothing waiting.</p> : (
         <div className="feed__list">
           {open.map((r) => (

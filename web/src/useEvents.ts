@@ -13,6 +13,7 @@ import { mergeEvents } from './events.js';
 export function useEvents(enabled = true) {
   const [events, setEvents] = useState<EventItem[] | null>(null);
   const [error, setError] = useState('');
+  const [reloads, setReloads] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -23,7 +24,7 @@ export function useEvents(enabled = true) {
     load();
     const id = setInterval(load, 5 * 60_000);
     return () => { stop = true; clearInterval(id); };
-  }, [enabled]);
+  }, [enabled, reloads]);
 
   /** Throws when the server refuses, so the caller can say why. */
   async function mark(group: string, patch: Partial<EventState>) {
@@ -37,5 +38,5 @@ export function useEvents(enabled = true) {
     setEvents((list) => list && list.map((ev) => (ev.communityId === communityId ? { ...ev, going: count, isGoing } : ev)));
   }
 
-  return { events, error, mark, setGoing };
+  return { events, error, mark, setGoing, reload: () => setReloads((n) => n + 1) };
 }

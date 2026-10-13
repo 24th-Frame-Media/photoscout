@@ -433,3 +433,133 @@ export interface DensityArea {
   venues: number;
   withProfile: number;
 }
+
+
+// --- places, conditions, the density grid and hand-edited events ---------------
+
+export interface SunDay {
+  date: string;
+  sunrise: string | null;
+  sunset: string | null;
+  solarNoon: string | null;
+  dayLength: string | null;
+  goldenMorning: { start: string; end: string } | null;
+  goldenEvening: { start: string; end: string } | null;
+  blueMorning: { start: string; end: string } | null;
+  blueEvening: { start: string; end: string } | null;
+}
+
+export interface WeatherDay {
+  date: string;
+  summary: string;
+  tempMax: number | null;
+  tempMin: number | null;
+  cloudCover: number | null;
+  rainChance: number | null;
+  uvMax: number | null;
+  windMax: number | null;
+}
+
+export interface MoonInfo { phase: string; illumination: number; age: number }
+
+export interface PhotoConditions {
+  location: { city: string; lat: number; lon: number } | null;
+  today: { sun: SunDay; moon: MoonInfo; weather: WeatherDay | null };
+  tomorrow: { sun: SunDay; moon: MoonInfo; weather: WeatherDay | null };
+  now: { temp: number | null; cloudCover: number | null; summary: string; wind: number | null } | null;
+  fetchedAt: string;
+}
+
+export type Light = 'golden' | 'day' | 'blue' | 'night';
+
+export interface ShootVerdict {
+  score: number;
+  label: 'Prime' | 'Good' | 'Fair' | 'Quiet' | 'Dead' | 'Unknown';
+  why: string;
+  light?: Light;
+  surge?: boolean;
+  estimated?: boolean;
+}
+
+export interface ObservedHour { avg: number; samples: number }
+export interface HistoryPoint { ts: number; live: number | null; typical: number | null }
+export interface DaySummary {
+  readings: number;
+  live: number;
+  best: { from: number; to: number; score: number; label: string } | null;
+}
+
+export interface VenueReading {
+  name: string;
+  lat: number;
+  lon: number;
+  live: number | null;
+  typical: number | null;
+  score: number;
+  observedAt: string | null;
+  busiestDay: string | null;
+  busiestHour: number | null;
+  quietestDay: string | null;
+  openDays: string[] | null;
+  shoot: ShootVerdict;
+}
+
+export interface VenueHistory {
+  name: string;
+  lat: number;
+  lon: number;
+  points: HistoryPoint[];
+  byDay: Record<string, Record<string, number>> | null;
+  busiestDay: string | null;
+  busiestHour: number | null;
+  /** weekday (0 = Sunday) -> hour -> measured average. */
+  observedByDay: Record<number, Record<number, ObservedHour>>;
+  daySummary: Record<number, DaySummary>;
+  lightByDay: Record<number, Record<number, Light>>;
+  now: ShootVerdict | null;
+}
+
+/** The density grid for one area: a square per cell, scored 0 to 1. */
+export interface DensityGrid {
+  type: 'FeatureCollection';
+  metadata: { label: string; area: string; observations: number; snapshots: number };
+  features: {
+    properties: { score: number; raw: number; colour: string; topName: string | null };
+    geometry: { type: 'Polygon'; coordinates: [number, number][][] };
+  }[];
+}
+
+/** One listing behind an event, as the admin sees it. */
+export interface EventMember {
+  id: number;
+  source: string;
+  title: string;
+  url: string;
+  imageUrl: string;
+  startTime: string;
+  venueName: string;
+  parent: boolean;
+}
+
+/** An event as the engine holds it: the parts the admin edit, merge and archive screens need. */
+export interface AdminEvent {
+  group: string;
+  title: string;
+  description: string;
+  startTime: string;
+  venueName: string;
+  address: string;
+  category: string;
+  priceText: string;
+  imageUrl: string;
+  photoScore: number;
+  hidden: boolean;
+  manual: boolean;
+  members: EventMember[];
+  /** The fields a person has changed by hand. */
+  edited: string[];
+}
+
+/** What an edit may change; null puts back what the sources, the flyer or the model said. */
+export type EventEdit = Partial<Record<'title' | 'description' | 'startTime' | 'venueName' | 'address' | 'category' | 'priceText' | 'imageUrl', string | null>>
+  & { photoScore?: number | null };
