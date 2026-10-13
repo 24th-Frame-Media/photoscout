@@ -29,7 +29,8 @@ import { useMapTime } from '../time.js';
 import { useEvents } from '../useEvents.js';
 import { decodeEntities, formatWhen } from '../events.js';
 import EventDetail from '../components/EventDetail.js';
-import RadioPanel from '../components/RadioPanel.js';
+import RadioPanel, { RadioAudioController, type RadioPlayerState } from '../components/RadioPanel.js';
+import RadioWidget from '../components/RadioWidget.js';
 import TimeBar from '../components/TimeBar.js';
 import SpotPanel from '../components/SpotPanel.js';
 import SpotEditor, { SpotDraft } from '../components/SpotEditor.js';
@@ -140,6 +141,28 @@ export default function MapPage({ user }: { user: User | null }) {
   const [radioPlaces, setRadioPlaces] = useState<RadioPlace[] | null>(null);
   const [selectedRadioPlace, setSelectedRadioPlace] = useState<RadioPlace | null>(null);
 
+  const radioPlayer = useRef<RadioAudioController | null>(null);
+  if (!radioPlayer.current) {
+    radioPlayer.current = new RadioAudioController();
+  }
+  const [radioPlayerState, setRadioPlayerState] = useState<RadioPlayerState>({
+    activeStation: null,
+    playbackState: 'idle',
+    playbackError: null,
+  });
+
+  useEffect(() => {
+    const player = radioPlayer.current;
+    if (!player) return;
+    player.setOnStateChange((st) => setRadioPlayerState(st));
+    if (typeof window !== 'undefined') {
+      (window as any).__photoscoutRadioPlayer = player;
+    }
+    return () => {
+      player.destroy();
+    };
+  }, []);
+
   // Smooth movement between polls, and follow mode (camera on one vehicle).
   const planeMotion = useRef(new MotionTracker());
   const trainMotion = useRef(new MotionTracker());
@@ -159,7 +182,13 @@ export default function MapPage({ user }: { user: User | null }) {
 
   // --- map lifecycle ---
   useEffect(() => {
-    const m = new MlMap({ container: container.current!, style: STYLE_URL, center: [149.577, -33.419], zoom: 10, maxPitch: 70 });
+    let m: MlMap;
+    try {
+      m = new MlMap({ container: container.current!, style: STYLE_URL, center: [149.577, -33.419], zoom: 10, maxPitch: 70 });
+    } catch (e) {
+      setError((e as Error).message);
+      return;
+    }
     m.addControl(new NavigationControl({ visualizePitch: true }), 'top-right');
     m.addControl(homeControl(), 'top-right');
     m.addControl(new ScaleControl({}), 'bottom-left');
@@ -1147,8 +1176,10 @@ export default function MapPage({ user }: { user: User | null }) {
   const placeSpots = selectedPlace ? spots.filter((s) => s.placeId === selectedPlace.id) : [];
   const selectedSunBearing = selectedSpot ? resolveSunPlannerBearing(selectedSpot, sunAnchor, sunAnchorBearing) : null;
 
+  const hasRadioWidget = !!radioPlayerState.activeStation;
+
   return (
-    <div className={`mapshell${isPanelActive ? ' mapshell--panel' : ''}${editing ? ' mapshell--editing' : ''}`}>
+    <div className={`mapshell${isPanelActive ? ' mapshell--panel' : ''}${editing ? ' mapshell--editing' : ''}${hasRadioWidget ? ' mapshell--has-radio-widget' : ''}`}>
       <div ref={container} className="mapshell__map" />
       {error && <div className="maptoast error">{error}</div>}
       {follow && (
@@ -1386,6 +1417,19 @@ export default function MapPage({ user }: { user: User | null }) {
           onClose={() => setSelectedRadioPlace(null)}
           sheetSize={sheetSize}
           onToggleSheet={() => setSheetSize((s) => (s === 'half' ? 'peek' : 'half'))}
+          playerState={radioPlayerState}
+          onStationClick={(st) => radioPlayer.current?.handleStationClick(st)}
+          onStop={() => radioPlayer.current?.stop()}
+        />
+      )}
+
+      {radioPlayerState.activeStation && (
+        <RadioWidget
+          station={radioPlayerState.activeStation}
+          playbackState={radioPlayerState.playbackState}
+          playbackError={radioPlayerState.playbackError}
+          onPlayPause={() => radioPlayer.current?.handleStationClick(radioPlayerState.activeStation!)}
+          onStop={() => radioPlayer.current?.stop()}
         />
       )}
 

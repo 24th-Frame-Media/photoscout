@@ -1212,6 +1212,91 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
   white-space: nowrap;
 }
 
+/* Persistent Radio player widget (bottom-right of map) */
+.radiowidget {
+  position: absolute;
+  right: 10px;
+  bottom: 84px;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  max-width: min(380px, calc(100% - 20px));
+}
+
+.radiowidget.has-error {
+  border-color: var(--red);
+}
+
+.radiowidget__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.radiowidget__badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--green);
+}
+
+.radiowidget.has-error .radiowidget__badge {
+  color: var(--red);
+}
+
+.radiowidget__title {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.radiowidget__controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.radiowidget__btn {
+  font-size: 12px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.mapshell--has-radio-widget .nearby {
+  bottom: 136px;
+}
+
+@media (max-width: 820px) {
+  .radiowidget {
+    right: 10px;
+    bottom: calc(var(--timebar-h, 70px) + 8px + env(safe-area-inset-bottom, 0px));
+    max-width: calc(100% - 20px);
+  }
+
+  .radiowidget__title {
+    max-width: 140px;
+  }
+
+  .mapshell--has-radio-widget .nearby {
+    bottom: calc(var(--timebar-h, 70px) + 50px + 44px);
+  }
+}
+
 @media print {
   :root { --bg: #fff; --text: #111; --muted: #555; }
   body { background: #fff; color: #111; }
