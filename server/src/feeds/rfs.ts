@@ -62,6 +62,47 @@ const CACHE_TTL_MS = 5 * 60_000;
 let cache: { at: number; data: FireIncident[] } | null = null;
 let inflight: Promise<FireIncident[]> | null = null;
 
+export interface RfsFeedResult {
+  incidents: FireIncident[];
+  fetchedAt: string;
+  stale: boolean;
+}
+
+export function _setRfsCacheForTesting(c: { at: number; data: FireIncident[] } | null) {
+  cache = c;
+  inflight = null;
+}
+
+export async function fetchFiresWithMeta(url = RFS_FEED_URL): Promise<RfsFeedResult> {
+  const now = Date.now();
+  if (cache && now - cache.at < CACHE_TTL_MS) {
+    return {
+      incidents: cache.data,
+      fetchedAt: new Date(cache.at).toISOString(),
+      stale: false,
+    };
+  }
+
+  try {
+    const incidents = await fetchFires(url);
+    const isStale = cache ? Date.now() - cache.at >= CACHE_TTL_MS : false;
+    return {
+      incidents,
+      fetchedAt: cache ? new Date(cache.at).toISOString() : new Date().toISOString(),
+      stale: isStale,
+    };
+  } catch (err) {
+    if (cache) {
+      return {
+        incidents: cache.data,
+        fetchedAt: new Date(cache.at).toISOString(),
+        stale: true,
+      };
+    }
+    throw err;
+  }
+}
+
 export async function fetchFires(url = RFS_FEED_URL): Promise<FireIncident[]> {
   if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.data;
   if (inflight) return inflight;

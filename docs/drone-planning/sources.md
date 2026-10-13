@@ -40,3 +40,20 @@ PhotoScout provides **planning guidance only**. It is not an aviation clearance 
    - Landowner access / launch permission
    - Weather / daylight conditions
    - Official NOTAM verification
+
+---
+
+## Geospatial Buffering Strategy and Limitations
+
+1. **Implementation & Package:**
+   Geospatial buffers are generated using `@turf/buffer` (v7.4.0 locked in `server/package.json`), which delegates to JSTS (Java Topology Suite port) for robust 2D topology operations and vertex offset curves.
+2. **Units & Constants:**
+   - **Controlled aerodrome buffer:** 3 Nautical Miles = 5,556 metres (`3 * 1852 m`). Only generated where `controlled === true` is positively verified in the provider dataset.
+   - **Modelled fire-operation hazard buffer:** 2,000 metres (`2 km`). Sourced from `DRONE_FIRE_BUFFER_METRES` product policy constant.
+3. **Supported Geometry Types:**
+   - `Point`: Expands into a 32-segment circular polygon at the specified distance.
+   - `Polygon` / `MultiPolygon`: Expands outward from polygon boundaries by the exact distance.
+   - `GeometryCollection`: Buffers each component geometry and preserves collection topology.
+4. **Limitations & Operational Assumptions:**
+   - Local projection approximations used by Turf/JSTS produce negligible error (< 0.1%) over short distances (2 km to 5.5 km) at Australian latitudes (-10° to -45° S).
+   - The 2 km fire buffer is explicitly a **modelled product-policy safety margin** to prevent conflicts with aerial firefighting operations under CASR 101.238(e); it is **not** an official or legally defined distance.
