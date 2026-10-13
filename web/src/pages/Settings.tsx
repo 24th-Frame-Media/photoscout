@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { api, GeocodeResult, Role, Settings as SettingsType, TaskStatus, TrainsStatus, User } from '../api.js';
+import { api, Area, GeocodeResult, Role, Settings as SettingsType, TaskStatus, TrainsStatus, User } from '../api.js';
 
 import EventsGeneral from '../settings/events/General.js';
 import EventsSources from '../settings/events/Sources.js';
@@ -11,8 +11,7 @@ import EventsBusyMap from '../settings/events/DensityView.js';
 import EventsModel from '../settings/events/Model.js';
 import EventsNotify from '../settings/events/Notify.js';
 import EventTasks from '../settings/events/EventTasks.js';
-
-type Area = SettingsType['home'];
+import { GROUPS, Tab, tabFromHash } from '../settings/tabs.js';
 
 export default function Settings({ user, account, onChange }: { user: User | null; account: string | null; onChange: () => void }) {
   const isAdmin = user?.role === 'admin';
@@ -27,11 +26,14 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const [keyInput, setKeyInput] = useState('');
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyMsg, setKeyMsg] = useState('');
-  const [tab, setTabState] = useState<Tab>(() => {
-    const h = window.location.hash.slice(1) as Tab;
-    return TABS.some((t) => t.id === h) ? h : 'home';
-  });
+  const [tab, setTabState] = useState<Tab>(() => tabFromHash(window.location.hash));
   const setTab = (t: Tab) => { setTabState(t); history.replaceState(null, '', `#${t}`); };
+  // A link to another tab while already here changes only the hash.
+  useEffect(() => {
+    const follow = () => setTabState(tabFromHash(window.location.hash));
+    window.addEventListener('hashchange', follow);
+    return () => window.removeEventListener('hashchange', follow);
+  }, []);
 
   useEffect(() => { api.settings().then(setDraft).catch((err) => setError((err as Error).message)); }, []);
   useEffect(() => { api.trainsStatus().then(setTrains).catch(() => {}); }, []);
@@ -82,26 +84,46 @@ export default function Settings({ user, account, onChange }: { user: User | nul
     }
   };
 
-  const fromResult = (r: GeocodeResult, radiusKm: number): Area => ({ name: r.displayName.split(',')[0], lat: r.lat, lng: r.lng, radiusKm });
-  const setArea = (i: number, patch: Partial<Area>) => set({ areas: draft.areas.map((a, j) => (j === i ? { ...a, ...patch } : a)) });
+  const fromResult = (r: GeocodeResult, radiusKm: number): Area => ({ name: r.displayName.split(',')[0], lat: r.lat, lng: r.lng, radiusKm, events: true, busy: false });
+  // Home is area 0 of one list; the rest are draft.areas.
+  const all = [draft.home, ...draft.areas];
+  const setAll = (list: Area[]) => set({ home: list[0], areas: list.slice(1) });
+  const setArea = (i: number, patch: Partial<Area>) => setAll(all.map((a, j) => (j === i ? { ...a, ...patch } : a)));
+  const makeHome = (i: number) => setAll([all[i], ...all.filter((_, j) => j !== i)]);
+  const groups = GROUPS.map((g) => ({ ...g, tabs: g.tabs.filter((t) => isAdmin || !t.admin) })).filter((g) => g.tabs.length > 0);
 
   return (
     <div className="page settings">
       <h1>Settings</h1>
-      <div className="tabs" role="tablist">
-        {TABS.filter((t) => isAdmin || !t.admin).map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
+      <div className="settings__layout">
+      <nav className="settingsnav" aria-label="Settings">
+        {groups.map((g) => (
+          <div key={g.label} className="settingsnav__group">
+            <h3>{g.label}</h3>
+            {g.tabs.map((t) => (
+              <button key={t.id} aria-current={tab === t.id ? 'page' : undefined} className={`settingsnav__item${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
+            ))}
+          </div>
         ))}
-      </div>
+      </nav>
+      {/* On a phone the list above would fill the screen: one picker instead. */}
+      <select className="settingspick" aria-label="Settings section" value={tab} onChange={(e) => setTab(e.target.value as Tab)}>
+        {groups.map((g) => (
+          <optgroup key={g.label} label={g.label}>
+            {g.tabs.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </optgroup>
+        ))}
+      </select>
+      <div className="settings__body">
       {/* Outside the fieldset below: your own account is yours to change, admin or not. */}
       {tab === 'account' && user && <><Account user={user} account={account} onChange={onChange} /><CalendarLink /></>}
       {!isAdmin && tab !== 'account' && <div className="banner">Only an admin can change these.</div>}
       <fieldset disabled={!isAdmin} className="bare">
-        {tab === 'home' && <section>
-          <h2>📍 Home</h2>
-          <p className="hint">The map opens here, and feeds and the Plan shoot page search around it. Powered by OpenStreetMap geocoding.</p>
+        {tab === 'areas' && <section>
+          <h2>📍 Areas</h2>
+          <p className="hint">Every place the app looks around. The first is home, where the map opens; feeds and Plan a shoot search around all of them. The switches say where events are scraped and where venues are watched for how busy they are.</p>
           <div className="formrow">
-            <label>City / area</label>
+            <label>Find a place</label>
             <input value={geoQuery} placeholder="e.g. Bathurst NSW" onChange={(e) => setGeoQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void searchCity(); } }} />
             <button onClick={() => void searchCity()} disabled={geoBusy}>{geoBusy ? 'Searching…' : 'Search'}</button>
@@ -111,32 +133,30 @@ export default function Settings({ user, account, onChange }: { user: User | nul
               {geoResults.length === 0 && <span className="hint">No matches found.</span>}
               {geoResults.map((r) => (
                 <div key={`${r.lat},${r.lng}`} className="feedrow">
-                  <button style={{ flex: 1, textAlign: 'left' }} onClick={() => { set({ home: fromResult(r, draft.home.radiusKm) }); setGeoResults(null); }}>
-                    📍 {r.displayName}
-                  </button>
-                  <button title="Add as an extra area" onClick={() => { set({ areas: [...draft.areas, fromResult(r, 30)] }); setGeoResults(null); }}>+ Area</button>
+                  <span style={{ flex: 1 }}>📍 {r.displayName}</span>
+                  <button onClick={() => { setAll([fromResult(r, draft.home.radiusKm), ...all]); setGeoResults(null); }}>Make home</button>
+                  <button onClick={() => { setAll([...all, fromResult(r, 30)]); setGeoResults(null); }}>+ Area</button>
                 </div>
               ))}
             </div>
           )}
-          <div className="status-line ok">● Home: {draft.home.name} ({draft.home.lat.toFixed(4)}, {draft.home.lng.toFixed(4)})</div>
-          <div className="formrow" style={{ marginTop: 12 }}>
-            <label>Radius: {draft.home.radiusKm} km</label>
-            <input type="range" min={5} max={300} step={5} value={draft.home.radiusKm} onChange={(e) => set({ home: { ...draft.home, radiusKm: Number(e.target.value) } })} />
-          </div>
-
-          <h4 style={{ margin: '14px 0 6px' }}>Extra areas</h4>
-          <p className="hint">Places worth the drive, each with its own reach. Search above and choose "+ Area".</p>
-          {draft.areas.length === 0 && <p className="hint">None.</p>}
-          {draft.areas.map((a, i) => (
-            <div className="feedrow" key={i} style={{ alignItems: 'center' }}>
-              <input value={a.name} onChange={(e) => setArea(i, { name: e.target.value })} />
-              <span className="hint" style={{ whiteSpace: 'nowrap' }}>{a.lat.toFixed(3)}, {a.lng.toFixed(3)}</span>
-              <input type="number" min={1} max={500} value={a.radiusKm} style={{ width: 90 }} onChange={(e) => setArea(i, { radiusKm: Number(e.target.value) })} />
-              <span className="hint">km</span>
-              <button onClick={() => set({ areas: draft.areas.filter((_, j) => j !== i) })}>✕</button>
-            </div>
-          ))}
+          <ul className="arealist">
+            {all.map((a, i) => (
+              <li key={i} className="arealist__row">
+                <div className="arealist__head">
+                  <input aria-label="Area name" value={a.name} maxLength={100} onChange={(e) => setArea(i, { name: e.target.value })} />
+                  {i === 0 ? <span className="arealist__home">Home</span> : <button className="linkbtn" onClick={() => makeHome(i)}>Make home</button>}
+                  {i > 0 && <button aria-label={`Remove ${a.name}`} onClick={() => setAll(all.filter((_, j) => j !== i))}>✕</button>}
+                </div>
+                <div className="arealist__opts">
+                  <label>Reach <input type="number" min={1} max={1000} value={a.radiusKm} onChange={(e) => setArea(i, { radiusKm: Number(e.target.value) })} /> km</label>
+                  <label className="toggle"><input type="checkbox" checked={a.events} onChange={(e) => setArea(i, { events: e.target.checked })} /> Events</label>
+                  <label className="toggle"><input type="checkbox" checked={a.busy} onChange={(e) => setArea(i, { busy: e.target.checked })} /> Busy places</label>
+                </div>
+                <p className="hint">{a.lat.toFixed(3)}, {a.lng.toFixed(3)} · {areaUses(a, i === 0)}</p>
+              </li>
+            ))}
+          </ul>
         </section>}
 
         {tab === 'instance' && isAdmin && <section>
@@ -176,20 +196,20 @@ export default function Settings({ user, account, onChange }: { user: User | nul
         </section>}
       </fieldset>
 
-      {isAdmin && (tab === 'home' || tab === 'instance') && (
+      {isAdmin && (tab === 'areas' || tab === 'instance') && (
         <div className="savebar">
           <button className="primary" onClick={() => void save()} disabled={!dirty}>Save</button>
           <span className="note">{error ? <span className="status-line error">{error}</span> : saved ? 'Saved.' : dirty ? 'Unsaved changes.' : ''}</span>
         </div>
       )}
 
-      {isAdmin && (tab === 'events' || tab === 'sources' || tab === 'crawler' || tab === 'density' || tab === 'places' || tab === 'busy' || tab === 'conditions' || tab === 'model' || tab === 'notify') && (
+      {isAdmin && (tab === 'events' || tab === 'sources' || tab === 'crawler' || tab === 'density' || tab === 'venues' || tab === 'busy' || tab === 'conditions' || tab === 'model' || tab === 'notify') && (
         <div className="evs">
           {tab === 'events' && <EventsGeneral />}
           {tab === 'sources' && <EventsSources />}
           {tab === 'crawler' && <EventsCrawler />}
           {tab === 'density' && <EventsDensity />}
-          {tab === 'places' && <EventsPlaces />}
+          {tab === 'venues' && <EventsPlaces />}
           {tab === 'busy' && <EventsBusyMap />}
           {tab === 'conditions' && <EventsConditions />}
           {tab === 'model' && <EventsModel />}
@@ -198,28 +218,19 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       )}
       {isAdmin && tab === 'tasks' && <><Tasks /><div className="evs"><EventTasks /></div></>}
       {isAdmin && tab === 'users' && <Users me={user!} />}
+      </div>
+      </div>
     </div>
   );
 }
 
-type Tab = 'home' | 'account' | 'instance' | 'events' | 'sources' | 'crawler' | 'density' | 'places' | 'busy' | 'conditions' | 'model' | 'notify' | 'feeds' | 'tasks' | 'users';
-const TABS: { id: Tab; label: string; admin?: boolean }[] = [
-  { id: 'home', label: 'Home & areas' },
-  { id: 'account', label: 'Account' },
-  { id: 'instance', label: 'Instance', admin: true },
-  { id: 'events', label: 'Events', admin: true },
-  { id: 'sources', label: 'Sources', admin: true },
-  { id: 'crawler', label: 'Crawler', admin: true },
-  { id: 'density', label: 'Density', admin: true },
-  { id: 'places', label: 'Places', admin: true },
-  { id: 'busy', label: 'Busy map', admin: true },
-  { id: 'conditions', label: 'Conditions', admin: true },
-  { id: 'model', label: 'Local model', admin: true },
-  { id: 'notify', label: 'Notifications', admin: true },
-  { id: 'feeds', label: 'Trains' },
-  { id: 'tasks', label: 'Tasks', admin: true },
-  { id: 'users', label: 'Users', admin: true },
-];
+/** What looks at an area, for the line under it. */
+function areaUses(a: Area, home: boolean): string {
+  const uses = [home ? 'the map opens here' : 'the map', 'feeds'];
+  if (a.events) uses.push('events');
+  if (a.busy) uses.push('busy venues (within 10 km)');
+  return `Used by ${uses.join(', ')}`;
+}
 
 function Tasks() {
   const [tasks, setTasks] = useState<TaskStatus[]>([]);

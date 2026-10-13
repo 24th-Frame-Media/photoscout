@@ -67,30 +67,11 @@ export default function Density() {
           />
         </div>
 
-        <label className="hint">
-          Areas — one per line as <code>Name, lat, lng, radiusKm</code>. Leave blank to use the
-          location above.
-        </label>
-        <ListArea
-          text={(draft.densityAreas ?? [])
-            .map((a) => [a.name, a.lat, a.lng, a.radiusKm].filter((v) => v != null && v !== '').join(', '))
-            .join(LINE_BREAK)}
-          placeholder="Bathurst, -33.4300, 149.5750, 5.5"
-          onText={(raw) =>
-            set({
-              densityAreas: raw
-                .split(LINE_BREAK)
-                .map((line) => line.split(',').map((p) => p.trim()))
-                .filter((parts) => parts[0])
-                .map((parts) => ({
-                  name: parts[0],
-                  lat: parts[1] ? Number(parts[1]) : undefined,
-                  lng: parts[2] ? Number(parts[2]) : undefined,
-                  radiusKm: parts[3] ? Number(parts[3]) : undefined,
-                })),
-            })
-          }
-        />
+        <p className="hint">
+          Sampled in every area with Busy places switched on, up to 10 km round each, set under{' '}
+          <a href="#areas">Settings → Areas</a>:{' '}
+          {(draft.densityAreas ?? []).length ? (draft.densityAreas ?? []).map((a) => a.name).join(', ') : 'none yet'}.
+        </p>
 
         <div className="formrow" style={{ marginTop: 10 }}>
           <label>Max venues</label>

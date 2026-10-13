@@ -92,9 +92,13 @@ export interface Photo {
   dateTimeOriginal?: string | null;
 }
 
+/** A place the app looks around: the map and feeds always; events and busy venues when switched on. */
+export interface Area { name: string; lat: number; lng: number; radiusKm: number; events: boolean; busy: boolean }
+
 export interface Settings {
-  home: { name: string; lat: number; lng: number; radiusKm: number };
-  areas: { name: string; lat: number; lng: number; radiusKm: number }[];
+  /** The first area: where the map opens. */
+  home: Area;
+  areas: Area[];
   allowPrivateRemotes: boolean;
   /** Never the key itself — only whether one is set, and whether the environment pins it. */
   tfnswApiKeySet: boolean;

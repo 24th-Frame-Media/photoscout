@@ -1734,3 +1734,27 @@ a.button.primary:hover { background: #ffb83d; text-decoration: none; }
   max-width: calc(100% - 2 * var(--drive-gap) - 120px);
 }
 .driveconvoy__name { padding: 6px 12px; border-radius: var(--pill); background: var(--glass); border: 1px solid var(--border); font-size: 15px; font-weight: 600; }
+
+/* ==== Settings: grouped side menu, and the list of areas ==== */
+.settings { max-width: 1100px; }
+.settings__layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 28px; align-items: start; }
+.settingsnav { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 14px; }
+.settingsnav__group h3 { margin: 0 0 4px; padding: 0 10px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.settingsnav__item { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: var(--radius-xs); background: none; color: var(--text); text-align: left; font-size: 14px; cursor: pointer; }
+.settingsnav__item:hover { background: var(--panel-hover); }
+.settingsnav__item.active { background: var(--panel-2); color: var(--accent); }
+.settingspick { display: none; }
+@media (max-width: 820px) {
+  .settings__layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .settingsnav { display: none; }
+  .settingspick { display: block; width: 100%; font-size: 16px; padding: 10px 12px; }
+}
+.arealist { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.arealist__row { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
+.arealist__head { display: flex; align-items: center; gap: 8px; }
+.arealist__head input { flex: 1; min-width: 0; }
+.arealist__home { padding: 2px 10px; border-radius: var(--pill); border: 1px solid var(--accent); color: var(--accent); font-size: 12px; white-space: nowrap; }
+.arealist__opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-top: 8px; }
+.arealist__opts label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.arealist__opts input[type="number"] { width: 80px; }
+.settings section .arealist__row .hint { margin: 6px 0 0; }

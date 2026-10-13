@@ -1,89 +1,38 @@
 import { useEffect, useState } from 'react';
-import { api, EventTopic, GeocodeResult } from './api.js';
+import { api, EventTopic } from './api.js';
 import { ListArea, LINE_BREAK, SaveBar, SetUpNotice, useEventSettings } from './shared.js';
 
 /** Events: where to look, what to look for, and what to keep out of sight. */
 export default function General() {
   const s = useEventSettings();
   const { draft, set } = s;
-  const [geoQuery, setGeoQuery] = useState('');
-  const [geoResults, setGeoResults] = useState<GeocodeResult[] | null>(null);
-  const [geoBusy, setGeoBusy] = useState(false);
-  const [geoError, setGeoError] = useState('');
   const [topics, setTopics] = useState<EventTopic[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
 
   useEffect(() => {
     api.topics().then((r) => { setTopics(r.topics); setCategories(r.categories ?? []); }).catch(() => setTopics([]));
   }, []);
-  useEffect(() => { if (draft) setGeoQuery((q) => q || draft.city); }, [draft === null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (s.notSetUp) return <SetUpNotice />;
   if (!draft) return s.error ? <p className="status-line error">{s.error}</p> : <p className="hint">Loading…</p>;
-
-  const searchCity = async () => {
-    if (!geoQuery.trim()) return;
-    setGeoBusy(true);
-    setGeoError('');
-    try { setGeoResults(await api.geocode(geoQuery)); }
-    catch (err) { setGeoError(`Geocoding failed: ${(err as Error).message}`); }
-    finally { setGeoBusy(false); }
-  };
 
   const picked = draft.eventTopics ?? [];
   return (
     <>
       <section>
-        <h2>📍 Location</h2>
-        <p className="hint">Events are searched around this point. Powered by OpenStreetMap geocoding.</p>
-        <div className="formrow">
-          <label>City / area</label>
-          <input
-            value={geoQuery}
-            placeholder="e.g. Portland, OR"
-            onChange={(e) => setGeoQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void searchCity(); } }}
-          />
-          <button onClick={() => void searchCity()} disabled={geoBusy}>{geoBusy ? 'Searching…' : 'Search'}</button>
-        </div>
-        {geoError && <p className="status-line error">{geoError}</p>}
-        {geoResults && (
-          <div className="geocode-results">
-            {geoResults.length === 0 && <span className="hint">No matches found.</span>}
-            {geoResults.map((r) => (
-              <button key={`${r.lat},${r.lng}`} onClick={() => { set({ city: r.displayName.split(',')[0], lat: r.lat, lng: r.lng }); setGeoResults(null); }}>
-                📍 {r.displayName}
-              </button>
-            ))}
-          </div>
-        )}
-        {draft.lat != null && (
-          <div className="status-line ok">● Location set: {draft.city} ({draft.lat.toFixed(4)}, {draft.lng?.toFixed(4)})</div>
-        )}
-        <div className="formrow" style={{ marginTop: 12 }}>
-          <label>Radius: {draft.radiusKm} km</label>
-          <input type="range" min={5} max={300} step={5} value={draft.radiusKm} onChange={(e) => set({ radiusKm: Number(e.target.value) })} />
-        </div>
-
-        <label className="hint" style={{ display: 'block', marginTop: 14 }}>
-          Also look here — one per line. A name is enough (<code>Penrith</code>); add
-          <code> , radiusKm</code> to give it its own reach. Every source runs once per
-          area, so a place worth the drive can be watched without widening the radius
-          above and dragging in everything in between.
-        </label>
-        <ListArea
-          text={(draft.eventAreas ?? []).map((a) => [a.name, a.radiusKm].filter((v) => v != null && v !== '').join(', ')).join(LINE_BREAK)}
-          placeholder={'Penrith, 25' + LINE_BREAK + 'Orange'}
-          onText={(raw) =>
-            set({
-              eventAreas: raw
-                .split(LINE_BREAK)
-                .map((line) => line.split(',').map((p) => p.trim()))
-                .filter((parts) => parts[0])
-                .map((parts) => ({ name: parts[0], radiusKm: parts[1] ? Number(parts[1]) : undefined })),
-            })
-          }
-        />
+        <h2>📍 Where</h2>
+        <p className="hint">
+          Events are searched in every area with Events switched on. Areas are set once, for the whole
+          app, under <a href="#areas">Settings → Areas</a>.
+        </p>
+        {draft.lat != null
+          ? (
+            <ul className="hint" style={{ margin: '0 0 6px' }}>
+              <li>{draft.city}, {draft.radiusKm} km</li>
+              {(draft.eventAreas ?? []).map((a) => <li key={a.name}>{a.name}{a.radiusKm ? `, ${a.radiusKm} km` : ''}</li>)}
+            </ul>
+          )
+          : <p className="status-line error">No area has Events switched on, so nothing is searched.</p>}
 
         <label className="toggle" style={{ display: 'flex', marginTop: 12 }}>
           <input type="checkbox" checked={draft.cullOutsideAreas === true} onChange={(e) => set({ cullOutsideAreas: e.target.checked })} />{' '}
