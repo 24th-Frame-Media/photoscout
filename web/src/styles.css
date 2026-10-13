@@ -1760,3 +1760,9 @@ a.button.primary:hover { background: #ffb83d; text-decoration: none; }
 .arealist__opts label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .arealist__opts input[type="number"] { width: 80px; }
 .settings section .arealist__row .hint { margin: 6px 0 0; }
+
+/* Privacy and terms: prose, so a readable measure. */
+.legal { max-width: 760px; line-height: 1.55; }
+.legal h2 { margin-top: 1.6em; }
+.legal ul { padding-left: 1.2em; }
+.legal li { margin: 0.35em 0; }

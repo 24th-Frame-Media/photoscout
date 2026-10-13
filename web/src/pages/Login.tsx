@@ -22,6 +22,9 @@ export default function Login({ providers }: { providers: Provider[] }) {
       <p className="hint mt-12">
         We keep the name and picture your provider shows and nothing else: no email address, no password.
       </p>
+      <p className="hint">
+        By signing in you agree to the <a href="/terms">terms</a>. See how we handle your data in the <a href="/privacy">privacy policy</a>.
+      </p>
     </div>
   );
 }

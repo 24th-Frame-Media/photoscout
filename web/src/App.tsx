@@ -8,6 +8,7 @@ import PlacePage from './pages/PlacePage.js';
 import PlanShoot from './pages/PlanShoot.js';
 import ImportExport from './pages/ImportExport.js';
 import Settings from './pages/Settings.js';
+import Legal from './pages/Legal.js';
 import Events from './pages/Events.js';
 import Calendar from './pages/Calendar.js';
 import Profile from './pages/Profile.js';
@@ -105,6 +106,8 @@ export default function App() {
         <Route path="/plan" element={<PlanShoot />} />
         <Route path="/trip" element={<Navigate to={`/plan${location.search}`} replace />} />
         <Route path="/import" element={<ImportExport />} />
+        <Route path="/privacy" element={<Legal page="privacy" />} />
+        <Route path="/terms" element={<Legal page="terms" />} />
         <Route path="/settings" element={<Settings user={user} account={status.account} onChange={refresh} />} />
         <Route path="*" element={<MapPage user={user} />} />
       </Routes>
