@@ -102,3 +102,11 @@ test('one unreadable start time drops that event, not the whole feed', () => {
   assert.ok(ics.includes('UID:abc123@event-scout'));
   assert.ok(!ics.includes('UID:bad@event-scout'));
 });
+
+test('a lone CR in a field cannot start a new content line', () => {
+  const ics = buildIcs([{ ...EVENT, title: 'Cruise\rATTACH:https://evil.example', description: 'a\r\nb\rc\nd' }]);
+  assert.ok(!/\r(?!\n)/.test(ics), 'no CR that is not part of a CRLF');
+  assert.ok(!ics.split('\r\n').some((l) => l.startsWith('ATTACH:')));
+  assert.ok(ics.includes('SUMMARY:Cruise\\nATTACH:https://evil.example'));
+  assert.ok(ics.includes('a\\nb\\nc\\nd'));
+});
