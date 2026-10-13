@@ -226,14 +226,14 @@ export function aerodromeToEvidence(
     return {
       id: `airport-${airport.id}`,
       category: 'airport',
-      severity: 'restriction',
+      severity: 'caution',
       authority: 'legislation',
       ruleId: 'casr-101-075',
       title: `Controlled aerodrome proximity: ${airport.name}`,
-      explanation: `Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). Standard RPA operating conditions prohibit operation within 3 NM without permission.`,
-      geometry: airport.controlledBuffer ?? airport.geometry,
+      explanation: `Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). A 3 NM planning buffer is shown because standard conditions can depend on aircraft category, including the 250 g threshold, and any applicable permission or exemption. Confirm the CASA condition that applies to this operation before flight.`,
+      geometry: airport.geometry,
       source,
-      userAction: 'Do not operate within 3 NM of controlled aerodrome without required permission.',
+      userAction: 'Confirm aircraft category/weight, approval status, and applicable controlled-aerodrome conditions before operating within 3 NM.',
     };
   }
 

@@ -193,11 +193,13 @@ test('drone http: generates 3 NM buffer ONLY for positively verified controlled 
       assert.equal(uncontrolled.controlledBuffer, undefined);
       assert.equal(unknown.controlledBuffer, undefined);
 
-      // Evidence check: controlled aerodrome produces restriction
+      // Controlled aerodrome creates a conditional caution until the pilot has
+      // supplied aircraft category/weight and approval facts.
       const evidence = res.json.assessment.evidence;
       const controlledEvidence = evidence.find((e: any) => e.id === 'airport-apt-controlled');
       assert.ok(controlledEvidence);
-      assert.equal(controlledEvidence.severity, 'restriction');
+      assert.equal(controlledEvidence.severity, 'caution');
+      assert.ok(String(controlledEvidence.explanation).includes('250 g'));
 
       const uncontrolledEvidence = evidence.find((e: any) => e.id === 'airport-apt-uncontrolled');
       assert.ok(uncontrolledEvidence);

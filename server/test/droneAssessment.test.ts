@@ -130,9 +130,14 @@ test('drone assessment: aerodrome handling distinguishes controlled from uncontr
     { name: 'OpenAIP' }
   );
 
-  assert.equal(controlledAirport.severity, 'restriction');
+  // Aircraft category/weight and approval facts are not known to the app, so a
+  // controlled-aerodrome buffer is a conditional warning rather than a blanket
+  // restriction. The pilot must confirm which CASA condition applies.
+  assert.equal(controlledAirport.severity, 'caution');
   assert.ok(controlledAirport.title.includes('Controlled aerodrome'));
   assert.equal(controlledAirport.ruleId, 'casr-101-075');
+  assert.ok(controlledAirport.explanation.includes('250 g'));
+  assert.ok(controlledAirport.explanation.toLowerCase().includes('category'));
 
   // Uncontrolled / unknown status airport
   const uncontrolledAirport = aerodromeToEvidence(
