@@ -26,7 +26,7 @@ import { linksFrom } from './links.js';
  * All pure: what a page says, never what to do about it.
  */
 
-export type SocialKind = 'instagram-profile' | 'instagram-post' | 'facebook-event';
+export type SocialKind = 'instagram-profile' | 'instagram-post' | 'facebook-event' | 'facebook-page';
 
 export interface SocialLink {
   kind: SocialKind;
@@ -36,8 +36,12 @@ export interface SocialLink {
   url: string;
 }
 
-/** Sites the crawler itself fetches with a browser's headers. Facebook is read by the app. */
-export const SOCIAL_SITES = new Set(['instagram.com']);
+/**
+ * Sites with a pace of their own: a smaller share of each cycle and a longer
+ * gap between requests. The crawler fetches an Instagram account or post and a
+ * Facebook Page itself; a Facebook event it only notes, for the app to read.
+ */
+export const SOCIAL_SITES = new Set(['instagram.com', 'facebook.com']);
 
 /** First path segments on instagram.com that are pages of the site, not accounts. */
 const NOT_ACCOUNTS = new Set([
@@ -104,8 +108,49 @@ export function socialKind(raw: string): SocialLink | null {
     const at = parts.indexOf('events');
     const id = at >= 0 ? parts[at + 1] : undefined;
     if (id && /^\d{8,}$/.test(id)) return { kind: 'facebook-event', id, url: `https://www.facebook.com/events/${id}/` };
+    // A Page: /<name>, or one of the tabs of it that names the same Page.
+    const name = parts[0]?.toLowerCase();
+    if (
+      name && /^[a-z0-9.-]{5,50}$/.test(name) && !name.includes('.php') && !NOT_PAGES.has(name) &&
+      (parts.length === 1 || PAGE_TABS.has(parts[1].toLowerCase()))
+    ) {
+      return { kind: 'facebook-page', id: name, url: facebookPageUrl(name) };
+    }
   }
   return null;
+}
+
+/** First path segments on facebook.com that are parts of the site, not Pages. */
+const NOT_PAGES = new Set([
+  'events', 'groups', 'watch', 'marketplace', 'gaming', 'login', 'help', 'policies', 'privacy', 'legal', 'about',
+  'business', 'ads', 'public', 'hashtag', 'sharer', 'share', 'dialog', 'plugins', 'photo', 'permalink', 'story',
+  'stories', 'reel', 'reels', 'video', 'videos', 'profile', 'people', 'search', 'settings', 'messages',
+  'notifications', 'friends', 'bookmarks', 'fundraisers', 'jobs', 'places', 'directory', 'careers', 'pages',
+  'communitystandards', 'recover', 'checkpoint', 'tr', 'l', 'ajax', 'developers', 'campaign', 'cookies',
+]);
+const PAGE_TABS = new Set(['events', 'upcoming_hosted_events', 'about', 'posts']);
+
+export const facebookPageUrl = (name: string): string => `https://www.facebook.com/${name}/`;
+
+/**
+ * Where a Facebook Page lists the events it hosts. Logged out this answers 200
+ * with a page that, today, carries no event ids at all (the list loads over
+ * GraphQL after the page runs), so what comes of it is often nothing; but it is
+ * one request, and if Facebook ever serves the list again it is found.
+ */
+export const facebookEventsUrl = (link: SocialLink): string => `${link.url}upcoming_hosted_events`;
+
+/** Event ids a Facebook page mentions, in the forms it has been seen to use. */
+export function facebookEventIds(html: string): string[] {
+  const ids = new Set<string>();
+  for (const re of [
+    /\/events\/(\d{8,})/g,
+    /"__typename":"Event","id":"(\d{8,})"/g,
+    /"id":"(\d{8,})","__typename":"Event"/g,
+  ]) {
+    for (const m of html.matchAll(re)) ids.add(m[1]);
+  }
+  return [...ids];
 }
 
 /** Every Instagram and Facebook link on a page, one per thing. */

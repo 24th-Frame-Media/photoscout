@@ -1,3 +1,5 @@
+import { db } from '../db.js';
+import { bumpEventsVersion, getMergedEvents, MergedEvent } from '../events.js';
 import { fetchFb, parseEvent } from './facebook.js';
 import { expandTopics, rotateQueries } from './topics.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
@@ -36,6 +38,8 @@ interface CrawledEvent {
   priceText?: string;
   isOnline?: boolean;
   dateOnly?: boolean;
+  /** The page it was found on: what a verdict on it is sent back against. */
+  foundOn?: string;
 }
 
 /** Where the crawler listens: Settings, then CRAWLER_URL, then nowhere. */
@@ -139,15 +143,16 @@ const fbRead = new Map<string, { at: number; event: RawEvent | null }>();
  * page — the one set for the Facebook source is sent if there is one.
  */
 async function facebookFromCrawler(base: string, loc: Location, settings: Settings): Promise<RawEvent[]> {
-  let links: { id: string }[] = [];
+  let links: { id: string; foundOn?: string }[] = [];
   try {
     const res = await fetch(`${base}/social?kind=facebook-event`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (!res.ok) return [];
-    links = ((await res.json()) as { links?: { id: string }[] }).links ?? [];
+    links = ((await res.json()) as { links?: { id: string; foundOn?: string }[] }).links ?? [];
   } catch {
     return [];
   }
 
+  const foundOnOf = new Map(links.map((l) => [l.id, l.foundOn ?? '']));
   const out: RawEvent[] = [];
   for (const id of rotateQueries(links.map((l) => l.id).filter((id) => /^\d+$/.test(id)), FB_PER_REFRESH)) {
     let seen = fbRead.get(id);
@@ -165,6 +170,7 @@ async function facebookFromCrawler(base: string, loc: Location, settings: Settin
     const ev = seen.event;
     if (!ev) continue;
     out.push({ ...ev, sourceId: `crawl:fb:${id}` });
+    rememberFoundOn(`crawl:fb:${id}`, foundOnOf.get(id));
   }
   return out;
 }
@@ -208,24 +214,144 @@ export const crawlerSource: EventSourceAdapter = {
 
     const crawled = events
       .filter((e) => e && typeof e.title === 'string' && typeof e.startTime === 'string')
-      .map((e): RawEvent => ({
-        // Prefixed so a crawled listing can never collide with one scraped
-        // directly, and so it is obvious in the database where a row came from.
-        sourceId: `crawl:${e.sourceId}`.slice(0, 400),
-        title: e.title,
-        description: e.description,
-        startTime: e.startTime,
-        endTime: e.endTime,
-        venueName: e.venueName,
-        address: e.address,
-        lat: e.lat,
-        lng: e.lng,
-        url: e.url,
-        imageUrl: e.imageUrl,
-        priceText: e.priceText,
-        isOnline: e.isOnline,
-        dateOnly: e.dateOnly === true,
-      }));
+      .map((e): RawEvent => {
+        rememberFoundOn(`crawl:${e.sourceId}`.slice(0, 400), e.foundOn);
+        return {
+          // Prefixed so a crawled listing can never collide with one scraped
+          // directly, and so it is obvious in the database where a row came from.
+          sourceId: `crawl:${e.sourceId}`.slice(0, 400),
+          title: e.title,
+          description: e.description,
+          startTime: e.startTime,
+          endTime: e.endTime,
+          venueName: e.venueName,
+          address: e.address,
+          lat: e.lat,
+          lng: e.lng,
+          url: e.url,
+          imageUrl: e.imageUrl,
+          priceText: e.priceText,
+          isOnline: e.isOnline,
+          dateOnly: e.dateOnly === true,
+        };
+      });
     return [...crawled, ...(await facebookFromCrawler(base, loc, settings))];
   },
 };
+
+// --- verdicts ---------------------------------------------------------------
+
+/**
+ * The page each find came from, kept from the fetch until the verdicts are
+ * sent after the refresh. A find that the validation pass drops or the cull
+ * hides leaves no trace of where it came from, so it is remembered here.
+ */
+const provenance = new Map<string, string>();
+
+function rememberFoundOn(sourceId: string, foundOn: string | undefined): void {
+  if (foundOn) provenance.set(sourceId, foundOn);
+}
+
+/** What became of one find. */
+export interface Outcome {
+  /** Shown, or not (culled, hidden, or never stored); or not yet decidable. */
+  state: 'shown' | 'bad' | 'undecided';
+  /** Filed under one of the searched areas. */
+  inArea: boolean;
+  /** It has a flyer or image. */
+  hasImage: boolean;
+}
+
+/** A shown find, a flyer's counting for more, and one filed under no area for less. */
+export const GOOD_WEIGHT = 1;
+export const FLYER_BONUS = 0.5;
+export const UNPLACED_FACTOR = 0.5;
+
+export interface CrawlerVerdict {
+  foundOn: string;
+  good: number;
+  bad: number;
+}
+
+/** The outcome of a merged event the crawler contributed to. */
+export function outcomeOfEvent(ev: Pick<MergedEvent, 'culled' | 'hidden' | 'area' | 'images'>): Outcome {
+  const hasImage = ev.images.length > 0;
+  const inArea = ev.area !== '';
+  // The model has not read it yet: it will be judged on a later refresh.
+  if (ev.culled && /^Waiting to be checked/i.test(ev.culled)) return { state: 'undecided', inArea, hasImage };
+  if (ev.hidden || ev.culled) return { state: 'bad', inArea, hasImage };
+  return { state: 'shown', inArea, hasImage };
+}
+
+/**
+ * Add up the outcomes per page. A null outcome is a find that never made it
+ * into the database (rejected on date, or outside every area) and counts bad.
+ */
+export function tallyVerdicts(entries: { foundOn: string; outcome: Outcome | null }[]): CrawlerVerdict[] {
+  const by = new Map<string, CrawlerVerdict>();
+  for (const { foundOn, outcome } of entries) {
+    if (outcome?.state === 'undecided') continue;
+    const v = by.get(foundOn) ?? { foundOn, good: 0, bad: 0 };
+    if (outcome?.state === 'shown') {
+      v.good += (GOOD_WEIGHT + (outcome.hasImage ? FLYER_BONUS : 0)) * (outcome.inArea ? 1 : UNPLACED_FACTOR);
+    } else {
+      v.bad += 1;
+    }
+    by.set(foundOn, v);
+  }
+  return [...by.values()].map((v) => ({ ...v, good: Math.round(v.good * 100) / 100 }));
+}
+
+/**
+ * Tell the crawler which of its finds were any good.
+ *
+ * Called at the end of a refresh, once everything has been validated, placed
+ * and culled: a find is good when it survived all that and is shown, and bad
+ * when it was dropped, culled or hidden. The crawler turns that into how often
+ * to come back to the page each came from. Totals per page, not changes; the
+ * crawler works out what is new. Never throws: a crawler that is down must
+ * not fail a refresh. Returns a line for the refresh log, or null when there
+ * was nothing to say.
+ */
+export async function sendCrawlerVerdicts(settings: Settings): Promise<string | null> {
+  const base = crawlerBase(settings);
+  const heard = new Map(provenance);
+  provenance.clear();
+  if (!base || heard.size === 0 || settings.enabledSources?.crawler === false) return null;
+  try {
+    const stored = new Map(
+      (db.prepare("SELECT id, source_id FROM events WHERE source = 'crawler'").all() as unknown as { id: number; source_id: string }[])
+        .map((r) => [r.source_id, r.id])
+    );
+    // A fresh merge: rows were written during the refresh.
+    bumpEventsVersion();
+    const byMember = new Map<number, MergedEvent>();
+    for (const ev of getMergedEvents()) for (const m of ev.members) byMember.set(m.id, ev);
+
+    const entries: { foundOn: string; outcome: Outcome | null }[] = [];
+    for (const [sourceId, foundOn] of heard) {
+      const id = stored.get(sourceId);
+      if (id === undefined) {
+        entries.push({ foundOn, outcome: null });
+        continue;
+      }
+      const ev = byMember.get(id);
+      // Not in the list: it has been and gone, which says nothing about the page.
+      if (ev) entries.push({ foundOn, outcome: outcomeOfEvent(ev) });
+    }
+    const verdicts = tallyVerdicts(entries);
+    if (verdicts.length === 0) return null;
+
+    const res = await fetch(`${base}/verdicts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ verdicts }),
+      signal: AbortSignal.timeout(SYNC_TIMEOUT_MS * 2),
+    });
+    if (!res.ok) return `Crawler verdicts: HTTP ${res.status}`;
+    const good = verdicts.reduce((n, v) => n + (v.good > 0 ? 1 : 0), 0);
+    return `Crawler: told it how ${verdicts.length} page${verdicts.length === 1 ? '' : 's'} did (${good} with events kept)`;
+  } catch (err) {
+    return `Crawler verdicts failed: ${(err as Error).message}`;
+  }
+}

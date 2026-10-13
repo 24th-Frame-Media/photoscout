@@ -3,15 +3,18 @@ import { PAST_GRACE_MS } from './shared/when.js';
 import { DatabaseSync } from 'node:sqlite';
 import { config, ensureDataDir } from './config.js';
 import { CrawledEvent } from './types.js';
-import { siteOf } from './urls.js';
+import { normalizeUrl, siteOf } from './urls.js';
 import { postTime, SocialLink, STALE_POST_DAYS } from './extract/social.js';
 import { findKey } from './extract/jsonld.js';
 import { tidyFind } from './tidy.js';
+import {
+  afterLeadingTo, afterRead, afterVerdict, dueAt, MAX_EVENTS_PER_READ, PageKind, pageKind, PRIOR_WEIGHT, PROFILE_START_YIELD, Standing, Verdict,
+} from './revisit.js';
 
 /**
  * The crawler's own memory, in its own file.
  *
- * Separate from event-scout's database on purpose. This one is churn — a
+ * Separate from the app's database on purpose. This one is churn — a
  * frontier of hundreds of thousands of URLs, rewritten constantly — and it has
  * no business sharing a file with the thing that holds a year of history and
  * gets backed up every night. Nothing here is precious: delete it and
@@ -129,6 +132,33 @@ try {
   if (!/duplicate column/i.test((err as Error).message)) throw err;
 }
 
+/**
+ * What each page has been worth, for deciding when to read it again. See
+ * revisit.ts. Added after the table was, so an existing database gets them here.
+ *
+ *   yield / empty_reads  the page's standing: see revisit.ts
+ *   next_due             when it is next due; NULL means never again
+ *   good / bad           the app's last verdict on the events found here
+ *   verdict_at           when that verdict arrived
+ *   parent               the page that linked to this one, so a post can
+ *                        speak for the profile that led to it
+ */
+function addColumn(name: string, declaration: string): void {
+  try {
+    db.exec(`ALTER TABLE pages ADD COLUMN ${name} ${declaration}`);
+  } catch (err) {
+    if (!/duplicate column/i.test((err as Error).message)) throw err;
+  }
+}
+addColumn('yield', 'REAL NOT NULL DEFAULT 0');
+addColumn('empty_reads', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('next_due', 'TEXT');
+addColumn('good', 'REAL NOT NULL DEFAULT 0');
+addColumn('bad', 'REAL NOT NULL DEFAULT 0');
+addColumn('verdict_at', 'TEXT');
+addColumn('parent', 'TEXT');
+db.exec('CREATE INDEX IF NOT EXISTS idx_pages_due ON pages(next_due)');
+
 const now = (): string => new Date().toISOString();
 
 // --- the frontier -----------------------------------------------------------
@@ -140,7 +170,7 @@ const now = (): string => new Date().toISOString();
  * page links to its front page. A URL already known keeps the shallower depth
  * and the better score, so arriving again by a worse route cannot demote it.
  */
-export function offer(url: string, depth: number, score: number): boolean {
+export function offer(url: string, depth: number, score: number, parent?: string): boolean {
   const existing = db.prepare('SELECT depth, score FROM pages WHERE url = ?').get(url) as
     | { depth: number; score: number }
     | undefined;
@@ -152,8 +182,8 @@ export function offer(url: string, depth: number, score: number): boolean {
     return false;
   }
   db.prepare(
-    'INSERT INTO pages (url, site, depth, score, state, discovered_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(url, siteOf(url), depth, score, 'queued', now());
+    'INSERT INTO pages (url, site, depth, score, state, discovered_at, parent) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(url, siteOf(url), depth, score, 'queued', now(), parent && parent !== url ? parent.slice(0, 500) : null);
   return true;
 }
 
@@ -186,32 +216,126 @@ export function nextBatch(size: number, excludeSites: string[] = []): { url: str
   return out;
 }
 
-export function markDone(url: string, events: number, note = ''): void {
+const isSeed = (url: string): boolean => db.prepare('SELECT 1 FROM seeds WHERE url = ?').get(url) !== undefined;
+
+interface StandingRow {
+  yield: number;
+  empty_reads: number;
+  reads: number;
+  fetched_at: string | null;
+  parent: string | null;
+}
+
+const standingOf = (url: string): StandingRow | undefined =>
+  db.prepare('SELECT yield, empty_reads, reads, fetched_at, parent FROM pages WHERE url = ?').get(url) as
+    | StandingRow
+    | undefined;
+
+/** Write a page's standing and work out when it is next due from when it was last read. */
+function settle(url: string, kind: PageKind, s: Standing, lastReadMs: number): void {
+  db.prepare('UPDATE pages SET yield = ?, empty_reads = ?, next_due = ? WHERE url = ?')
+    .run(s.yield, s.emptyReads, dueAt(kind, s, lastReadMs), url);
+}
+
+/**
+ * A page read. `fresh` is how many of its events the crawler had not kept
+ * before, which is what decides whether the read was worth the trip: see
+ * revisit.ts for how that sets the wait until the next one.
+ */
+export function markDone(url: string, events: number, note = '', fresh = events): void {
+  const before = standingOf(url);
   db.prepare('UPDATE pages SET state = ?, fetched_at = ?, events = ?, note = ?, reads = reads + 1 WHERE url = ?')
     .run('done', now(), events, note, url);
+  if (!before) return;
+  const kind = pageKind(url, isSeed(url));
+  let s: Standing = { yield: before.yield, emptyReads: before.empty_reads };
+  if (before.reads === 0 && kind === 'profile' && s.yield === 0) s.yield = PROFILE_START_YIELD;
+  s = afterRead(s, fresh);
+  settle(url, kind, s, Date.now());
+  // A post that holds an event is evidence for the account that led to it.
+  if (kind === 'oneshot' && fresh > 0 && before.parent) creditParent(before.parent, (p) => afterLeadingTo(p, fresh));
+}
+
+/** Change a page's standing on the strength of something that happened to a page it led to. */
+function creditParent(parentUrl: string, change: (s: Standing) => Standing): void {
+  const row = standingOf(parentUrl);
+  if (!row || !row.fetched_at) return;
+  const kind = pageKind(parentUrl, isSeed(parentUrl));
+  const s = change({ yield: row.yield, emptyReads: row.empty_reads });
+  settle(parentUrl, kind, s, Date.parse(row.fetched_at));
 }
 
 export function markFailed(url: string, note: string, permanent = false): void {
   db.prepare('UPDATE pages SET state = ?, fetched_at = ?, note = ? WHERE url = ?')
     .run(permanent ? 'skipped' : 'failed', now(), note.slice(0, 200), url);
+  if (permanent) {
+    db.prepare('UPDATE pages SET next_due = NULL WHERE url = ?').run(url);
+    return;
+  }
+  // A page that has delivered before, or an account, is worth trying again,
+  // later each time it fails. One that never delivered anything stays failed.
+  const row = standingOf(url);
+  if (!row) return;
+  const kind = pageKind(url, isSeed(url));
+  if (row.reads === 0 && kind !== 'profile') return;
+  settle(url, kind, afterRead({ yield: row.yield, emptyReads: row.empty_reads }, 0), Date.now());
 }
 
 /**
- * Put pages that produced events back in the queue.
+ * Put pages that are due back in the queue.
  *
- * A listing page is not finished when it has been read once — next week it has
- * different events on it. Pages that yielded nothing are left alone, so the
- * crawl converges on the parts of the web that actually publish events.
+ * A listing page is not finished when it has been read once: next week it has
+ * different events on it. Which pages come back, and when, is set by what each
+ * has been worth (revisit.ts): sites, Instagram accounts and Facebook Pages
+ * alike. Pinned pages keep their own fixed cadence (requeueSeeds), and posts
+ * are read once. At most `limit` a cycle, best first, so a backlog does not
+ * crowd out everything new.
  */
-export function requeueProductive(olderThanHours: number): number {
-  const cutoff = new Date(Date.now() - olderThanHours * 3600_000).toISOString();
+export function requeueDue(limit: number): number {
   return db
     .prepare(
       `UPDATE pages SET state = 'queued'
-        WHERE state = 'done' AND events > 0 AND site != 'instagram.com'
-          AND (fetched_at IS NULL OR fetched_at < ?)`
+        WHERE url IN (
+          SELECT url FROM pages
+           WHERE state IN ('done', 'failed') AND next_due IS NOT NULL AND next_due <= ?
+             AND url NOT IN (SELECT url FROM seeds)
+           ORDER BY yield DESC, next_due ASC LIMIT ?)`
     )
-    .run(cutoff).changes as number;
+    .run(now(), limit).changes as number;
+}
+
+/**
+ * Give pages read before yields existed the standing they would have had.
+ *
+ * Once. A page that produced events last time starts where a productive read
+ * would have left it; an account gets the benefit of the doubt; the rest were
+ * never revisited and are not now.
+ */
+function backfillRevisits(): void {
+  if (getJson<string | null>('revisits-backfilled', null)) return;
+  const rows = db
+    .prepare(
+      `SELECT url, events, fetched_at FROM pages
+        WHERE next_due IS NULL AND fetched_at IS NOT NULL AND reads > 0 AND state IN ('done', 'failed')
+          AND (events > 0 OR (site IN ('instagram.com', 'facebook.com') AND url NOT LIKE '%/p/%'))`
+    )
+    .all() as { url: string; events: number; fetched_at: string }[];
+  db.exec('BEGIN');
+  try {
+    for (const row of rows) {
+      const kind = pageKind(row.url, isSeed(row.url));
+      if (kind === 'oneshot') continue;
+      const start = kind === 'profile' && row.events === 0
+        ? PROFILE_START_YIELD
+        : PRIOR_WEIGHT * Math.min(row.events, MAX_EVENTS_PER_READ);
+      settle(row.url, kind, { yield: start, emptyReads: 0 }, Date.parse(row.fetched_at));
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  setJson('revisits-backfilled', now());
 }
 
 export function countPages(): Record<string, number> {
@@ -227,10 +351,12 @@ export function countPages(): Record<string, number> {
 
 // --- what was found ---------------------------------------------------------
 
-/** Keep a find, replacing any earlier reading of the same event. */
-export function keep(event: CrawledEvent): void {
+/** Keep a find, replacing any earlier reading of the same event. True when it was not held before. */
+export function keep(event: CrawledEvent): boolean {
+  const known = db.prepare('SELECT 1 FROM finds WHERE id = ?').get(event.sourceId) !== undefined;
   db.prepare('INSERT OR REPLACE INTO finds (id, start_time, found_at, payload) VALUES (?, ?, ?, ?)')
     .run(event.sourceId, event.startTime, event.foundAt, JSON.stringify(event));
+  return !known;
 }
 
 /** Everything still ahead, newest find first. event-scout filters by area. */
@@ -497,7 +623,7 @@ export function offerSocial(link: SocialLink, foundOn: string): boolean {
     const at = postTime(link.id);
     if (at && Date.now() - at.getTime() > STALE_POST_DAYS * 86400_000) return false;
   }
-  return offer(link.url, 0, link.kind === 'instagram-post' ? SOCIAL_POST_SCORE : SOCIAL_PROFILE_SCORE);
+  return offer(link.url, 0, link.kind === 'instagram-post' ? SOCIAL_POST_SCORE : SOCIAL_PROFILE_SCORE, foundOn);
 }
 
 export function socialLinks(kind: string, limit = 300): { url: string; id: string; foundOn: string; foundAt: string }[] {
@@ -540,23 +666,6 @@ export function setHostDelay(site: string, ms: number): void {
   ).run(site, ms);
 }
 
-/**
- * Instagram profiles back in the queue once a day, for their new posts.
- *
- * Posts are never read twice — a caption does not change — so a profile is
- * the only thing that needs coming back to.
- */
-export function requeueSocialProfiles(olderThanHours: number): number {
-  const cutoff = new Date(Date.now() - olderThanHours * 3600_000).toISOString();
-  return db
-    .prepare(
-      `UPDATE pages SET state = 'queued'
-        WHERE site = 'instagram.com' AND url NOT LIKE '%/p/%' AND state != 'queued'
-          AND (fetched_at IS NULL OR fetched_at < ?)`
-    )
-    .run(cutoff).changes as number;
-}
-
 // --- pages, for the crawler's page ------------------------------------------
 
 export interface PageRow {
@@ -569,6 +678,15 @@ export interface PageRow {
   events: number;
   fetchedAt: string | null;
   note: string;
+  /** What it has been worth: a decaying average of good events per read. See revisit.ts. */
+  yield: number;
+  /** When it is next due; null when it is never read again (a post, or a page given up on). */
+  nextDue: string | null;
+  /** Reads in a row that found nothing new. */
+  emptyReads: number;
+  /** The app's last verdict on the events found here: shown, and culled or hidden. */
+  good: number;
+  bad: number;
 }
 
 /** How many times one page has been read. 0 for one it has never read or never heard of. */
@@ -577,15 +695,20 @@ export function readsOf(url: string): number {
   return row ? Number(row.reads) : 0;
 }
 
-/** The pages read most often, or most recently. */
-export function pageList(sort: 'reads' | 'recent', limit = 50): PageRow[] {
+const PAGE_COLUMNS = 'url, site, state, reads, events, fetched_at, note, yield, next_due, empty_reads, good, bad';
+
+/** The pages read most often, most recently, or with the best yield. */
+export function pageList(sort: 'reads' | 'recent' | 'yield', limit = 50): PageRow[] {
   const rows = db
     .prepare(
       sort === 'reads'
-        ? `SELECT url, site, state, reads, events, fetched_at, note FROM pages
+        ? `SELECT ${PAGE_COLUMNS} FROM pages
             WHERE reads > 0 ORDER BY reads DESC, fetched_at DESC LIMIT ?`
-        : `SELECT url, site, state, reads, events, fetched_at, note FROM pages
-            WHERE fetched_at IS NOT NULL ORDER BY fetched_at DESC LIMIT ?`
+        : sort === 'yield'
+          ? `SELECT ${PAGE_COLUMNS} FROM pages
+              WHERE reads > 0 ORDER BY yield DESC, fetched_at DESC LIMIT ?`
+          : `SELECT ${PAGE_COLUMNS} FROM pages
+              WHERE fetched_at IS NOT NULL ORDER BY fetched_at DESC LIMIT ?`
     )
     .all(limit) as Record<string, string | number | null>[];
   return rows.map((r) => ({
@@ -596,7 +719,71 @@ export function pageList(sort: 'reads' | 'recent', limit = 50): PageRow[] {
     events: Number(r.events),
     fetchedAt: r.fetched_at == null ? null : String(r.fetched_at),
     note: String(r.note ?? ''),
+    yield: Math.round(Number(r.yield) * 100) / 100,
+    nextDue: r.next_due == null ? null : String(r.next_due),
+    emptyReads: Number(r.empty_reads),
+    good: Number(r.good),
+    bad: Number(r.bad),
   }));
+}
+
+// --- the app's verdicts -----------------------------------------------------
+
+/** A verdict older than this no longer counts as the last word: its events have long since passed. */
+const VERDICT_STALE_MS = 45 * 86400_000;
+
+interface VerdictRow {
+  good: number;
+  bad: number;
+  verdict_at: string | null;
+  yield: number;
+  empty_reads: number;
+  fetched_at: string | null;
+  parent: string | null;
+}
+
+/**
+ * Take the app's word on which finds were any good.
+ *
+ * The app sends current totals per page, not changes, and sends them again
+ * after every refresh; what moves a page's yield is only what is new since
+ * the last verdict (revisit.ts), so repeating one does nothing. A post speaks
+ * for the account that led to it as well as for itself. Returns how many
+ * verdicts named a page the crawler knows.
+ */
+export function applyVerdicts(list: Verdict[]): number {
+  let known = 0;
+  for (const v of list) {
+    // As the frontier spells it: social links keep a trailing slash that normalizeUrl drops.
+    const normal = normalizeUrl(v.foundOn) ?? v.foundOn;
+    let url = v.foundOn;
+    let row: VerdictRow | undefined;
+    for (const candidate of [v.foundOn, normal, `${normal}/`]) {
+      row = db
+        .prepare('SELECT good, bad, verdict_at, yield, empty_reads, fetched_at, parent FROM pages WHERE url = ?')
+        .get(candidate) as VerdictRow | undefined;
+      if (row) {
+        url = candidate;
+        break;
+      }
+    }
+    if (!row) continue;
+    known++;
+    const good = Math.max(0, Number(v.good) || 0);
+    const bad = Math.max(0, Number(v.bad) || 0);
+    const stale = !row.verdict_at || Date.now() - Date.parse(row.verdict_at) > VERDICT_STALE_MS;
+    const newGood = Math.max(0, good - (stale ? 0 : row.good));
+    const newBad = Math.max(0, bad - (stale ? 0 : row.bad));
+    db.prepare('UPDATE pages SET good = ?, bad = ?, verdict_at = ? WHERE url = ?').run(good, bad, now(), url);
+    if (newGood === 0 && newBad === 0) continue;
+
+    const kind = pageKind(url, isSeed(url));
+    if (row.fetched_at) {
+      settle(url, kind, afterVerdict({ yield: row.yield, emptyReads: row.empty_reads }, newGood, newBad), Date.parse(row.fetched_at));
+    }
+    if (kind === 'oneshot' && row.parent) creditParent(row.parent, (p) => afterVerdict(p, newGood, newBad));
+  }
+  return known;
 }
 
 /**
@@ -605,3 +792,5 @@ export function pageList(sort: 'reads' | 'recent', limit = 50): PageRow[] {
  * all been cleared, so it is left to run.
  */
 db.exec("UPDATE finds SET payload = json_remove(payload, '$.address') WHERE id LIKE 'instagram:%' AND json_extract(payload, '$.address') IS NOT NULL");
+
+backfillRevisits();

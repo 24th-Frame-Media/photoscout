@@ -27,6 +27,16 @@ function ago(iso: string | null | undefined): string {
 }
 
 /** A found event's start, as the rest of the app shows it: no hour it was not given. */
+/** When a page is next due: "in 6 h", "due", or "never" for one that is read once or given up on. */
+function dueIn(iso: string | null | undefined): string {
+  if (!iso) return 'never';
+  const seconds = Math.round((Date.parse(iso) - Date.now()) / 1000);
+  if (seconds <= 0) return 'due';
+  if (seconds < 3600) return `in ${Math.max(1, Math.round(seconds / 60))} min`;
+  if (seconds < 86400) return `in ${Math.round(seconds / 3600)} h`;
+  return `in ${Math.round(seconds / 86400)} d`;
+}
+
 function whenOf(ev: { startTime: string; dateOnly?: boolean }): string {
   const at = new Date(ev.startTime);
   const day = at.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
@@ -465,7 +475,7 @@ function shortUrl(url: string): string {
  * shows what it is doing now.
  */
 function PagesSection() {
-  const [sort, setSort] = useState<'reads' | 'recent'>('reads');
+  const [sort, setSort] = useState<'reads' | 'recent' | 'yield'>('reads');
   const [pages, setPages] = useState<CrawlerPageRow[] | null>(null);
   const [problem, setProblem] = useState('');
 
@@ -491,6 +501,7 @@ function PagesSection() {
       <div className="formrow">
         <button className={sort === 'reads' ? 'primary' : ''} onClick={() => setSort('reads')}>Most read</button>
         <button className={sort === 'recent' ? 'primary' : ''} onClick={() => setSort('recent')}>Latest</button>
+        <button className={sort === 'yield' ? 'primary' : ''} onClick={() => setSort('yield')}>Best yield</button>
         <button onClick={() => void load()}>Refresh</button>
       </div>
       {problem && <p className="hint" style={{ color: 'var(--red)' }}>{problem}</p>}
@@ -498,7 +509,7 @@ function PagesSection() {
       {pages && pages.length > 0 && (
         <table className="crawltable crawltable--wide">
           <thead>
-            <tr><th>Page</th><th>Times read</th><th>Events</th><th>Last read</th><th /></tr>
+            <tr><th>Page</th><th>Times read</th><th>Events</th><th title="Good events per read, decaying; sets how soon it is read again">Yield</th><th>Last read</th><th>Next read</th><th /></tr>
           </thead>
           <tbody>
             {paged.rows.map((p) => (
@@ -506,7 +517,9 @@ function PagesSection() {
                 <td><a href={safeHref(p.url)} target="_blank" rel="noreferrer" title={p.url}>{shortUrl(p.url)}</a></td>
                 <td>{NUMBER.format(p.reads)}</td>
                 <td>{p.events > 0 ? NUMBER.format(p.events) : '—'}</td>
+                <td>{p.yield.toFixed(2)}</td>
                 <td className="crawltable__when">{ago(p.fetchedAt)}</td>
+                <td className="crawltable__when">{dueIn(p.nextDue)}</td>
                 <td className="crawltable__note">{p.state === 'done' ? p.note : `${p.state}${p.note ? `: ${p.note}` : ''}`}</td>
               </tr>
             ))}

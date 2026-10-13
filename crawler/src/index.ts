@@ -4,6 +4,7 @@ import { crawlUrlNow, hasWork, knownInterests, peekPost, runCycle, setInterests,
 import { inArea } from './shared/geo.js';
 import { Interest, queriesFor } from './queries.js';
 import * as store from './store.js';
+import { parseVerdicts } from './revisit.js';
 import { normalizeUrl } from './urls.js';
 
 /**
@@ -14,9 +15,10 @@ import { normalizeUrl } from './urls.js';
  *   GET  /status   what it is doing, and what it is looking for
  *   GET  /feeds    calendar feeds found along the way
  *   GET  /social   Facebook events found along the way, for event-scout to read
- *   GET  /pages    pages read, most-read or latest first, with how often
+ *   GET  /pages    pages read, most-read, latest or best-yielding first, and when each is next due
  *   PUT  /config   where to look, from event-scout
  *   POST /crawl    read one page now and say what was on it
+ *   POST /verdicts which finds the app kept, per page, so good pages are read more often
  *   POST /run      start a cycle
  *
  * Deliberately not a push. event-scout asks for what it wants when its refresh
@@ -170,6 +172,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /**
+   * The app's verdict on what was found, after each of its refreshes:
+   * `{ verdicts: [{ foundOn, good, bad }] }` (a bare array is taken too). Totals
+   * per page, not changes; see store.applyVerdicts. Same reach as every other
+   * route here: the compose network.
+   */
+  if (req.method === 'POST' && url.pathname === '/verdicts') {
+    readJson(req, 2 * 1024 * 1024)
+      .then((body) => {
+        const list = Array.isArray(body) ? body : (body as { verdicts?: unknown } | null)?.verdicts;
+        const verdicts = parseVerdicts(list);
+        json(res, 200, { ok: true, received: verdicts.length, known: store.applyVerdicts(verdicts) });
+      })
+      .catch((err: Error) => json(res, 400, { ok: false, message: err.message }));
+    return;
+  }
+
   /** Read one page now. Always 200 when it got that far: the outcome is in the body. */
   if (req.method === 'POST' && url.pathname === '/crawl') {
     readJson(req)
@@ -225,9 +244,9 @@ const server = http.createServer((req, res) => {
     });
   }
 
-  /** Pages read, with how many times: `?sort=reads` (the default) or `?sort=recent`. */
+  /** Pages read, with how many times: `?sort=reads` (the default), `recent` or `yield`. */
   if (req.method === 'GET' && url.pathname === '/pages') {
-    const sort = q.get('sort') === 'recent' ? 'recent' : 'reads';
+    const sort = q.get('sort') === 'recent' ? 'recent' : q.get('sort') === 'yield' ? 'yield' : 'reads';
     const limit = Math.min(200, Math.max(1, num(q.get('limit')) ?? 50));
     return json(res, 200, { pages: store.pageList(sort, limit) });
   }

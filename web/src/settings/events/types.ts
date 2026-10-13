@@ -375,6 +375,12 @@ export interface CrawlerPageRow {
   events: number;
   fetchedAt: string | null;
   note: string;
+  /** What the page has been worth: a decaying average of good events per read. */
+  yield: number;
+  /** When it is next due; null when it is never read again (a post, or a page given up on). */
+  nextDue: string | null;
+  /** Reads in a row that found nothing new. */
+  emptyReads: number;
 }
 
 /** Which reader filled a field of an imported event. */

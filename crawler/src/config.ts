@@ -37,7 +37,7 @@ export const config = {
    */
   userAgent:
     process.env.CRAWLER_UA ??
-    'event-scout-crawler/0.3 (+https://github.com/kapsikkum/event-scout)',
+    'photoscout-crawler/0.4 (+https://github.com/kapsikkum/photoscout)',
 
   /** Pages per cycle. The budget, and the thing to raise once it behaves. */
   maxPagesPerRun: int('CRAWLER_MAX_PAGES', 300),

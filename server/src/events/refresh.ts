@@ -9,7 +9,7 @@ import {
 } from './locate.js';
 import { MAX_DURATION_MS } from './shared/when.js';
 import { photoScore } from './photoScore.js';
-import { crawlerSource } from './sources/crawler.js';
+import { crawlerSource, sendCrawlerVerdicts } from './sources/crawler.js';
 import { eventbrite } from './sources/eventbrite.js';
 import { facebook } from './sources/facebook.js';
 import { icalSource } from './sources/ical.js';
@@ -328,6 +328,10 @@ export async function refreshAll(): Promise<SourceStatus[]> {
     note('Matching duplicate listings');
     recomputeDedupeGroups();
     setKv('lastRefresh', now);
+    // Which of the crawler's finds survived all that, so it reads the pages
+    // that produce good events more often. Never throws.
+    const verdicts = await sendCrawlerVerdicts(settings);
+    if (verdicts) note(verdicts);
     note(`Done — ${progress.found} event${progress.found === 1 ? '' : 's'} kept`);
     return getStatuses();
   } finally {

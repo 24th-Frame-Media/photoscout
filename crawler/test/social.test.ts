@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { placeFromText, whenFromText } from '../src/shared/textWhen.js';
 
 import {
-  eventFromPost, instagramPost, instagramProfilePosts, postTime, socialKind, titleOf,
+  eventFromPost, facebookEventIds, instagramPost, instagramProfilePosts, postTime, socialKind, titleOf,
 } from '../src/extract/social.js';
 import { queriesFor, SOCIAL_QUERIES_PER_AREA } from '../src/queries.js';
 
@@ -43,7 +43,12 @@ test('links to Instagram and Facebook are told apart, one spelling each', () => 
   assert.deepEqual(socialKind('https://instagram.com/MQAutomotiveSociety'), { kind: 'instagram-profile', id: 'mqautomotivesociety', url: 'https://www.instagram.com/mqautomotivesociety/' });
   assert.equal(socialKind('https://www.instagram.com/explore/tags/cars/'), null);
   assert.equal(socialKind('https://www.facebook.com/events/947785614691523/?ref=newsfeed')?.url, 'https://www.facebook.com/events/947785614691523/');
-  assert.equal(socialKind('https://www.facebook.com/somepage'), null);
+  assert.deepEqual(socialKind('https://www.facebook.com/SomePage/'), { kind: 'facebook-page', id: 'somepage', url: 'https://www.facebook.com/somepage/' });
+  assert.equal(socialKind('https://m.facebook.com/somepage/upcoming_hosted_events')?.url, 'https://www.facebook.com/somepage/');
+  assert.equal(socialKind('https://www.facebook.com/somepage/photos/12345'), null, 'a photo is not the Page');
+  for (const notPage of ['https://www.facebook.com/sharer/sharer.php?u=x', 'https://www.facebook.com/groups/12345678', 'https://www.facebook.com/login/', 'https://www.facebook.com/events/', 'https://www.facebook.com/tr?id=1&ev=PageView']) {
+    assert.equal(socialKind(notPage), null, notPage);
+  }
   assert.equal(socialKind('https://example.com/p/abcdef'), null);
 });
 
@@ -171,4 +176,10 @@ test('a town in the name of a race is not where the event is', () => {
   const caption = 'SMSP OPEN PIT LANE 📆 23 SEPTEMBER\nLast chance to test before the Bathurst 1000.';
   assert.equal(placeFromText(caption, AREAS), undefined);
   assert.equal(placeFromText('Warm-up for the Bathurst 12 Hour, meet in Bathurst', AREAS), 'Bathurst', 'a plain mention later still counts');
+});
+
+test('a Facebook page is searched for the event ids it mentions, and a logged-out shell has none', () => {
+  const html = '<a href="/events/921142053782400/?ref=x">a</a> {"__typename":"Event","id":"1234567890123"} /events/921142053782400';
+  assert.deepEqual(facebookEventIds(html).sort(), ['1234567890123', '921142053782400']);
+  assert.deepEqual(facebookEventIds('<html><title>Facebook</title><script>require("x")</script></html>'), []);
 });

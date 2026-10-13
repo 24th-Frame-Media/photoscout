@@ -53,7 +53,7 @@ export const api = {
   refresh: () => call<StatusResponse>('/refresh', 'POST', {}),
   version: () => call<VersionInfo>('/version'),
   crawlerStatus: () => call<CrawlerStatus>('/crawler/status'),
-  crawlerPages: (sort: 'reads' | 'recent') => call<{ pages: CrawlerPageRow[]; problem?: string }>(`/crawler/pages?sort=${sort}`),
+  crawlerPages: (sort: 'reads' | 'recent' | 'yield') => call<{ pages: CrawlerPageRow[]; problem?: string }>(`/crawler/pages?sort=${sort}`),
   crawlerEvents: () => call<{ events: CrawlerFind[]; count: number; problem?: string }>('/crawler/events'),
   crawlerRun: () => call<{ ok: boolean; message?: string }>('/crawler/run', 'POST', {}),
   crawlerCrawl: (url: string) =>

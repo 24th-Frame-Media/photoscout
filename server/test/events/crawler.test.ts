@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { crawlerConfigFrom } from '../../src/events/sources/crawler.js';
+import {
+  crawlerConfigFrom, FLYER_BONUS, GOOD_WEIGHT, outcomeOfEvent, tallyVerdicts, UNPLACED_FACTOR,
+} from '../../src/events/sources/crawler.js';
 import { DEFAULT_SETTINGS } from '../../src/events/sources/types.js';
 
 /**
@@ -88,3 +90,26 @@ test('syncCrawler sends ollamaUrl and llmModel to the crawler endpoint', async (
   }
 });
 
+
+test('a find is good when it is shown, worth more with a flyer, and bad when culled, hidden or never stored', () => {
+  const shown = { culled: null, hidden: false, area: 'Bathurst', images: ['a.jpg'] };
+  assert.deepEqual(outcomeOfEvent(shown), { state: 'shown', inArea: true, hasImage: true });
+  assert.equal(outcomeOfEvent({ ...shown, culled: '300 km from Bathurst, the nearest area' }).state, 'bad');
+  assert.equal(outcomeOfEvent({ ...shown, hidden: true }).state, 'bad');
+  assert.equal(outcomeOfEvent({ ...shown, culled: 'Waiting to be checked' }).state, 'undecided', 'the model has not read it yet');
+
+  const verdicts = tallyVerdicts([
+    { foundOn: 'https://a.example/whats-on', outcome: outcomeOfEvent(shown) },
+    { foundOn: 'https://a.example/whats-on', outcome: outcomeOfEvent({ ...shown, images: [] }) },
+    { foundOn: 'https://a.example/whats-on', outcome: outcomeOfEvent({ ...shown, area: '', images: [] }) },
+    { foundOn: 'https://a.example/whats-on', outcome: outcomeOfEvent({ ...shown, hidden: true }) },
+    { foundOn: 'https://a.example/whats-on', outcome: null },
+    { foundOn: 'https://a.example/whats-on', outcome: outcomeOfEvent({ ...shown, culled: 'Waiting to be checked' }) },
+    { foundOn: 'https://b.example/', outcome: null },
+  ]);
+  assert.deepEqual(verdicts, [
+    // 1.5 with a flyer, 1 without, 0.5 for one filed under no area
+    { foundOn: 'https://a.example/whats-on', good: GOOD_WEIGHT + FLYER_BONUS + GOOD_WEIGHT + GOOD_WEIGHT * UNPLACED_FACTOR, bad: 2 },
+    { foundOn: 'https://b.example/', good: 0, bad: 1 },
+  ]);
+});

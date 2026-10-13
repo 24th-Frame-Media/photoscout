@@ -1,8 +1,8 @@
 import { config } from './config.js';
 import { BlockedError, FetchError, fetchPage, permitted } from './fetch.js';
 import {
-  eventFromPost, instagramPost, instagramProfilePosts, postUrl, SOCIAL_SITES, SocialLink, socialKind, socialLinksFrom,
-  titleOf,
+  eventFromPost, facebookEventIds, facebookEventsUrl, instagramPost, instagramProfilePosts, postUrl, SOCIAL_SITES,
+  SocialLink, socialKind, socialLinksFrom, titleOf,
 } from './extract/social.js';
 import { eventsFromHtml } from './extract/jsonld.js';
 import { eventsFromMicrodata } from './extract/microdata.js';
@@ -117,7 +117,8 @@ async function crawlOne(
     const llmConfig = { ollamaUrl: config.ollamaUrl, llmModel: config.llmModel };
     found = await eventsFromLanguage(page.html, page.url, areas, now, llmConfig);
   }
-  for (const event of found) store.keep(event);
+  let fresh = 0;
+  for (const event of found) if (store.keep(event)) fresh++;
   report.events += found.length;
   report.fetched++;
 
@@ -138,36 +139,59 @@ async function crawlOne(
     }
   }
 
-  store.markDone(url, found.length);
+  store.markDone(url, found.length, '', fresh);
 }
 
 /**
- * One Instagram page, read as a person's browser would read it.
+ * One Instagram or Facebook page.
  *
- * robots.txt is not asked: Instagram's says no to every crawler, and reading
- * it anyway is the decision recorded in config.ts. It gets a real browser's
- * headers because without them the page is an empty shell. What keeps this
- * from being a nuisance is pace — one request every CRAWLER_SOCIAL_DELAY_MS,
- * at most CRAWLER_SOCIAL_PER_CYCLE a cycle, profiles once a day and each post
- * only ever once.
+ * Instagram is read as a person's browser would read it. robots.txt is not
+ * asked of either: both say no to every crawler, and reading them anyway is
+ * the decision recorded in config.ts. Instagram gets a real browser's headers
+ * because without them the page is an empty shell; Facebook is asked as
+ * itself, with the crawler's own honest user agent and no cookie. What keeps
+ * this from being a nuisance is pace: one request every CRAWLER_SOCIAL_DELAY_MS,
+ * at most CRAWLER_SOCIAL_PER_CYCLE a cycle, an account only as often as it has
+ * earned (store.requeueDue) and each post only ever once.
+ *
+ * `fresh` is what the read turned up that was new, which is what a revisit is
+ * for. An Instagram account's own read holds no event, so it reports none: what
+ * it earns arrives through the posts it leads to.
  */
-async function readSocial(link: SocialLink): Promise<{ events: CrawledEvent[]; posts: number; note: string }> {
+async function readSocial(link: SocialLink): Promise<{ events: CrawledEvent[]; posts: number; note: string; fresh: number }> {
   const site = siteOf(link.url);
   store.setHostDelay(site, config.socialDelayMs);
   store.touchHost(site);
+
+  if (link.kind === 'facebook-page') {
+    const page = await fetchPage(facebookEventsUrl(link));
+    const ids = facebookEventIds(page.html);
+    let fresh = 0;
+    for (const id of ids) {
+      const found = { kind: 'facebook-event' as const, id, url: `https://www.facebook.com/events/${id}/` };
+      if (store.offerSocial(found, link.url)) fresh++;
+    }
+    // Logged out, Facebook sends a Page's list of events as a shell that fills
+    // in from GraphQL. Nothing found is an empty read, and the Page backs off.
+    return {
+      events: [], posts: ids.length, fresh,
+      note: ids.length ? `${ids.length} event links` : 'no event links logged out',
+    };
+  }
+
   const page = await fetchPage(link.url, { browser: true });
 
   if (link.kind === 'instagram-profile') {
     const codes = instagramProfilePosts(page.html);
     for (const code of codes) store.offerSocial({ kind: 'instagram-post', id: code, url: postUrl(code) }, link.url);
-    return { events: [], posts: codes.length, note: `${codes.length} recent posts` };
+    return { events: [], posts: codes.length, note: `${codes.length} recent posts`, fresh: 0 };
   }
 
   const post = instagramPost(page.html, link.id);
   if (!post) throw new FetchError('no caption on the page; Instagram may be asking for a login');
   const event = eventFromPost(post, new Date());
-  if (event) store.keep(event);
-  return { events: event ? [event] : [], posts: 0, note: event ? '' : 'no upcoming date in the caption' };
+  const fresh = event && store.keep(event) ? 1 : 0;
+  return { events: event ? [event] : [], posts: 0, note: event ? '' : 'no upcoming date in the caption', fresh };
 }
 
 async function crawlSocial(url: string, link: SocialLink, report: CycleReport): Promise<void> {
@@ -175,7 +199,7 @@ async function crawlSocial(url: string, link: SocialLink, report: CycleReport): 
     const got = await readSocial(link);
     report.fetched++;
     report.events += got.events.length;
-    store.markDone(url, got.events.length, got.note);
+    store.markDone(url, got.events.length || got.posts, got.note, got.fresh);
   } catch (err) {
     const message = (err as Error).message;
     // A post that is gone is gone; anything else is tried again tomorrow.
@@ -200,19 +224,14 @@ export async function runCycle(log: (line: string) => void = () => {}): Promise<
 
   try {
     // A listing page is never finished: next week it has different events on
-    // it. Only pages that produced something are worth revisiting.
-    const requeued = store.requeueProductive(20);
-    if (requeued) log(`  ${requeued} productive pages due again`);
+    // it. Which pages come round again, and how soon, is what each has earned:
+    // sites, Instagram accounts and Facebook Pages alike. See revisit.ts.
+    const requeued = store.requeueDue(config.maxPagesPerRun);
+    if (requeued) log(`  ${requeued} pages due again`);
 
     // Pinned pages come round every six hours whatever else is queued.
     const pinned = store.requeueSeeds(6);
     if (pinned) log(`  ${pinned} pinned pages due again`);
-
-    // Instagram profiles once a day, for whatever they have posted since.
-    if (config.social) {
-      const profiles = store.requeueSocialProfiles(24);
-      if (profiles) log(`  ${profiles} Instagram profiles due again`);
-    }
 
     const interests = knownInterests();
     const queued = store.countPages().queued ?? 0;
@@ -298,14 +317,14 @@ export async function crawlUrlNow(raw: string): Promise<PageReport> {
   if (!url) return { url: raw, ok: false, message: 'That is not a web address.', ...nothing };
   const social = config.social ? socialKind(url) : null;
   if (social) return readSocialNow(url, social);
-  // Facebook shows its searches and Pages only to someone signed in, which the
-  // crawler never is. The Facebook source in Settings is, with a cookie.
+  // Facebook shows its searches only to someone signed in, which the crawler
+  // never is. The Facebook source in Settings is, with a cookie.
   if (/^https?:\/\/([a-z]+\.)?facebook\.com\//i.test(url)) {
     return {
       url,
       ok: false,
       message:
-        'The crawler reads Facebook event pages only. For a Facebook search or Page, add the search words or the Page under Facebook in Settings, which reads them signed in.',
+        'The crawler reads Facebook Pages and event pages only. For a Facebook search, add the search words under Facebook in Settings, which reads them signed in.',
       ...nothing,
     };
   }
@@ -344,13 +363,14 @@ export async function crawlUrlNow(raw: string): Promise<PageReport> {
     const llmConfig = { ollamaUrl: config.ollamaUrl, llmModel: config.llmModel };
     events = await eventsFromLanguage(page.html, page.url, areas, now, llmConfig);
   }
-  for (const event of events) store.keep(event);
+  let fresh = 0;
+  for (const event of events) if (store.keep(event)) fresh++;
   const feeds = feedsFrom(page.html, page.url);
   for (const feed of feeds) store.rememberFeed(feed, page.url);
   if (config.social) for (const link of socialLinksFrom(page.html, page.url)) store.offerSocial(link, page.url);
   const links = crawlableLinks(page.html, page.url, config.maxPagesPerSite).filter((l) => !isSkippedHost(l.url));
   for (const link of links) store.offer(link.url, 1, link.score);
-  store.markDone(url, events.length);
+  store.markDone(url, events.length, '', fresh);
 
   return {
     url,
@@ -381,7 +401,18 @@ async function readSocialNow(url: string, link: SocialLink): Promise<PageReport>
   }
   try {
     const got = await readSocial(link);
-    store.markDone(link.url, got.events.length, got.note);
+    store.markDone(link.url, got.events.length || got.posts, got.note, got.fresh);
+    if (link.kind === 'facebook-page') {
+      return {
+        url: link.url,
+        ok: true,
+        message: got.posts
+          ? `A Facebook Page: ${got.posts} event link${got.posts === 1 ? '' : 's'} noted for the app to read.`
+          : 'A Facebook Page. Logged out, Facebook shows no list of its events, so none were found.',
+        ...nothing,
+        reads: store.readsOf(link.url),
+      };
+    }
     if (link.kind === 'instagram-profile') {
       return {
         url: link.url,
