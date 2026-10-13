@@ -1,0 +1,235 @@
+import type { EventWhen } from './when.js';
+
+/**
+ * A date and a town out of prose: an Instagram caption, or a page with no
+ * event data a program can read. Worked out against real captions. See
+ * README.md in this directory.
+ */
+
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+export const monthIndex = (name: string): number | undefined => MONTHS[name.slice(0, 3).toLowerCase()];
+
+const MON = String.raw`jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?`;
+/** "13th Sept", "24th of September 2026". */
+const DAY_MONTH = new RegExp(String.raw`\b(\d{1,2})(?:st|nd|rd|th)?(?:\s+of)?[\s,]+(${MON})\b\.?(?:,?\s+(20\d\d))?`, 'gi');
+/** "September 24", "Sept 13th, 2026" — but not the 7 in "September 7:30pm", which is a time. */
+const MONTH_DAY = new RegExp(String.raw`\b(${MON})\b\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?![:.]\d|\s*[ap]\.?m\b)(?:,?\s+(20\d\d))?`, 'gi');
+/** "12/10/2026", day first, as dates are written here. Only with a year: "1/2" is as often a fraction. */
+const NUMERIC = /\b(\d{1,2})\/(\d{1,2})\/(20\d\d|\d\d)\b/g;
+/** "7:30PM", "5am", "18:30". */
+const CLOCK = /\b(\d{1,2})(?:[:.](\d{2}))?\s*([ap])\.?m\b|\b([01]?\d|2[0-3]):([0-5]\d)\b/i;
+
+interface Candidate { index: number; end: number; year: number | null; month: number; day: number }
+
+function candidates(text: string): Candidate[] {
+  const found: Candidate[] = [];
+  for (const m of text.matchAll(DAY_MONTH)) {
+    if (m[2] === 'may') continue; // "you may", not May
+    const month = monthIndex(m[2]);
+    if (month !== undefined) found.push({ index: m.index!, end: m.index! + m[0].length, year: m[3] ? Number(m[3]) : null, month, day: Number(m[1]) });
+  }
+  for (const m of text.matchAll(MONTH_DAY)) {
+    if (m[1] === 'may') continue;
+    const month = monthIndex(m[1]);
+    if (month !== undefined) found.push({ index: m.index!, end: m.index! + m[0].length, year: m[3] ? Number(m[3]) : null, month, day: Number(m[2]) });
+  }
+  for (const m of text.matchAll(NUMERIC)) {
+    const year = Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3]);
+    found.push({ index: m.index!, end: m.index! + m[0].length, year, month: Number(m[2]) - 1, day: Number(m[1]) });
+  }
+  // In reading order, and a date inside one already taken is part of it —
+  // "24th September" is not also "September 7".
+  found.sort((a, b) => a.index - b.index);
+  const kept: Candidate[] = [];
+  for (const c of found) {
+    const last = kept[kept.length - 1];
+    if (last && c.index < last.end) continue;
+    kept.push(c);
+  }
+  return kept;
+}
+
+/** A real day, or null: `new Date(2026, 1, 30)` is March, not an error. */
+function realDay(year: number, month: number, day: number): Date | null {
+  const at = new Date(year, month, day);
+  return at.getFullYear() === year && at.getMonth() === month && at.getDate() === day ? at : null;
+}
+
+function clock(text: string): { hour: number; minute: number } | null {
+  const m = CLOCK.exec(text);
+  if (!m) return null;
+  if (m[3]) {
+    const h = Number(m[1]);
+    if (h < 1 || h > 12) return null;
+    return { hour: (h % 12) + (m[3].toLowerCase() === 'p' ? 12 : 0), minute: Number(m[2] ?? 0) };
+  }
+  return { hour: Number(m[4]), minute: Number(m[5]) };
+}
+
+/**
+ * When a piece of text says the event is: a caption, a page's blurb.
+ *
+ * The first date in it on or after `from`, the day it was posted or today. A year left
+ * out is the one that puts it on or after that day, so a December post about
+ * "Jan 10th" means next January. A date more than nine months on is a mention
+ * of something past — "back on 30th August" rolls to next August otherwise —
+ * and is passed over. The time is the first one after the date, or failing
+ * that on a line that says "Time"; with neither it is a date and nothing more.
+ */
+export function whenFromText(caption: string, from: Date | null, now = new Date()): EventWhen | null {
+  const posted = from ?? now;
+  const postedDay = new Date(posted.getFullYear(), posted.getMonth(), posted.getDate());
+  const nineMonths = 270 * 86400000;
+
+  for (const c of candidates(caption)) {
+    let at = realDay(c.year ?? postedDay.getFullYear(), c.month, c.day);
+    if (!at) continue;
+    if (c.year === null && at < postedDay) at = realDay(postedDay.getFullYear() + 1, c.month, c.day);
+    if (!at || at < postedDay) continue;
+    if (c.year === null && at.getTime() - postedDay.getTime() > nineMonths) continue;
+
+    const time = clock(caption.slice(c.end, c.end + 150)) ?? clock(/\btimes?\b[^\n]{0,40}/i.exec(caption)?.[0] ?? '');
+    if (!time) return { startTime: at.toISOString(), dateOnly: true };
+    const start = new Date(at.getFullYear(), at.getMonth(), at.getDate(), time.hour, time.minute);
+    return { startTime: start.toISOString(), dateOnly: false };
+  }
+  return relativeWhen(caption, postedDay);
+}
+
+/**
+ * A date named in a title, with its fragment (and a trailing "—"/"-"
+ * separator it leaves behind) stripped out.
+ *
+ * For a listing whose title names the real date up front but whose own page
+ * data does not — a widget that has not hydrated yet renders today's date
+ * into its schema.org markup, so "SMSP Open Pit Lane: Bathurst Shakedown —
+ * WED 23 SEP Sydney" arrived dated the day it was crawled. Up to thirty days
+ * in the past is allowed, on purpose: that is a stale listing crawled after
+ * its date, and it is worth finding here so the usual "is this in the past"
+ * check downstream can reject it properly, rather than a date-shaped fragment
+ * that failed to match at all silently keeping today's date.
+ */
+export function dateFromTitle(title: string, from: Date | null, now = new Date()): { when: EventWhen; title: string } | null {
+  const posted = from ?? now;
+  const postedDay = new Date(posted.getFullYear(), posted.getMonth(), posted.getDate());
+  const nineMonths = 270 * 86400000;
+  const pastGrace = 30 * 86400000;
+
+  for (const c of candidates(title)) {
+    let at = realDay(c.year ?? postedDay.getFullYear(), c.month, c.day);
+    if (!at) continue;
+    // A day already inside the grace window (a recent past date, allowed so a
+    // stale listing is found here and then rejected properly downstream) is
+    // kept as this year; only one further outside that rolls to next year.
+    if (c.year === null && at.getTime() < postedDay.getTime() - pastGrace) {
+      at = realDay(postedDay.getFullYear() + 1, c.month, c.day);
+    }
+    if (!at || at.getTime() < postedDay.getTime() - pastGrace) continue;
+    if (c.year === null && at.getTime() - postedDay.getTime() > nineMonths) continue;
+
+    // A date is usually the tail of a " — WED 23 SEP Sydney" style separator
+    // segment, weekday and town riding along with it — so the whole segment
+    // from the last such separator before the date is dropped, not just the
+    // date's own few characters, which would leave "— WED  Sydney" behind.
+    let sepIndex = -1;
+    for (const sm of title.matchAll(/\s[—–-]\s/g)) if (sm.index! < c.end) sepIndex = sm.index!;
+    const strippedTitle = (
+      sepIndex >= 0 ? title.slice(0, sepIndex) : title.slice(0, c.index) + title.slice(c.end)
+    )
+      .replace(/\s*[—–-]\s*$/, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim() || title;
+
+    const time = clock(title.slice(c.end, c.end + 40));
+    const when: EventWhen = time
+      ? { startTime: new Date(at.getFullYear(), at.getMonth(), at.getDate(), time.hour, time.minute).toISOString(), dateOnly: false }
+      : { startTime: at.toISOString(), dateOnly: true };
+    return { when, title: strippedTitle };
+  }
+  return null;
+}
+
+/**
+ * A structured-data start that looks like a widget's un-hydrated placeholder
+ * rather than a real date: a bare day, and that day is the one the page was
+ * crawled on. Re-read from the title when it names one, or say the find
+ * should be dropped rather than kept under today's date on a guess.
+ */
+export function fixPlaceholderToday(
+  when: EventWhen, title: string, foundAt: Date
+): { when: EventWhen; title: string } | 'drop' | null {
+  if (!when.dateOnly) return null;
+  const start = new Date(when.startTime);
+  const isToday =
+    start.getFullYear() === foundAt.getFullYear() &&
+    start.getMonth() === foundAt.getMonth() &&
+    start.getDate() === foundAt.getDate();
+  if (!isToday) return null;
+  return dateFromTitle(title, foundAt, foundAt) ?? 'drop';
+}
+
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+/** "tonight", "tomorrow", "this Sunday", "next Saturday", "this weekend". */
+const RELATIVE = /\b(tonight|tomorrow|(?:this|next)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend))\b/i;
+
+/**
+ * A day named relative to the day of posting, when the caption gives no date.
+ *
+ * "Cars and coffee this Sunday from 7am" is how most small meets are
+ * announced. "Next Saturday" is read as the coming one, as it usually means in
+ * a post; "this weekend" as its Saturday. "Today" is left out — "book today"
+ * says nothing about when the event is.
+ */
+function relativeWhen(caption: string, postedDay: Date): EventWhen | null {
+  const m = RELATIVE.exec(caption);
+  if (!m) return null;
+  const word = m[1].toLowerCase();
+  let offset: number;
+  if (word === 'tonight') offset = 0;
+  else if (word === 'tomorrow') offset = 1;
+  else {
+    const name = m[2].toLowerCase();
+    const target = name === 'weekend' ? 6 : WEEKDAYS.indexOf(name);
+    offset = (target - postedDay.getDay() + 7) % 7;
+  }
+  const at = new Date(postedDay.getFullYear(), postedDay.getMonth(), postedDay.getDate() + offset);
+  const end = m.index + m[0].length;
+  const time = clock(caption.slice(end, end + 150)) ?? clock(/\btimes?\b[^\n]{0,40}/i.exec(caption)?.[0] ?? '');
+  if (!time) return { startTime: at.toISOString(), dateOnly: true };
+  return {
+    startTime: new Date(at.getFullYear(), at.getMonth(), at.getDate(), time.hour, time.minute).toISOString(),
+    dateOnly: false,
+  };
+}
+
+/** "Penrith NSW" is searched for as "Penrith": the region is how the area was typed, not how a caption says it. */
+function areaWord(area: string): string {
+  return area.split(',')[0].trim().replace(/\s+[A-Z]{2,3}$/, '').trim();
+}
+
+/**
+ * Which of the areas being searched a piece of text names, if any.
+ *
+ * A caption has no venue field, but it usually says the town — "our Bathurst
+ * drive", "meet at Penrith" — and the areas are the towns this crawl is about,
+ * so a mention of one is a place worth geocoding. Matched with its capital, or
+ * shouted, so "an orange car" is not Orange but "THIS TIME IS BATHURST" is
+ * Bathurst; the first one named wins. The area comes back as it was typed,
+ * region and all, since that is what geocodes cleanly.
+ */
+export function placeFromText(text: string, areas: string[]): string | undefined {
+  let best: { at: number; area: string } | undefined;
+  for (const area of areas) {
+    const word = areaWord(area);
+    if (word.length < 3) continue;
+    const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const spelled = `${escape(word)}|${escape(word.toUpperCase())}`;
+    // Not followed by a number: "before the Bathurst 1000" names a race, not
+    // where this event is.
+    const m = new RegExp(`(?<![\\p{L}\\p{N}])(?:${spelled})(?![\\p{L}\\p{N}])(?!\\s*\\d)`, 'u').exec(text);
+    if (m && (!best || m.index < best.at)) best = { at: m.index, area: area.trim() };
+  }
+  return best?.area;
+}

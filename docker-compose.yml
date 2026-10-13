@@ -27,6 +27,9 @@ services:
       TFNSW_API_KEY: ${TFNSW_API_KEY:-}
       # adsb.lol by default; point at airplanes.live if preferred (phase 3).
       ADSB_URL: ${ADSB_URL:-https://api.adsb.lol}
+      # Where the web crawler below is listening (the events engine asks it for
+      # finds and sends it verdicts). Settings can point it elsewhere.
+      CRAWLER_URL: ${CRAWLER_URL:-http://crawler:3002}
       TZ: ${TZ:-Australia/Sydney}
     # Makes host.docker.internal resolve on Linux, where it otherwise does not.
     extra_hosts:
@@ -44,5 +47,32 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # The web crawler: its own program, database and schedule. Asked for what it
+  # has found over HTTP; not published to the host.
+  crawler:
+    image: ghcr.io/kapsikkum/photoscout-crawler:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.crawler
+    init: true
+    environment:
+      CRAWLER_PORT: "3002"
+      CRAWLER_ENABLED: ${CRAWLER_ENABLED:-true}
+      CRAWLER_MAX_PAGES: ${CRAWLER_MAX_PAGES:-300}
+      CRAWLER_MAX_DEPTH: ${CRAWLER_MAX_DEPTH:-2}
+      CRAWLER_HOST_DELAY_MS: ${CRAWLER_HOST_DELAY_MS:-1500}
+      CRAWLER_INTERVAL_MIN: ${CRAWLER_INTERVAL_MIN:-30}
+      TZ: ${TZ:-Australia/Sydney}
+    expose:
+      - "3002"
+    volumes:
+      - crawler-data:/app/data
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1
+    pids_limit: 128
+    restart: unless-stopped
+
 volumes:
   photoscout-data:
+  crawler-data:

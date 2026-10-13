@@ -5,13 +5,14 @@
   "description": "Photo spots, events and drives on one map",
   "workspaces": [
     "server",
-    "web"
+    "web",
+    "crawler"
   ],
   "scripts": {
     "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
-    "build": "npm run build -w web && npm run build -w server",
+    "build": "npm run build -w web && npm run build -w server && npm run build -w crawler",
     "start": "npm run start -w server",
-    "typecheck": "npx tsc --noEmit -p server/tsconfig.test.json && npx tsc --noEmit -p web",
+    "typecheck": "npx tsc --noEmit -p server/tsconfig.test.json && npx tsc --noEmit -p crawler/tsconfig.test.json && npx tsc --noEmit -p web",
     "test": "npm test --workspaces"
   },
   "devDependencies": {

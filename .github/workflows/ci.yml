@@ -26,6 +26,7 @@ jobs:
           # src, so a type error in a test file would otherwise reach nobody —
           # tsx strips types to run them without checking any of it.
           npx tsc --noEmit -p server/tsconfig.test.json
+          npx tsc --noEmit -p crawler/tsconfig.test.json
           npx tsc --noEmit -p web
       - name: Unit tests
         run: npm test

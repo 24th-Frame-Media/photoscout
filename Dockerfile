@@ -4,9 +4,12 @@ FROM docker.io/library/node:24-slim AS build
 WORKDIR /app
 
 # Manifests first, so a change to source does not re-resolve the dependency tree.
+# Every workspace's package.json (the crawler's included) has to be present for
+# `npm ci` to plan the install.
 COPY package.json package-lock.json ./
 COPY server/package.json server/package.json
 COPY web/package.json web/package.json
+COPY crawler/package.json crawler/package.json
 RUN npm ci
 
 COPY . .
