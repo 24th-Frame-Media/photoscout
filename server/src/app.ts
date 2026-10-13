@@ -36,7 +36,7 @@ import {
 } from './feeds/trains.js';
 import { nearbyFor } from './feeds/eventScout.js';
 import { eventsApi } from './events/index.js';
-import { eventList, flyerIsShown, MAX_GROUP_LENGTH, setUserEventState, userEventStates, withState } from './events.js';
+import { eventList, flyerIsShown, forgetEventList, MAX_GROUP_LENGTH, setUserEventState, userEventStates, withState } from './events.js';
 import { flyerRelative, isSafeFlyerPath } from './events/flyers.js';
 import { store as flyerStore } from './events/flyerStore.js';
 import { buildIcs } from './events/ics.js';
@@ -1129,6 +1129,8 @@ app.post('/api/candidates/:id/promote', (req, res) => {
 app.use('/api/events-admin', (req, res, next) => {
   if (!requireAdmin(req, res)) return;
   req.url = `/api${req.url}`;
+  // An edit, a merge or an archive changes what visitors are shown; do not make them wait out the kept list.
+  if (req.method !== 'GET') res.on('finish', forgetEventList);
   eventsApi(req, res, next);
 });
 

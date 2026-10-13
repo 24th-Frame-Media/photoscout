@@ -302,6 +302,10 @@ export interface CommunityEventInput {
 export interface CommunityEvent extends CommunityEventInput {
   id: string; ownerId: string; owner: ProfileHit; going: number; isGoing: boolean; createdAt: string; updatedAt: string;
 }
+export interface SpotSuggestionInput { name: string; notes: string; lat: number; lng: number }
+export interface SpotSuggestion extends SpotSuggestionInput {
+  id: string; createdAt: string; suggestedBy: string | null; resolvedAt: string | null; outcome: 'approved' | 'rejected' | null; spotId: string | null;
+}
 export interface EventState { starred: boolean; hidden: boolean }
 
 export interface Candidate { id: string; source: string; ref: string; name: string; lat: number; lng: number; tags: Record<string, string>; fetchedAt: string }
@@ -560,6 +564,16 @@ export const api = {
   reports: () => fetch('/api/reports').then((r) => json<Report[]>(r)),
   resolveReport: (id: string, action: 'dismiss' | 'hide') =>
     fetch(`/api/reports/${id}/resolve`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ action }) }).then((r) => json<{ ok: boolean }>(r)),
+
+  // --- suggested spots (anyone signed in sends one; staff settle them) and the calendar link ---
+  suggestSpot: (input: SpotSuggestionInput) =>
+    fetch('/api/suggestions', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(input) }).then((r) => json<SpotSuggestion>(r)),
+  suggestions: () => fetch('/api/suggestions').then((r) => json<SpotSuggestion[]>(r)),
+  resolveSuggestion: (id: string, action: 'approve' | 'reject') =>
+    fetch(`/api/suggestions/${id}/resolve`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ action }) }).then((r) => json<{ ok: boolean; spotId: string | null }>(r)),
+  calendarLink: () => fetch('/api/calendar-link').then((r) => json<{ exists: boolean; createdAt: string | null }>(r)),
+  makeCalendarLink: () => fetch('/api/calendar-link', { method: 'POST' }).then((r) => json<{ token: string; url: string }>(r)),
+  revokeCalendarLink: () => fetch('/api/calendar-link', { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
 
   // --- events (open to visitors; starring and hiding need a session and are your own) ---
   events: () => fetch('/api/events').then((r) => json<EventItem[]>(r)),

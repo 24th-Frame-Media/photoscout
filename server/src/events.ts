@@ -129,6 +129,11 @@ export function eventList(): EventItem[] {
   }
 }
 
+/** Drop the kept list, so an admin's edit shows on the next read instead of in a minute. */
+export function forgetEventList(): void {
+  cache = null;
+}
+
 /** Whether a stored flyer belongs to an event that is on show, so a hidden or culled event's picture is not served. */
 export function flyerIsShown(day: string, name: string): boolean {
   eventList();

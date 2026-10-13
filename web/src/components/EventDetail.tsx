@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { EventItem, User } from '../api.js';
 import { decodeEntities, formatWhen } from '../events.js';
@@ -13,7 +13,7 @@ export type OnGoing = (communityId: string, going: boolean) => Promise<void>;
  * without leaving the Events page, the calendar or the map. Click outside or Escape closes.
  * A community event adds who is running it, who is going, and Going and Edit buttons.
  */
-export default function EventDetail({ ev, onClose, onMark, onGoing, user }: { ev: EventItem; onClose: () => void; onMark?: OnMark; onGoing?: OnGoing; user?: User | null }) {
+export default function EventDetail({ ev, onClose, onMark, onGoing, user, adminSlot }: { ev: EventItem; onClose: () => void; onMark?: OnMark; onGoing?: OnGoing; user?: User | null; adminSlot?: ReactNode }) {
   const [noImage, setNoImage] = useState(false);
   const [note, setNote] = useState('');
   useEffect(() => {
@@ -55,6 +55,7 @@ export default function EventDetail({ ev, onClose, onMark, onGoing, user }: { ev
         {note && <p className="status-line error">{note}</p>}
         {ev.community ? !onGoing && <p className="hint">Sign in to say you are going.</p>
           : !onMark && <p className="hint">Sign in to keep a shortlist and hide events you don't want.</p>}
+        {adminSlot}
       </div>
     </div>
   );

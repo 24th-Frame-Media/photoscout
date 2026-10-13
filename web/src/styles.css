@@ -1458,3 +1458,55 @@ section > .notify__check { margin-top: 10px; }
   .chip.evs-chip-off { opacity: 0.55; text-decoration: line-through; }
   .evs-lead { margin: 0 0 14px; }
 }
+
+/* places, the busy map and the busy chart, inside the events tabs */
+.evs {
+  .places__bar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .places__bar input { flex: 1; min-width: 160px; }
+  .places__bar select { width: auto; }
+  .places__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .places__list > li { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
+  .places__list > li.is-open { border-color: var(--accent); }
+  .places__row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; background: none; border: 0; text-align: left; }
+  .places__dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .places__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .places__busiest { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .places__pct { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 44px; text-align: right; }
+  .places__chev { color: var(--muted); width: 12px; }
+  .places__detail { padding: 4px 12px 12px; border-top: 1px solid var(--border); }
+  .places__detail h4 { margin: 12px 0 6px; font-size: 12px; color: var(--muted); }
+  .places__days { display: flex; gap: 4px; margin: 10px 0 8px; flex-wrap: wrap; }
+  .places__days button { padding: 3px 9px; font-size: 12px; border-radius: var(--pill); }
+  .places__days button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .places__days button:disabled { opacity: 0.35; }
+  .places__verdict { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; }
+  .places__recent { list-style: none; margin: 0; padding: 0; }
+  .places__recent li { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-top: 1px solid var(--border); }
+  .places__recent li:first-child { border-top: 0; }
+  .shoot { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: var(--pill); border: 1px solid var(--border); white-space: nowrap; }
+  .shoot--prime { background: rgba(240, 249, 33, 0.14); color: #f0f921; border-color: rgba(240, 249, 33, 0.35); }
+  .shoot--good { background: rgba(252, 166, 54, 0.14); color: #fca636; border-color: rgba(252, 166, 54, 0.32); }
+  .shoot--fair { background: rgba(225, 100, 98, 0.13); color: #e16462; border-color: rgba(225, 100, 98, 0.3); }
+  .shoot--quiet, .shoot--dead { background: var(--panel-2); color: var(--muted); }
+  .shoot.is-estimated { border-style: dashed; }
+  .busychart { width: 100%; line-height: 0; }
+  .busychart svg { display: block; max-width: 100%; }
+  .busychart__now { fill: var(--accent); }
+  .busychart__dark { fill: rgba(0, 0, 0, 0.28); }
+  .busychart__best { fill: rgba(240, 249, 33, 0.07); stroke: rgba(240, 249, 33, 0.28); }
+  .busychart__dot { fill: #fff; stroke: var(--panel); stroke-width: 1.5; }
+  .busychart__axis { font-size: 10px; fill: var(--muted); }
+}
+
+/* admin tools on an event: edit, merge, hide for everyone */
+.eventadmin { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.eventadmin h3 { margin: 0; font-size: 13px; color: var(--muted); font-weight: 600; }
+.eventadmin label { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--muted); }
+.eventadmin label button { align-self: flex-start; }
+.eventadmin__members { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.eventadmin__members li { display: flex; gap: 8px; align-items: center; padding: 3px 0; }
+.eventadmin__pick { max-height: 160px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.eventadmin__pick label { flex-direction: row; align-items: center; gap: 8px; padding: 5px 10px; color: var(--text); }
+
+/* the calendar link under Account */
+.calendarlink input { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; }
