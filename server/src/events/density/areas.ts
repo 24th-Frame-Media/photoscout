@@ -6,7 +6,9 @@ import type { Settings } from '../sources/types.js';
 /**
  * Areas to map, resolved from event-scout's own settings so the location is
  * configured once. Each area is either a radius around a point or an explicit
- * bbox; the configured city is used when no areas are listed at all.
+ * bbox. Once the areas are managed from PhotoScout's list (areasManaged), a
+ * list with no busy area means nothing is mapped; before that, and in an old
+ * database, the configured city is used when no areas are listed at all.
  */
 
 export interface Area {
@@ -86,7 +88,7 @@ export function resolveAreas(settings: Settings = getSettings()): Area[] {
 
   const raw: DensityArea[] = settings.densityAreas?.length
     ? settings.densityAreas
-    : settings.lat != null && settings.lng != null
+    : settings.lat != null && settings.lng != null && !settings.areasManaged
       ? [{ name: settings.city || 'Area', lat: settings.lat, lng: settings.lng, radiusKm: 5.5 }]
       : [];
 

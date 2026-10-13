@@ -206,7 +206,7 @@ export async function refreshAll(): Promise<SourceStatus[]> {
   try {
     const settings = getSettings();
     if (settings.lat == null || settings.lng == null) {
-      throw new Error('Set a location in Settings before refreshing');
+      throw new Error('Turn on events for an area under Settings → Areas before refreshing');
     }
     const locations = await eventLocations(settings);
     const areaRegions = regionsOfAreas(locations.map((l) => l.city));

@@ -57,7 +57,7 @@ tasks.register({
   run: async (log) => {
     const settings = getSettings();
     if (settings.lat == null || settings.lng == null) {
-      return { ok: false, message: 'Set a location in Settings before refreshing' };
+      return { ok: false, message: 'Turn on events for an area under Settings → Areas before refreshing' };
     }
     await refreshAll();
     // New events wait for the model's check before they are shown, so it

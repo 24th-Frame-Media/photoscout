@@ -845,7 +845,7 @@ export default function CrawlerPanel() {
           </p>
         )}
         {!status.interests?.length ? (
-          <p className="hint">Nothing yet — set a location on the General tab and save.</p>
+          <p className="hint">Nothing yet — turn on events for an area under Settings → Areas.</p>
         ) : (
           <table className="crawltable crawltable--wide">
             <thead>

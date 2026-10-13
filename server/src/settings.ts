@@ -1,9 +1,26 @@
 import { Db } from './db.js';
 
+/**
+ * A place the app looks around. The map and feeds always use it; the switches
+ * say whether the events engine scrapes events here and whether it tracks how
+ * busy venues are. Both are written out on read, so an area saved before they
+ * existed comes back as events on, busy off.
+ */
+export interface Area {
+  name: string;
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  events: boolean;
+  busy: boolean;
+}
+
 /** Settings kept in kv, plus what an operator may override from the environment. */
 export interface Settings {
-  home: { name: string; lat: number; lng: number; radiusKm: number };
-  areas: { name: string; lat: number; lng: number; radiusKm: number }[];
+  /** The first area. Where the map opens. */
+  home: Area;
+  /** The others. The only place any area is edited: the events engine's own copy is derived from these. */
+  areas: Area[];
   /** Lets remotes resolve to a private/loopback/link-local IP. For LAN setups. */
   allowPrivateRemotes: boolean;
   /** TfNSW Open Data API key. Never sent to clients; env TFNSW_API_KEY wins. */
@@ -13,16 +30,23 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  home: { name: 'Bathurst', lat: -33.419, lng: 149.577, radiusKm: 100 },
+  home: { name: 'Bathurst', lat: -33.419, lng: 149.577, radiusKm: 100, events: true, busy: false },
   areas: [],
   allowPrivateRemotes: false,
   tfnswApiKey: '',
   corsOrigins: [],
 };
 
+/** An area with both switches written out: events on and busy off unless it says otherwise. */
+export function withSwitches<T extends { events?: boolean; busy?: boolean }>(a: T): T & { events: boolean; busy: boolean } {
+  return { ...a, events: a.events !== false, busy: a.busy === true };
+}
+
 export function getSettings(db: Db): Settings {
   const raw = db.getKv('settings');
   const stored = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
+  stored.home = withSwitches(stored.home);
+  stored.areas = (stored.areas ?? []).map(withSwitches);
   // Env wins over what is stored, so an operator can pin these without the UI.
   if (process.env.TFNSW_API_KEY) stored.tfnswApiKey = process.env.TFNSW_API_KEY;
   delete (stored as Record<string, unknown>).freightSpeedLoadedKmh; // retired with manual sightings
@@ -34,6 +58,17 @@ export function getSettings(db: Db): Settings {
 
 export function saveSettings(db: Db, settings: Settings): void {
   db.setKv('settings', JSON.stringify(settings));
+}
+
+/**
+ * Store a new home and list of areas and nothing else. Read from the raw row,
+ * not getSettings, so a key an operator set in the environment is not written
+ * into the database on the way through.
+ */
+export function saveAreas(db: Db, home: Area, areas: Area[]): void {
+  const raw = db.getKv('settings');
+  const stored: Settings = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
+  saveSettings(db, { ...stored, home: withSwitches(home), areas: areas.map(withSwitches) });
 }
 
 /** The TfNSW API key in effect (env first, then stored), or '' when none. */
@@ -64,8 +99,8 @@ export function memberSettings(settings: Settings) {
   };
 }
 
-const isArea = (v: unknown): v is Settings['home'] => {
-  const a = v as Settings['home'];
+const isArea = (v: unknown): v is Area => {
+  const a = v as Area;
   return Boolean(a) && typeof a === 'object' && typeof a.name === 'string' && a.name.length <= 100 &&
     Number.isFinite(a.lat) && Math.abs(a.lat) <= 90 && Number.isFinite(a.lng) && Math.abs(a.lng) <= 180 &&
     Number.isFinite(a.radiusKm) && a.radiusKm > 0 && a.radiusKm <= 1000;
@@ -77,10 +112,9 @@ const isArea = (v: unknown): v is Settings['home'] => {
  */
 export function cleanSettingsBody(body: Record<string, unknown>): Partial<Settings> {
   const out: Partial<Settings> = {};
-  if (isArea(body.home)) out.home = { name: body.home.name, lat: body.home.lat, lng: body.home.lng, radiusKm: body.home.radiusKm };
-  if (Array.isArray(body.areas) && body.areas.length <= 50 && body.areas.every(isArea)) {
-    out.areas = body.areas.map((a) => ({ name: a.name, lat: a.lat, lng: a.lng, radiusKm: a.radiusKm }));
-  }
+  const clean = (a: Area): Area => withSwitches({ name: a.name, lat: a.lat, lng: a.lng, radiusKm: a.radiusKm, events: a.events, busy: a.busy });
+  if (isArea(body.home)) out.home = clean(body.home);
+  if (Array.isArray(body.areas) && body.areas.length <= 50 && body.areas.every(isArea)) out.areas = body.areas.map(clean);
   if (typeof body.allowPrivateRemotes === 'boolean') out.allowPrivateRemotes = body.allowPrivateRemotes;
   if (Array.isArray(body.corsOrigins) && body.corsOrigins.length <= 50 && body.corsOrigins.every((o) => typeof o === 'string' && o.length <= 300)) {
     out.corsOrigins = body.corsOrigins as string[];
@@ -92,9 +126,10 @@ export function cleanSettingsBody(body: Record<string, unknown>): Partial<Settin
  * Apply a PUT body. The key is only replaced by a non-empty string, cleared by
  * `clearTfnswApiKey: true`, and otherwise kept. Returns whether it changed.
  */
-export function applySettingsUpdate(db: Db, body: Record<string, unknown>): { settings: Settings; keyChanged: boolean } {
+export function applySettingsUpdate(db: Db, body: Record<string, unknown>): { settings: Settings; keyChanged: boolean; areasChanged: boolean } {
   const raw = db.getKv('settings');
   const stored: Settings = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
+  const areasBefore = JSON.stringify([withSwitches(stored.home), (stored.areas ?? []).map(withSwitches)]);
   const { tfnswApiKey, clearTfnswApiKey, tfnswApiKeySet: _s, tfnswApiKeyFromEnv: _e, ...rest } = body;
   const next: Settings = { ...stored, ...cleanSettingsBody(rest), tfnswApiKey: stored.tfnswApiKey ?? '' };
 
@@ -104,5 +139,6 @@ export function applySettingsUpdate(db: Db, body: Record<string, unknown>): { se
   delete (next as unknown as Record<string, unknown>).freightSpeedLoadedKmh;
   delete (next as unknown as Record<string, unknown>).freightSpeedEmptyKmh;
   saveSettings(db, next);
-  return { settings: getSettings(db), keyChanged };
+  const settings = getSettings(db);
+  return { settings, keyChanged, areasChanged: JSON.stringify([settings.home, settings.areas]) !== areasBefore };
 }

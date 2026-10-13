@@ -37,6 +37,8 @@ import {
 } from './feeds/trains.js';
 import { nearbyFor } from './feeds/eventScout.js';
 import { eventsApi } from './events/index.js';
+import { syncEngineAreas } from './events/areas.js';
+import { syncCrawler } from './events/sources/crawler.js';
 import { eventList, flyerIsShown, forgetEventList, MAX_GROUP_LENGTH, setUserEventState, userEventStates, withState } from './events.js';
 import { flyerRelative, isSafeFlyerPath } from './events/flyers.js';
 import { store as flyerStore } from './events/flyerStore.js';
@@ -331,7 +333,13 @@ app.get('/api/settings', (req, res) => {
 });
 app.put('/api/settings', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { settings, keyChanged } = applySettingsUpdate(db, (req.body ?? {}) as Record<string, unknown>);
+  const { settings, keyChanged, areasChanged } = applySettingsUpdate(db, (req.body ?? {}) as Record<string, unknown>);
+  // The engine's areas are written from this list, and the crawler told at once
+  // rather than at the next refresh. Not awaited: a crawler that is down must not fail a save.
+  if (areasChanged) {
+    void syncCrawler(syncEngineAreas(settings));
+    forgetEventList();
+  }
   // A new key means timetables can now be pulled: start the import in the background.
   if (keyChanged && settings.tfnswApiKey) {
     for (const name of ['trains-static-nswtrains', 'trains-static-sydneytrains']) {

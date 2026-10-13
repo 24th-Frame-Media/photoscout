@@ -12,10 +12,21 @@ export interface Location {
 }
 
 export interface Settings {
+  /**
+   * The five fields below, `eventAreas` and `densityAreas` are not edited
+   * here: they are worked out from PhotoScout's own list of areas and written
+   * in whenever that is saved and at startup. See areas.ts.
+   */
   city: string;
   lat: number | null;
   lng: number | null;
   radiusKm: number;
+  /**
+   * Set once the area fields above have been written from PhotoScout's list.
+   * Until then (an old database, or an engine test) the density areas fall
+   * back on the city; after it, no busy area means nothing to sample.
+   */
+  areasManaged: boolean;
   ticketmasterKey: string;
   seatgeekClientId: string;
   eventbriteToken: string;
@@ -283,6 +294,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lat: null,
   lng: null,
   radiusKm: 50,
+  areasManaged: false,
   ticketmasterKey: '',
   seatgeekClientId: '',
   eventbriteToken: '',

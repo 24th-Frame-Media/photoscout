@@ -246,7 +246,7 @@ export const facebook: EventSourceAdapter = {
     }
 
     if (discovery.length === 0) {
-      throw new Error('Set a location, or add Facebook search terms / Pages in Settings.');
+      throw new Error('Turn on events for an area under Settings → Areas, or add Facebook search terms / Pages in Settings.');
     }
 
     const ids = new Set<string>();

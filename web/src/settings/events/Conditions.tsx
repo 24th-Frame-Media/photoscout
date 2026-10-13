@@ -85,7 +85,7 @@ export default function Conditions() {
           )}
           <DayBlock label="Today" sun={data.today.sun} weather={data.today.weather} moon={data.today.moon} />
           <DayBlock label="Tomorrow" sun={data.tomorrow.sun} weather={data.tomorrow.weather} moon={data.tomorrow.moon} />
-          {!data.location && <p className="hint">Set a location under Events for local times and weather.</p>}
+          {!data.location && <p className="hint">Turn on events for an area under Settings → Areas for local times and weather.</p>}
           <p className="hint">Sun times computed locally · weather from Open-Meteo.</p>
         </>
       )}

@@ -1,5 +1,7 @@
 import express from 'express';
 import { db, getKv, getSettings, saveSettings } from './db.js';
+import { db as appDb } from '../db.js';
+import { startAreas } from './areas.js';
 import { mergeSecrets, redactSettings } from './secrets.js';
 import { flyerRelative, isSafeFlyerPath } from './flyers.js';
 import { store } from './flyerStore.js';
@@ -48,14 +50,18 @@ app.get('/api/settings', (_req, res) => {
 
 app.put('/api/settings', (req, res) => {
   const current = getSettings();
-  const body = req.body as Partial<Settings>;
+  // Areas are PhotoScout's: they are edited under Settings -> Areas and written
+  // in from there (areas.ts), so a copy sent from this side is dropped rather
+  // than left to disagree with the list.
+  const body = { ...(req.body as Partial<Settings>) };
+  for (const key of ['city', 'lat', 'lng', 'radiusKm', 'eventAreas', 'densityAreas', 'areasManaged'] as const) delete body[key];
   const next: Settings = {
     ...current,
     ...body,
     enabledSources: { ...current.enabledSources, ...(body.enabledSources ?? {}) },
     // After the spread, so a blanked credential coming back from the page
     // cannot overwrite the stored one. Null is how a caller asks to clear one.
-    ...mergeSecrets(current, (req.body ?? {}) as Record<string, unknown>),
+    ...mergeSecrets(current, body as Record<string, unknown>),
   };
   // Keep arrays sane if the client sends junk
   for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'excludedCategories', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins', 'crawlerUrls', 'notifyTargets'] as const) {
@@ -772,7 +778,15 @@ app.use('/api', (err: Error & { status?: number; statusCode?: number }, req: exp
  * hung source held the refresh flag for ten days, yesterday events sat at the
  * top of the list the whole time.
  */
-export function startEvents(): void {
+export async function startEvents(): Promise<void> {
+  // The areas come first: the engine reads its own copy, so it must have been
+  // written from PhotoScout's list (and anything only it knew imported) before
+  // anything refreshes or tells the crawler what to look for.
+  try {
+    await startAreas(appDb);
+  } catch (err) {
+    console.warn(`Could not bring the event areas in step: ${(err as Error).message}`);
+  }
   // The crawler keeps what it was last told, so this matters only when
   // settings changed while it was down; the next refresh would catch it up.
   void syncCrawler(getSettings());

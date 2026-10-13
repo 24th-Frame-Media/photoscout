@@ -58,7 +58,7 @@ export function getDensityStatus(): DensityStatus {
 /** Sample every configured area once. */
 export async function runDensityScrape(log: TaskLog): Promise<TaskResult> {
   if (resolveAreas().length === 0) {
-    return { ok: false, message: 'No areas configured - set a location in Settings' };
+    return { ok: false, message: 'No areas configured - turn on busy for an area under Settings → Areas' };
   }
   const result = await runScrape(getSettings().densityCities ?? [], log);
   const summary = result.areas

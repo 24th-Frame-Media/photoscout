@@ -10,5 +10,5 @@ const server = app.listen(PORT, () => {
 attachRealtime(server);
 
 startScheduler();
-startEvents();
+void startEvents();
 runDueTasksOnStartup();
