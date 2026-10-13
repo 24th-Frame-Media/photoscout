@@ -30,15 +30,25 @@ function isFresh(entry: CacheEntry): boolean {
   return Date.now() - entry.at < ttl;
 }
 
+/** Nominatim's gap between requests, and how many lookups may wait for their turn. Mutable so a test can speed it up. */
+export const geocodeLimits = { gapMs: 1100, maxQueued: 10 };
+
+/** Too many lookups are already waiting; the caller answers 503 rather than join a queue that is minutes long. */
+export class GeocoderBusyError extends Error {}
+
 /**
  * Nominatim's one-request-a-second rule, enforced once for the whole process.
  * ponytail: a process-wide lock, not per-key — fine at Nominatim's own limit.
+ * The queue is capped, so one caller cannot push everyone else's wait out without bound.
  */
 let nominatimQueue: Promise<void> = Promise.resolve();
+let waiting = 0;
 function throttle(): Promise<void> {
-  const wait = nominatimQueue.then(() => new Promise<void>((resolve) => setTimeout(resolve, 1100)));
+  if (waiting >= geocodeLimits.maxQueued) throw new GeocoderBusyError('Geocoder busy, try again shortly');
+  waiting++;
+  const wait = nominatimQueue.then(() => new Promise<void>((resolve) => setTimeout(resolve, geocodeLimits.gapMs)));
   nominatimQueue = wait;
-  return wait;
+  return wait.finally(() => { waiting--; });
 }
 
 export async function geocode(db: Db, query: string): Promise<GeocodeResult[]> {

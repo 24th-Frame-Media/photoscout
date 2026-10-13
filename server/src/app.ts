@@ -20,7 +20,7 @@ import { catalog, searchCatalog } from './gearCatalog.js';
 import { authConfigView, configuredProviders, generateCodeVerifier, generateState, provider, publicUrl, updateCredentials } from './oauth.js';
 import { corsDecision, readOrigins } from './cors.js';
 import { applySettingsUpdate, getSettings, memberSettings, publicSettings, tfnswKey } from './settings.js';
-import { geocode } from './geocode.js';
+import { geocode, GeocoderBusyError } from './geocode.js';
 import { routing } from './routing.js';
 import { bboxFromRadius, haversine, parseBbox, parseLatLng } from './geo.js';
 import { parseGoodTimes, GoodTimesError, DEFAULT_GOOD_TIMES } from './goodTimes.js';
@@ -368,7 +368,10 @@ app.get('/api/geocode', async (req, res, next) => {
     const q = String(req.query.q ?? '').trim();
     if (!q) return res.json([]);
     res.json(await geocode(db, q));
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err instanceof GeocoderBusyError) return res.status(503).json({ error: 'Geocoder busy, try again shortly' });
+    next(err);
+  }
 });
 
 app.get('/api/version', (_req, res) => res.json(versionInfo()));
