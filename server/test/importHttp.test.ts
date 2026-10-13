@@ -25,3 +25,11 @@ test('POST /api/import refuses a bundle over the feature cap', async () => {
   const r = await alice('POST', '/api/import', fc(Array.from({ length: 2001 }, () => spot({}))));
   assert.equal(r.status, 400);
 });
+
+test('a body that is not JSON gets a fixed message, not the parser\'s', async () => {
+  const r = await alice('POST', '/api/import', undefined, { 'Content-Type': 'application/json' });
+  assert.equal(r.status, 400);
+  const res = await fetch(`${app.base}/api/import`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: [...alice.jar].map(([k, v]) => `${k}=${v}`).join('; ') }, body: '{"type": "Feat' });
+  assert.equal(res.status, 400);
+  assert.deepEqual(await res.json(), { error: 'Invalid JSON' });
+});

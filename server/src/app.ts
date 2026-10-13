@@ -2053,6 +2053,8 @@ app.use('/api', (req, res) => {
 app.use('/api', (err: Error & { status?: number }, req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (res.headersSent) return next(err);
   const status = err.status ?? 500;
+  // The parser's own message quotes the input; say only that it was not JSON.
+  if (err instanceof SyntaxError && status === 400) return res.status(400).json({ error: 'Invalid JSON' });
   if (status >= 500) console.error(`[api] ${req.method} ${req.originalUrl}:`, err);
   res.status(status).json({ error: status >= 500 ? 'Something went wrong' : err.message || 'Bad request' });
 });
