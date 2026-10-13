@@ -28,11 +28,20 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const refresh = () => api.authStatus().then(setStatus);
+  const [loadError, setLoadError] = useState('');
+  const refresh = () => api.authStatus().then((s) => { setStatus(s); setLoadError(''); }, (err: Error) => setLoadError(err.message));
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { setMenuOpen(false); setAccountOpen(false); }, [location.pathname]);
 
-  if (!status) return <div className="page"><p className="hint">Loading…</p></div>;
+  if (!status) {
+    return (
+      <div className="page">
+        {loadError
+          ? <><p className="status-line error">{loadError}</p><button className="primary" onClick={() => void refresh()}>Try again</button></>
+          : <p className="hint">Loading…</p>}
+      </div>
+    );
+  }
 
   // Visitors browse the public map; everything else asks them to sign in.
   if (location.pathname === '/login') {

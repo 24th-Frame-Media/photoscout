@@ -159,7 +159,8 @@ const MINUTE = 60_000;
 // opens, so this is generous; the tighter ones below are what bite.
 app.use('/api', limit(MINUTE, 600, 'requests'));
 // Sign-in round trips, by address: nobody has an account yet at this point.
-app.use('/api/auth', limit(10 * MINUTE, 40, 'sign-in attempts'));
+// Not the status check, which every page load makes.
+app.use(/^\/api\/auth\/[^/]+\/(start|callback)$/, limit(10 * MINUTE, 40, 'sign-in attempts'));
 // Anything that changes something.
 app.use('/api', (req, res, next) =>
   req.method === 'GET' || req.method === 'HEAD' ? next() : writeLimit(req, res, next)
