@@ -62,6 +62,8 @@ export interface TripRow { id: string; routeId: string; serviceId: string; shape
 export interface RouteRow { id: string; shortName: string; longName: string }
 export interface RealtimeEntry {
   tripId: string; delaySec: number; vehicleLat?: number; vehicleLng?: number;
+  /** Feed-supplied identity survives when a realtime trip id is absent from the filtered static timetable. */
+  routeId?: string; serviceName?: string;
   /** Realtime compass bearing (degrees) and speed (m/s), when the feed gives them. */
   bearing?: number; speedMps?: number;
   /** Carriage count from GTFS-realtime multi_carriage_details, when present. */
@@ -94,6 +96,8 @@ export function mergeFeedData(a: TrainsFeedData, b: TrainsFeedData): TrainsFeedD
 
 export interface TrainPosition {
   tripId: string; routeId: string; route: string; headsign: string;
+  /** TfNSW's live vehicle label, used when the static timetable cannot identify this trip. */
+  serviceName: string;
   lat: number; lng: number; status: 'live' | 'scheduled'; delaySec: number;
   /** Compass bearing of travel (realtime, else the shape's direction), degrees; null when unknown. */
   bearing: number | null;
@@ -244,7 +248,7 @@ export function predictTrainPositions(feed: TrainsFeedData, at: Date, realtime: 
     const snap = track ? snapToTrack(track, [lng, lat], { bearing: slice?.bearing ?? rt?.bearing, shape: slice?.path, backKm: PATH_BACK_KM, aheadKm: PATH_AHEAD_KM }) : null;
     if (snap) { path = roundPath(snap.path); pathAtKm = snap.atKm; lat = snap.lat; lng = snap.lng; bearing = snap.bearing; }
     out.push({
-      tripId: trip.id, routeId: trip.routeId, route: route?.shortName ?? route?.longName ?? '', headsign: trip.headsign, lat, lng, status, delaySec,
+      tripId: trip.id, routeId: trip.routeId, route: route?.shortName ?? route?.longName ?? rt?.routeId ?? '', headsign: trip.headsign, serviceName: rt?.serviceName ?? '', lat, lng, status, delaySec,
       bearing, speedMps, carriages: rt?.carriages ?? null, network: trip.feed ?? rt?.feed ?? null, snapped: snap != null,
       ...(path && pathAtKm != null ? { path, pathAtKm } : {}),
     });
@@ -260,7 +264,7 @@ export function predictTrainPositions(feed: TrainsFeedData, at: Date, realtime: 
     // No running trip (so no shape): only the realtime bearing tells the direction on the track.
     const snap = track ? snapToTrack(track, [rt.vehicleLng, rt.vehicleLat], { bearing: rt.bearing, backKm: PATH_BACK_KM, aheadKm: PATH_AHEAD_KM }) : null;
     out.push({
-      tripId: rt.tripId, routeId: trip?.routeId ?? '', route: route?.shortName || route?.longName || '', headsign: trip?.headsign ?? '',
+      tripId: rt.tripId, routeId: trip?.routeId ?? rt.routeId ?? '', route: route?.shortName || route?.longName || rt.routeId || '', headsign: trip?.headsign ?? '', serviceName: rt.serviceName ?? '',
       lat: snap?.lat ?? rt.vehicleLat, lng: snap?.lng ?? rt.vehicleLng, status: 'live', delaySec: rt.delaySec,
       bearing: snap?.bearing ?? rt.bearing ?? null, speedMps: rt.speedMps ?? null, carriages: rt.carriages ?? null, network: trip?.feed ?? rt.feed ?? null, snapped: snap != null,
       ...(snap ? { path: roundPath(snap.path), pathAtKm: snap.atKm } : {}),
@@ -409,42 +413,52 @@ export async function importStaticGtfs(db: Db, feedName: TrainFeedName, apiKey: 
   const keptRouteIds = new Set(keptTrips.map((t) => t.route_id));
   const keptStopIds = new Set([...stopTimesByTrip.entries()].filter(([id]) => keptTripIds.has(id)).flatMap(([, sts]) => sts.map((s) => s.stop_id)));
 
-  db.handle.prepare('DELETE FROM gtfs_routes WHERE feed = ?').run(feedName);
-  db.handle.prepare('DELETE FROM gtfs_trips WHERE feed = ?').run(feedName);
-  db.handle.prepare('DELETE FROM gtfs_stops WHERE feed = ?').run(feedName);
-  db.handle.prepare('DELETE FROM gtfs_stop_times WHERE feed = ?').run(feedName);
-  db.handle.prepare('DELETE FROM gtfs_shapes WHERE feed = ?').run(feedName);
-  db.handle.prepare('DELETE FROM gtfs_calendar WHERE feed = ?').run(feedName);
+  // node:sqlite autocommits every write unless told otherwise. A timetable has
+  // tens of thousands of rows; without one transaction this can block the API
+  // for minutes and leave a half-imported feed if the process is stopped.
+  db.handle.exec('BEGIN IMMEDIATE');
+  try {
+    db.handle.prepare('DELETE FROM gtfs_routes WHERE feed = ?').run(feedName);
+    db.handle.prepare('DELETE FROM gtfs_trips WHERE feed = ?').run(feedName);
+    db.handle.prepare('DELETE FROM gtfs_stops WHERE feed = ?').run(feedName);
+    db.handle.prepare('DELETE FROM gtfs_stop_times WHERE feed = ?').run(feedName);
+    db.handle.prepare('DELETE FROM gtfs_shapes WHERE feed = ?').run(feedName);
+    db.handle.prepare('DELETE FROM gtfs_calendar WHERE feed = ?').run(feedName);
 
-  const insRoute = db.handle.prepare('INSERT INTO gtfs_routes (feed, route_id, short_name, long_name) VALUES (?, ?, ?, ?)');
-  for (const r of parsed.routes) if (keptRouteIds.has(r.route_id)) insRoute.run(feedName, r.route_id, r.route_short_name || '', r.route_long_name || '');
+    const insRoute = db.handle.prepare('INSERT INTO gtfs_routes (feed, route_id, short_name, long_name) VALUES (?, ?, ?, ?)');
+    for (const r of parsed.routes) if (keptRouteIds.has(r.route_id)) insRoute.run(feedName, r.route_id, r.route_short_name || '', r.route_long_name || '');
 
-  const insTrip = db.handle.prepare('INSERT INTO gtfs_trips (feed, trip_id, route_id, service_id, shape_id, headsign) VALUES (?, ?, ?, ?, ?, ?)');
-  for (const t of keptTrips) insTrip.run(feedName, t.trip_id, t.route_id, t.service_id, t.shape_id || '', t.trip_headsign || '');
+    const insTrip = db.handle.prepare('INSERT INTO gtfs_trips (feed, trip_id, route_id, service_id, shape_id, headsign) VALUES (?, ?, ?, ?, ?, ?)');
+    for (const t of keptTrips) insTrip.run(feedName, t.trip_id, t.route_id, t.service_id, t.shape_id || '', t.trip_headsign || '');
 
-  const insStop = db.handle.prepare('INSERT INTO gtfs_stops (feed, stop_id, name, lat, lng) VALUES (?, ?, ?, ?, ?)');
-  for (const id of keptStopIds) { const s = stopsById.get(id); if (s) insStop.run(feedName, s.id, s.name, s.lat, s.lng); }
+    const insStop = db.handle.prepare('INSERT INTO gtfs_stops (feed, stop_id, name, lat, lng) VALUES (?, ?, ?, ?, ?)');
+    for (const id of keptStopIds) { const s = stopsById.get(id); if (s) insStop.run(feedName, s.id, s.name, s.lat, s.lng); }
 
-  const insStopTime = db.handle.prepare('INSERT INTO gtfs_stop_times (feed, trip_id, stop_id, seq, arrival_sec, departure_sec) VALUES (?, ?, ?, ?, ?, ?)');
-  for (const [tripId, sts] of stopTimesByTrip) {
-    if (!keptTripIds.has(tripId)) continue;
-    for (const st of sts) insStopTime.run(feedName, tripId, st.stop_id, Number(st.stop_sequence), parseGtfsTime(st.arrival_time), parseGtfsTime(st.departure_time));
+    const insStopTime = db.handle.prepare('INSERT INTO gtfs_stop_times (feed, trip_id, stop_id, seq, arrival_sec, departure_sec) VALUES (?, ?, ?, ?, ?, ?)');
+    for (const [tripId, sts] of stopTimesByTrip) {
+      if (!keptTripIds.has(tripId)) continue;
+      for (const st of sts) insStopTime.run(feedName, tripId, st.stop_id, Number(st.stop_sequence), parseGtfsTime(st.arrival_time), parseGtfsTime(st.departure_time));
+    }
+
+    const insShape = db.handle.prepare('INSERT INTO gtfs_shapes (feed, shape_id, seq, lat, lng) VALUES (?, ?, ?, ?, ?)');
+    for (const [shapeId, pts] of shapePointsById) {
+      if (!keptShapeIds.has(shapeId)) continue;
+      for (const p of pts) insShape.run(feedName, shapeId, p.seq, p.lat, p.lng);
+    }
+
+    const insCal = db.handle.prepare('INSERT INTO gtfs_calendar (feed, service_id, days, start_date, end_date) VALUES (?, ?, ?, ?, ?)');
+    for (const c of parsed.calendar) {
+      if (!keptServiceIds.has(c.service_id)) continue;
+      const days = [c.monday, c.tuesday, c.wednesday, c.thursday, c.friday, c.saturday, c.sunday].map((v) => (v === '1' ? '1' : '0')).join('');
+      insCal.run(feedName, c.service_id, days, c.start_date, c.end_date);
+    }
+
+    db.setKv(`trains:lastImport:${feedName}`, new Date().toISOString());
+    db.handle.exec('COMMIT');
+  } catch (err) {
+    db.handle.exec('ROLLBACK');
+    throw err;
   }
-
-  const insShape = db.handle.prepare('INSERT INTO gtfs_shapes (feed, shape_id, seq, lat, lng) VALUES (?, ?, ?, ?, ?)');
-  for (const [shapeId, pts] of shapePointsById) {
-    if (!keptShapeIds.has(shapeId)) continue;
-    for (const p of pts) insShape.run(feedName, shapeId, p.seq, p.lat, p.lng);
-  }
-
-  const insCal = db.handle.prepare('INSERT INTO gtfs_calendar (feed, service_id, days, start_date, end_date) VALUES (?, ?, ?, ?, ?)');
-  for (const c of parsed.calendar) {
-    if (!keptServiceIds.has(c.service_id)) continue;
-    const days = [c.monday, c.tuesday, c.wednesday, c.thursday, c.friday, c.saturday, c.sunday].map((v) => (v === '1' ? '1' : '0')).join('');
-    insCal.run(feedName, c.service_id, days, c.start_date, c.end_date);
-  }
-
-  db.setKv(`trains:lastImport:${feedName}`, new Date().toISOString());
   log(`${feedName}: ${keptTrips.length} of ${parsed.trips.length} trips touch the configured areas`);
   return { ok: true, message: `${keptTrips.length} trips` };
 }
@@ -502,13 +516,18 @@ async function fetchRealtimeFeed(feedName: TrainFeedName, apiKey: string): Promi
     const tripId = e.tripUpdate?.trip?.tripId;
     if (!tripId) continue;
     const delaySec = e.tripUpdate?.delay ?? e.tripUpdate?.stopTimeUpdate?.[0]?.arrival?.delay ?? 0;
-    byTrip.set(tripId, { tripId, delaySec, feed: feedName });
+    byTrip.set(tripId, { tripId, delaySec, routeId: e.tripUpdate?.trip?.routeId || undefined, serviceName: e.tripUpdate?.vehicle?.label || undefined, feed: feedName });
   }
   for (const e of vp?.entity ?? []) {
     const tripId = e.vehicle?.trip?.tripId;
     if (!tripId || !isTrainRoute(e.vehicle?.trip?.routeId)) { if (tripId) byTrip.delete(tripId); continue; }
-    const existing = byTrip.get(tripId) ?? { tripId, delaySec: 0, feed: feedName };
-    byTrip.set(tripId, { ...existing, vehicleLat: e.vehicle?.position?.latitude, vehicleLng: e.vehicle?.position?.longitude, ...vehicleExtras(e.vehicle) });
+    const existing: RealtimeEntry = byTrip.get(tripId) ?? { tripId, delaySec: 0, feed: feedName };
+    byTrip.set(tripId, {
+      ...existing,
+      routeId: existing.routeId ?? (e.vehicle?.trip?.routeId || undefined),
+      serviceName: existing.serviceName ?? (e.vehicle?.vehicle?.label || undefined),
+      vehicleLat: e.vehicle?.position?.latitude, vehicleLng: e.vehicle?.position?.longitude, ...vehicleExtras(e.vehicle),
+    });
   }
   return [...byTrip.values()];
 }

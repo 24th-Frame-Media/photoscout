@@ -6,7 +6,7 @@ export const KNOTS_TO_KMH = 1.852;
 export const NEARBY_CAP = 15;
 
 export interface PlaneLike { hex: string; flight?: string | null; lat: number; lon: number; track: number | null; gs: number | null; alt_baro: number | 'ground' | null; t?: string | null }
-export interface TrainLike { tripId: string; route: string; headsign: string; lat: number; lng: number; status: 'live' | 'scheduled' | string; delaySec: number }
+export interface TrainLike { tripId: string; route: string; headsign: string; serviceName?: string; lat: number; lng: number; status: 'live' | 'scheduled' | string; delaySec: number }
 
 export interface PlaneRow { id: string; lat: number; lng: number; name: string; type: string; alt: string; speed: string; distKm: number; dist: string; track: number | null }
 export interface TrainRow { id: string; lat: number; lng: number; title: string; live: boolean; delay: string; distKm: number; dist: string }
@@ -53,7 +53,9 @@ export function trainRows(trains: TrainLike[], centre: { lat: number; lng: numbe
     const distKm = haversineKm(centre.lat, centre.lng, t.lat, t.lng);
     const route = t.route || 'Train';
     return {
-      id: t.tripId, lat: t.lat, lng: t.lng, title: t.headsign ? `${route} → ${t.headsign}` : route,
+      // TfNSW's live label includes the booked departure and destination;
+      // prefer it over the sparse static route/headsign pair.
+      id: t.tripId, lat: t.lat, lng: t.lng, title: t.serviceName || (t.headsign ? `${route} → ${t.headsign}` : route),
       live: t.status === 'live', delay: formatDelay(t.delaySec ?? 0), distKm, dist: formatDistance(distKm),
     };
   }));

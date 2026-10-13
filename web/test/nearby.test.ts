@@ -31,14 +31,14 @@ test('planeRows: sorted by distance, callsign or hex fallback', () => {
 
 test('trainRows: title, live flag, delay, sorted', () => {
   const rows = trainRows([
-    { tripId: 'b', route: 'CT1', headsign: 'Sydney', lat: -33.5, lng: 149.5, status: 'scheduled', delaySec: 0 },
-    { tripId: 'a', route: 'XPT', headsign: '', lat: -33.4, lng: 149.51, status: 'live', delaySec: 300 },
+    { tripId: 'b', route: 'CT1', headsign: 'Sydney', serviceName: '05:12pm Newcastle - Sydney', lat: -33.5, lng: 149.5, status: 'scheduled', delaySec: 0 },
+    { tripId: 'a', route: '', headsign: '', serviceName: '02:47pm (031) Sydney - Brisbane', lat: -33.4, lng: 149.51, status: 'live', delaySec: 300 },
   ], centre);
   assert.deepEqual(rows.map((r) => r.id), ['a', 'b']);
-  assert.equal(rows[0].title, 'XPT');
+  assert.equal(rows[0].title, '02:47pm (031) Sydney - Brisbane');
   assert.equal(rows[0].live, true);
   assert.equal(rows[0].delay, '+5 min');
-  assert.equal(rows[1].title, 'CT1 → Sydney');
+  assert.equal(rows[1].title, '05:12pm Newcastle - Sydney');
 });
 
 test('capRows', () => {

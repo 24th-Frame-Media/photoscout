@@ -61,7 +61,7 @@ const FOLLOW_EASE_MS = 1000;
 
 type Follow = { kind: 'plane' | 'train'; id: string; name: string; heading: boolean };
 const planeName = (p: { flight: string; hex: string }) => p.flight.trim() || p.hex.toUpperCase();
-const trainName = (t: { route: string; headsign: string }) => (t.headsign ? `${t.route || 'Train'} → ${t.headsign}` : t.route || 'Train');
+const trainName = (t: { route: string; headsign: string; serviceName?: string }) => t.serviceName || (t.headsign ? `${t.route || 'Train'} → ${t.headsign}` : t.route || 'Train');
 /** Same numbers, same prediction: a re-served (cached) poll keeps its animation instead of restarting it. */
 const planeKey = (p: Plane) => `${p.lat},${p.lon},${p.track},${p.gs},${p.seen}`;
 const trainKey = (t: TrainPosition) => `${t.lat},${t.lng},${t.bearing},${t.speedMps},${t.pathAtKm}`;
@@ -1176,7 +1176,7 @@ export default function MapPage({ user }: { user: User | null }) {
           if (!map) return;
           map.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.getZoom(), 12) });
           const t = trainData.find((x) => x.tripId === r.id);
-          if (t) showTrainPopup(map, { type: 'Feature', properties: { id: t.tripId, route: t.route, headsign: t.headsign, status: t.status, delaySec: t.delaySec }, geometry: { type: 'Point', coordinates: [t.lng, t.lat] } },
+          if (t) showTrainPopup(map, { type: 'Feature', properties: { id: t.tripId, route: t.route, headsign: t.headsign, serviceName: t.serviceName, status: t.status, delaySec: t.delaySec }, geometry: { type: 'Point', coordinates: [t.lng, t.lat] } },
             (id) => startFollow('train', id));
         }} />
       <div className="maptools">
@@ -1401,9 +1401,9 @@ const trainPopup: { current: Popup | null } = { current: null };
 
 /** A small popup for a train marker: route, headsign, live/estimated and delay, and a Follow button. */
 function showTrainPopup(map: MlMap, f: GeoJSON.Feature, onFollow?: (id: string) => void) {
-  const p = (f.properties ?? {}) as { id?: string; route?: string; headsign?: string; status?: string; delaySec?: number };
+  const p = (f.properties ?? {}) as { id?: string; route?: string; headsign?: string; serviceName?: string; status?: string; delaySec?: number };
   const live = p.status === 'live';
-  const html = `<strong>${escapeHtml(p.route || 'Train')}</strong>${p.headsign ? ` → ${escapeHtml(p.headsign)}` : ''}<br/>`
+  const html = `<strong>${escapeHtml(p.serviceName || p.route || 'Train')}</strong>${!p.serviceName && p.headsign ? ` → ${escapeHtml(p.headsign)}` : ''}<br/>`
     + `<span>${live ? '● Live position' : '○ Scheduled estimate'} · ${delayText(Number(p.delaySec ?? 0))}</span>`
     + (onFollow && p.id ? '<br/><button class="popup-follow" type="button">Follow</button>' : '');
   openPopup(map, (f.geometry as GeoJSON.Point).coordinates as [number, number], html, onFollow && p.id ? () => onFollow(p.id!) : undefined);
