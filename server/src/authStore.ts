@@ -122,6 +122,7 @@ export function deleteUser(db: Db, id: string): void {
   db.handle.prepare('DELETE FROM reports WHERE reporter_id = ?').run(id);
   db.handle.prepare('DELETE FROM community_rsvps WHERE user_id = ? OR event_id IN (SELECT id FROM community_events WHERE owner_id = ?)').run(id, id);
   db.handle.prepare('DELETE FROM community_events WHERE owner_id = ?').run(id);
+  db.handle.prepare('DELETE FROM user_api_keys WHERE user_id = ?').run(id);
   db.handle.prepare('DELETE FROM users WHERE id = ?').run(id);
 }
 

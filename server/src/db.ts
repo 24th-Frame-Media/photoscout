@@ -211,6 +211,17 @@ CREATE TABLE IF NOT EXISTS calendar_tokens (
   created_at TEXT NOT NULL
 );
 
+-- Per-user third-party API credentials (TfNSW, OpenAIP, etc). Never returned by GET APIs.
+CREATE TABLE IF NOT EXISTS user_api_keys (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  api_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_user_api_keys_user ON user_api_keys(user_id);
+
 CREATE TABLE IF NOT EXISTS places (
   id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL,

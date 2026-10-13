@@ -26,7 +26,7 @@ test('a visitor can read the public map and nothing that costs anything', async 
     assert.equal((await anon('GET', closed)).status, 401, closed);
   }
   assert.equal((await anon('POST', '/api/spots', { name: 'x', lat: 0, lng: 0 })).status, 401);
-  assert.deepEqual(Object.keys((await anon('GET', '/api/settings')).json).sort(), ['areas', 'home', 'tfnswApiKeySet'], 'where the map opens, and no more');
+  assert.deepEqual(Object.keys((await anon('GET', '/api/settings')).json).sort(), ['areas', 'home'], 'where the map opens, and no more');
   assert.equal((await anon('PUT', '/api/settings', {})).status, 401);
 });
 
@@ -160,7 +160,7 @@ test('private rows are their owner’s: not a visitor’s, not another account�
 
 test('running the place is for admins', async () => {
   const s = (await alice('GET', '/api/settings')).json;
-  assert.deepEqual(Object.keys(s).sort(), ['areas', 'home', 'tfnswApiKeySet']);
+  assert.deepEqual(Object.keys(s).sort(), ['areas', 'home']);
   assert.equal((await alice('PUT', '/api/settings', { allowPrivateRemotes: true })).status, 403);
   for (const [method, url] of [['GET', '/api/tasks'], ['POST', '/api/tasks/housekeeping/run'], ['GET', '/api/users'],
     ['GET', '/api/remotes'], ['POST', '/api/remotes'], ['GET', '/api/events-admin/settings'], ['PUT', '/api/events-admin/settings'], ['POST', '/api/events-admin/refresh'], ['GET', '/api/events-admin/auth/token']] as const) {

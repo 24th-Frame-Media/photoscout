@@ -108,11 +108,14 @@ export interface Settings {
   home: Area;
   areas: Area[];
   allowPrivateRemotes: boolean;
-  /** Never the key itself — only whether one is set, and whether the environment pins it. */
-  tfnswApiKeySet: boolean;
-  tfnswApiKeyFromEnv: boolean;
-  /** The events service's token: write-only, like the TfNSW key. */
   corsOrigins: string[];
+}
+
+export type ApiKeyProvider = 'tfnsw' | 'openaip';
+
+export interface UserApiKeys {
+  tfnswKeySet: boolean;
+  openaipKeySet: boolean;
 }
 
 export interface GeocodeResult {
@@ -478,8 +481,13 @@ export const api = {
 
   // --- settings ---
   settings: () => fetch('/api/settings').then((r) => json<Settings>(r)),
-  saveSettings: (s: Partial<Settings> & { tfnswApiKey?: string; clearTfnswApiKey?: boolean }) =>
+  saveSettings: (s: Partial<Settings>) =>
     fetch('/api/settings', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(s) }).then((r) => json<Settings>(r)),
+
+  // --- user api keys ---
+  userApiKeys: () => fetch('/api/user/api-keys').then((r) => json<UserApiKeys>(r)),
+  saveUserApiKey: (provider: ApiKeyProvider, body: { apiKey?: string; clear?: boolean }) =>
+    fetch(`/api/user/api-keys/${provider}`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(body) }).then((r) => json<UserApiKeys>(r)),
 
   // --- geocode / version ---
   geocode: (q: string) => fetch(`/api/geocode?q=${encodeURIComponent(q)}`).then((r) => json<GeocodeResult[]>(r)),

@@ -1,47 +1,45 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDb } from '../src/db.js';
-import { applySettingsUpdate, getSettings, publicSettings, tfnswKey } from '../src/settings.js';
+import { applySettingsUpdate, getSettings, publicSettings, memberSettings } from '../src/settings.js';
 
-const SECRET = 'sekrit-tfnsw-key-123';
-
-test('settings: the TfNSW key is stored but never appears in the public (GET) settings', () => {
-  delete process.env.TFNSW_API_KEY;
+test('settings: instance settings store home, areas, remotes, and cors; drops unknown properties', () => {
   const db = createDb(':memory:');
-  const { keyChanged } = applySettingsUpdate(db, { tfnswApiKey: SECRET });
-  assert.equal(keyChanged, true);
-  assert.equal(tfnswKey(db), SECRET);
-  const out = publicSettings(getSettings(db));
-  assert.ok(!JSON.stringify(out).includes(SECRET), 'key leaked into GET output');
-  assert.ok(!('tfnswApiKey' in out));
-  assert.equal(out.tfnswApiKeySet, true);
-  assert.equal(out.tfnswApiKeyFromEnv, false);
+  const update = {
+    home: { name: 'Sydney', lat: -33.8688, lng: 151.2093, radiusKm: 50 },
+    areas: [{ name: 'Newcastle', lat: -32.9283, lng: 151.7817, radiusKm: 30 }],
+    allowPrivateRemotes: true,
+    corsOrigins: ['https://example.com'],
+    unknownProp: 'discarded',
+    tfnswApiKey: 'must-not-be-stored',
+  };
+  const { settings, areasChanged } = applySettingsUpdate(db, update);
+  assert.equal(areasChanged, true);
+  assert.equal(settings.home.name, 'Sydney');
+  assert.equal(settings.areas.length, 1);
+  assert.equal(settings.areas[0].name, 'Newcastle');
+  assert.equal(settings.allowPrivateRemotes, true);
+  assert.deepEqual(settings.corsOrigins, ['https://example.com']);
+  assert.ok(!('unknownProp' in settings));
+  assert.ok(!('tfnswApiKey' in settings));
+
+  const pub = publicSettings(getSettings(db));
+  assert.equal(pub.home.name, 'Sydney');
+  assert.ok(!('tfnswApiKey' in pub));
+  assert.ok(!('tfnswApiKeySet' in pub));
+
+  const member = memberSettings(getSettings(db));
+  assert.deepEqual(Object.keys(member).sort(), ['areas', 'home']);
 });
 
-test('settings: PUT keeps the key unless a non-empty one is sent, and clears it explicitly', () => {
-  delete process.env.TFNSW_API_KEY;
+test('settings: cleanSettingsBody rejects invalid area shapes and bounds', () => {
   const db = createDb(':memory:');
-  applySettingsUpdate(db, { tfnswApiKey: SECRET });
-  assert.equal(applySettingsUpdate(db, { allowSignup: true, tfnswApiKey: '' }).keyChanged, false);
-  applySettingsUpdate(db, { tfnswApiKeySet: false }); // echoing the GET shape back must not clear it
-  assert.equal(tfnswKey(db), SECRET);
-  applySettingsUpdate(db, { clearTfnswApiKey: true });
-  assert.equal(tfnswKey(db), '');
-  assert.equal(publicSettings(getSettings(db)).tfnswApiKeySet, false);
-});
-
-test('settings: env TFNSW_API_KEY wins and is reported as such, still never returned', () => {
-  process.env.TFNSW_API_KEY = 'from-env-key';
-  try {
-    const db = createDb(':memory:');
-    applySettingsUpdate(db, { tfnswApiKey: SECRET });
-    assert.equal(tfnswKey(db), 'from-env-key');
-    const out = publicSettings(getSettings(db));
-    assert.equal(out.tfnswApiKeyFromEnv, true);
-    assert.ok(!JSON.stringify(out).includes('from-env-key'));
-  } finally {
-    delete process.env.TFNSW_API_KEY;
-  }
+  const bad = {
+    home: { name: 'Invalid', lat: 999, lng: 0, radiusKm: 10 },
+  };
+  const { settings } = applySettingsUpdate(db, bad);
+  // Default home is preserved since bad home was rejected
+  assert.equal(settings.home.name, 'Bathurst');
 });
 
 test('settings: per-area topics and hidden categories are trimmed, deduped and dropped when empty', () => {

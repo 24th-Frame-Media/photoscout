@@ -27,8 +27,6 @@ export interface Settings {
   areas: Area[];
   /** Lets remotes resolve to a private/loopback/link-local IP. For LAN setups. */
   allowPrivateRemotes: boolean;
-  /** TfNSW Open Data API key. Never sent to clients; env TFNSW_API_KEY wins. */
-  tfnswApiKey: string;
   /** Origins allowed to read the open API from a page served elsewhere. */
   corsOrigins: string[];
 }
@@ -37,7 +35,6 @@ export const DEFAULT_SETTINGS: Settings = {
   home: { name: 'Bathurst', lat: -33.419, lng: 149.577, radiusKm: 100, events: true, busy: false },
   areas: [],
   allowPrivateRemotes: false,
-  tfnswApiKey: '',
   corsOrigins: [],
 };
 
@@ -51,8 +48,7 @@ export function getSettings(db: Db): Settings {
   const stored = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
   stored.home = withSwitches(stored.home);
   stored.areas = (stored.areas ?? []).map(withSwitches);
-  // Env wins over what is stored, so an operator can pin these without the UI.
-  if (process.env.TFNSW_API_KEY) stored.tfnswApiKey = process.env.TFNSW_API_KEY;
+  delete (stored as Record<string, unknown>).tfnswApiKey;
   delete (stored as Record<string, unknown>).freightSpeedLoadedKmh; // retired with manual sightings
   delete (stored as Record<string, unknown>).freightSpeedEmptyKmh;
   delete (stored as Record<string, unknown>).eventScoutUrl; // the events engine runs in this process now
@@ -65,9 +61,7 @@ export function saveSettings(db: Db, settings: Settings): void {
 }
 
 /**
- * Store a new home and list of areas and nothing else. Read from the raw row,
- * not getSettings, so a key an operator set in the environment is not written
- * into the database on the way through.
+ * Store a new home and list of areas and nothing else.
  */
 export function saveAreas(db: Db, home: Area, areas: Area[]): void {
   const raw = db.getKv('settings');
@@ -75,20 +69,11 @@ export function saveAreas(db: Db, home: Area, areas: Area[]): void {
   saveSettings(db, { ...stored, home: withSwitches(home), areas: areas.map(withSwitches) });
 }
 
-/** The TfNSW API key in effect (env first, then stored), or '' when none. */
-export function tfnswKey(db: Db): string {
-  return getSettings(db).tfnswApiKey;
-}
-
-/** What GET /api/settings returns: everything except the key itself. */
-export type PublicSettings = Omit<Settings, 'tfnswApiKey'> & { tfnswApiKeySet: boolean; tfnswApiKeyFromEnv: boolean };
+/** What GET /api/settings returns to an admin. */
+export type PublicSettings = Settings;
 
 export function publicSettings(settings: Settings): PublicSettings {
-  const { tfnswApiKey, ...rest } = settings;
-  return {
-    ...rest,
-    tfnswApiKeySet: Boolean(tfnswApiKey), tfnswApiKeyFromEnv: Boolean(process.env.TFNSW_API_KEY),
-  };
+  return settings;
 }
 
 /**
@@ -99,7 +84,6 @@ export function memberSettings(settings: Settings) {
   return {
     home: settings.home,
     areas: settings.areas,
-    tfnswApiKeySet: Boolean(settings.tfnswApiKey),
   };
 }
 
@@ -141,22 +125,18 @@ export function cleanSettingsBody(body: Record<string, unknown>): Partial<Settin
 }
 
 /**
- * Apply a PUT body. The key is only replaced by a non-empty string, cleared by
- * `clearTfnswApiKey: true`, and otherwise kept. Returns whether it changed.
+ * Apply a PUT body. Returns whether areas changed.
  */
-export function applySettingsUpdate(db: Db, body: Record<string, unknown>): { settings: Settings; keyChanged: boolean; areasChanged: boolean } {
+export function applySettingsUpdate(db: Db, body: Record<string, unknown>): { settings: Settings; areasChanged: boolean } {
   const raw = db.getKv('settings');
   const stored: Settings = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
   const areasBefore = JSON.stringify([withSwitches(stored.home), (stored.areas ?? []).map(withSwitches)]);
-  const { tfnswApiKey, clearTfnswApiKey, tfnswApiKeySet: _s, tfnswApiKeyFromEnv: _e, ...rest } = body;
-  const next: Settings = { ...stored, ...cleanSettingsBody(rest), tfnswApiKey: stored.tfnswApiKey ?? '' };
+  const next: Settings = { ...stored, ...cleanSettingsBody(body) };
 
-  let keyChanged = false;
-  if (clearTfnswApiKey === true) { keyChanged = next.tfnswApiKey !== ''; next.tfnswApiKey = ''; }
-  else if (typeof tfnswApiKey === 'string' && tfnswApiKey.trim()) { next.tfnswApiKey = tfnswApiKey.trim(); keyChanged = true; }
+  delete (next as unknown as Record<string, unknown>).tfnswApiKey;
   delete (next as unknown as Record<string, unknown>).freightSpeedLoadedKmh;
   delete (next as unknown as Record<string, unknown>).freightSpeedEmptyKmh;
   saveSettings(db, next);
   const settings = getSettings(db);
-  return { settings, keyChanged, areasChanged: JSON.stringify([settings.home, settings.areas]) !== areasBefore };
+  return { settings, areasChanged: JSON.stringify([settings.home, settings.areas]) !== areasBefore };
 }

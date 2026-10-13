@@ -13,6 +13,7 @@ import EventsNotify from '../settings/events/Notify.js';
 import EventTasks from '../settings/events/EventTasks.js';
 import { GROUPS, Tab, tabFromHash } from '../settings/tabs.js';
 import SignInSetup from '../settings/SignInSetup.js';
+import ApiKeys from '../settings/ApiKeys.js';
 
 export default function Settings({ user, account, onChange }: { user: User | null; account: string | null; onChange: () => void }) {
   const isAdmin = user?.role === 'admin';
@@ -24,9 +25,6 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const [geoResults, setGeoResults] = useState<GeocodeResult[] | null>(null);
   const [geoBusy, setGeoBusy] = useState(false);
   const [trains, setTrains] = useState<TrainsStatus | null>(null);
-  const [keyInput, setKeyInput] = useState('');
-  const [keyBusy, setKeyBusy] = useState(false);
-  const [keyMsg, setKeyMsg] = useState('');
   const [tab, setTabState] = useState<Tab>(() => tabFromHash(window.location.hash));
   const setTab = (t: Tab) => { setTabState(t); history.replaceState(null, '', `#${t}`); };
   // A link to another tab while already here changes only the hash.
@@ -69,29 +67,16 @@ export default function Settings({ user, account, onChange }: { user: User | nul
     }
   };
 
-  // Saved on its own (not via the savebar) so the key is only ever sent when typed in.
-  const saveKey = async (clear: boolean) => {
-    setKeyBusy(true); setKeyMsg('');
-    try {
-      const next = await api.saveSettings(clear ? { clearTfnswApiKey: true } : { tfnswApiKey: keyInput.trim() });
-      setDraft((d) => (d ? { ...d, tfnswApiKeySet: next.tfnswApiKeySet, tfnswApiKeyFromEnv: next.tfnswApiKeyFromEnv } : next));
-      setKeyInput('');
-      setKeyMsg(clear ? 'Key cleared.' : 'Key saved — importing timetables in the background.');
-      api.trainsStatus().then(setTrains).catch(() => {});
-    } catch (err) {
-      setKeyMsg(`Couldn't save: ${(err as Error).message}`);
-    } finally {
-      setKeyBusy(false);
-    }
-  };
-
   const fromResult = (r: GeocodeResult, radiusKm: number): Area => ({ name: r.displayName.split(',')[0], lat: r.lat, lng: r.lng, radiusKm, events: true, busy: false });
   // Home is area 0 of one list; the rest are draft.areas.
   const all = [draft.home, ...draft.areas];
   const setAll = (list: Area[]) => set({ home: list[0], areas: list.slice(1) });
   const setArea = (i: number, patch: Partial<Area>) => setAll(all.map((a, j) => (j === i ? { ...a, ...patch } : a)));
   const makeHome = (i: number) => setAll([all[i], ...all.filter((_, j) => j !== i)]);
-  const groups = GROUPS.map((g) => ({ ...g, tabs: g.tabs.filter((t) => isAdmin || !t.admin) })).filter((g) => g.tabs.length > 0);
+  const groups = GROUPS.map((g) => ({
+    ...g,
+    tabs: g.tabs.filter((t) => (isAdmin || !t.admin) && (!t.auth || Boolean(user))),
+  })).filter((g) => g.tabs.length > 0);
 
   return (
     <div className="page settings">
@@ -118,7 +103,8 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       <div className="settings__body">
       {/* Outside the fieldset below: your own account is yours to change, admin or not. */}
       {tab === 'account' && user && <><Account user={user} account={account} onChange={onChange} /><CalendarLink /></>}
-      {!isAdmin && tab !== 'account' && <div className="banner">Only an admin can change these.</div>}
+      {tab === 'apikeys' && user && <ApiKeys onKeyChange={() => api.trainsStatus().then(setTrains).catch(() => {})} />}
+      {!isAdmin && tab !== 'account' && tab !== 'apikeys' && <div className="banner">Only an admin can change these.</div>}
       <fieldset disabled={!isAdmin} className="bare">
         {tab === 'areas' && <section>
           <h2>📍 Areas</h2>
@@ -177,23 +163,9 @@ export default function Settings({ user, account, onChange }: { user: User | nul
               </span>
             ) : <span className="hint">Loading…</span>}
           </div>
-          {draft.tfnswApiKeyFromEnv ? (
-            <p className="hint">Set by the <code>TFNSW_API_KEY</code> environment variable — change it there.</p>
-          ) : (
-            <>
-              <div className="formrow"><label>TfNSW API key</label>
-                <input type="password" autoComplete="off" value={keyInput} placeholder={draft.tfnswApiKeySet ? '•••••••• (saved — enter a new one to replace)' : 'Paste your Open Data API key'}
-                  onChange={(e) => { setKeyInput(e.target.value); setKeyMsg(''); }} />
-                <button type="button" onClick={() => void saveKey(false)} disabled={!keyInput.trim() || keyBusy}>Save key</button>
-                {draft.tfnswApiKeySet && <button type="button" onClick={() => void saveKey(true)} disabled={keyBusy}>Clear</button>}
-              </div>
-              <p className="hint">
-                {draft.tfnswApiKeySet ? 'A key is saved' : 'No key saved'} — it's never shown or sent back here.
-                Get one free from <a href="https://opendata.transport.nsw.gov.au/" target="_blank" rel="noreferrer">TfNSW Open Data</a>.
-                {keyMsg && <> {keyMsg}</>}
-              </p>
-            </>
-          )}
+          <p className="hint">
+            Trains require a TfNSW Open Data API key. {user ? <>Configure your key under <button type="button" className="linkbtn" onClick={() => setTab('apikeys')}>API keys</button>.</> : 'Sign in to configure your key.'}
+          </p>
         </section>}
       </fieldset>
 

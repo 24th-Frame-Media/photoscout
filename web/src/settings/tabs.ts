@@ -3,10 +3,10 @@
  * the page so the mapping from an address-bar hash to a tab can be tested.
  */
 
-export type Tab = 'areas' | 'account' | 'instance' | 'events' | 'sources' | 'crawler' | 'density' | 'venues' | 'busy' | 'conditions' | 'model' | 'notify' | 'feeds' | 'tasks' | 'users' | 'signin';
-interface TabDef { id: Tab; label: string; admin?: boolean }
+export type Tab = 'areas' | 'account' | 'apikeys' | 'instance' | 'events' | 'sources' | 'crawler' | 'density' | 'venues' | 'busy' | 'conditions' | 'model' | 'notify' | 'feeds' | 'tasks' | 'users' | 'signin';
+export interface TabDef { id: Tab; label: string; admin?: boolean; auth?: boolean }
 export const GROUPS: { label: string; tabs: TabDef[] }[] = [
-  { label: 'You', tabs: [{ id: 'account', label: 'Account' }] },
+  { label: 'You', tabs: [{ id: 'account', label: 'Account' }, { id: 'apikeys', label: 'API keys', auth: true }] },
   { label: 'Map', tabs: [{ id: 'areas', label: 'Areas' }, { id: 'feeds', label: 'Trains' }] },
   { label: 'Events', tabs: [
     { id: 'events', label: 'Events', admin: true }, { id: 'sources', label: 'Sources', admin: true }, { id: 'crawler', label: 'Crawler', admin: true },
@@ -20,7 +20,7 @@ export const GROUPS: { label: string; tabs: TabDef[] }[] = [
 ];
 const TABS = GROUPS.flatMap((g) => g.tabs);
 /** Ids the tabs had before they were grouped, so old links still land. */
-const ALIASES: Record<string, Tab> = { home: 'areas', places: 'venues' };
+const ALIASES: Record<string, Tab> = { home: 'areas', places: 'venues', 'api-keys': 'apikeys' };
 
 export function tabFromHash(hash: string): Tab {
   const h = hash.replace(/^#/, '');

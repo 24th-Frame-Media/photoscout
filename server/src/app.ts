@@ -19,7 +19,8 @@ import {
 import { catalog, searchCatalog } from './gearCatalog.js';
 import { authConfigView, configuredProviders, generateCodeVerifier, generateState, provider, publicUrl, updateCredentials } from './oauth.js';
 import { corsDecision, readOrigins } from './cors.js';
-import { applySettingsUpdate, getSettings, memberSettings, publicSettings, tfnswKey } from './settings.js';
+import { applySettingsUpdate, getSettings, memberSettings, publicSettings } from './settings.js';
+import { getUserApiKey, getUserApiKeyStatus, setUserApiKey, clearUserApiKey, isValidProvider, triggerUserGtfsImport, VALID_PROVIDERS } from './userApiKeys.js';
 import { geocode, GeocoderBusyError } from './geocode.js';
 import { routing } from './routing.js';
 import { bboxFromRadius, haversine, parseBbox, parseLatLng } from './geo.js';
@@ -348,20 +349,49 @@ app.get('/api/settings', (req, res) => {
 });
 app.put('/api/settings', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { settings, keyChanged, areasChanged } = applySettingsUpdate(db, (req.body ?? {}) as Record<string, unknown>);
+  const { settings, areasChanged } = applySettingsUpdate(db, (req.body ?? {}) as Record<string, unknown>);
   // The engine's areas are written from this list, and the crawler told at once
   // rather than at the next refresh. Not awaited: a crawler that is down must not fail a save.
   if (areasChanged) {
     void syncCrawler(syncEngineAreas(settings));
     forgetEventList();
   }
-  // A new key means timetables can now be pulled: start the import in the background.
-  if (keyChanged && settings.tfnswApiKey) {
-    for (const name of ['trains-static-nswtrains', 'trains-static-sydneytrains']) {
-      tasks.run(name, { force: true }).catch(() => {});
-    }
-  }
   res.json(publicSettings(settings));
+});
+
+// --- user api keys -----------------------------------------------------------
+
+app.get('/api/user/api-keys', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign-in required' });
+  res.json(getUserApiKeyStatus(db, req.user.id));
+});
+
+app.put('/api/user/api-keys/:provider', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign-in required' });
+  const provider = req.params.provider?.toLowerCase();
+  if (!isValidProvider(provider)) {
+    return res.status(400).json({ error: 'Unknown provider' });
+  }
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const cap = provider.charAt(0).toUpperCase() + provider.slice(1);
+  const clear = body.clear === true || body[`clear${cap}Key`] === true || body[`clear${cap}ApiKey`] === true;
+  if (clear) {
+    clearUserApiKey(db, req.user.id, provider);
+    return res.json(getUserApiKeyStatus(db, req.user.id));
+  }
+  const rawKey = body.apiKey ?? body.key;
+  if (typeof rawKey !== 'string' || !rawKey.trim()) {
+    return res.status(400).json({ error: 'An API key is required' });
+  }
+  const trimmed = rawKey.trim();
+  if (trimmed.length > 500) {
+    return res.status(400).json({ error: 'API key is too long (maximum 500 characters)' });
+  }
+  setUserApiKey(db, req.user.id, provider, trimmed);
+  if (provider === 'tfnsw') {
+    triggerUserGtfsImport(db, trimmed);
+  }
+  res.json(getUserApiKeyStatus(db, req.user.id));
 });
 
 // --- geocode / version ----------------------------------------------------------
@@ -1002,15 +1032,15 @@ app.get('/api/rail', (_req, res) => res.json(getCachedRail(db)));
 
 // --- trains -----------------------------------------------------------------
 
-app.get('/api/trains/status', (_req, res) => {
-  const configured = Boolean(tfnswKey(db));
+app.get('/api/trains/status', (req, res) => {
+  const configured = Boolean(req.user && getUserApiKey(db, req.user.id, 'tfnsw'));
   const lastImport = TRAIN_FEEDS.map((f) => db.getKv(`trains:lastImport:${f}`)).filter((v): v is string => Boolean(v)).sort().at(-1) ?? null;
   res.json({ configured, lastImport, tripCount: tripCount(db) });
 });
 
 app.get('/api/trains', async (req, res, next) => {
   try {
-    const key = tfnswKey(db);
+    const key = req.user ? getUserApiKey(db, req.user.id, 'tfnsw') : null;
     if (!key) return res.json({ configured: false, positions: [] });
     const at = req.query.at ? new Date(String(req.query.at)) : new Date();
     // Realtime describes *now*; only mix it in when asked about (roughly) now.
@@ -1027,14 +1057,15 @@ app.get('/api/trains', async (req, res, next) => {
 app.get('/api/trains/passes', (req, res) => {
   const parsed = parsePointPassRequest(req.query);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-  const key = tfnswKey(db);
+  const key = req.user ? getUserApiKey(db, req.user.id, 'tfnsw') : null;
   res.json(buildPointPassesResponse(Boolean(key), key ? combinedFeedData(db) : emptyFeedData(), parsed.point, parsed.hours, new Date()));
 });
 
 app.get('/api/spots/:id/trains', (req, res) => {
   const spot = db.handle.prepare('SELECT * FROM spots WHERE id = ?').get(req.params.id) as unknown as SpotRow | undefined;
   if (!spot || !canRead(spot.visibility, spot.owner_id, req.user)) return res.status(404).json({ error: 'Not found' });
-  if (!tfnswKey(db)) return res.json({ configured: false, passes: [] });
+  const key = req.user ? getUserApiKey(db, req.user.id, 'tfnsw') : null;
+  if (!key) return res.json({ configured: false, passes: [] });
   const hours = Number(req.query.hours ?? 6);
   const passes = nextPasses(combinedFeedData(db), spot, hours, new Date());
   res.json({ configured: true, passes });
@@ -1042,9 +1073,9 @@ app.get('/api/spots/:id/trains', (req, res) => {
 
 // --- traffic cameras (TfNSW) --------------------------------------------------
 
-app.get('/api/cameras', async (_req, res, next) => {
+app.get('/api/cameras', async (req, res, next) => {
   try {
-    const key = tfnswKey(db);
+    const key = req.user ? getUserApiKey(db, req.user.id, 'tfnsw') : null;
     if (!key) return res.json({ configured: false, cameras: [] });
     const cameras = await fetchCameras(key);
     res.json({ configured: true, cameras });
@@ -1056,7 +1087,7 @@ app.get('/api/cameras', async (_req, res, next) => {
 
 app.get('/api/cameras/:id/image', async (req, res, next) => {
   try {
-    const key = tfnswKey(db);
+    const key = req.user ? getUserApiKey(db, req.user.id, 'tfnsw') : null;
     if (!key) return res.status(404).json({ error: 'Not configured' });
     const cameras = await fetchCameras(key);
     const camera = cameras.find((c) => c.id === req.params.id);

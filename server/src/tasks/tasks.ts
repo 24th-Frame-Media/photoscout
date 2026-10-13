@@ -1,12 +1,11 @@
 import { createRegistry } from './registry.js';
 import { db } from '../db.js';
-import { getSettings, Settings, tfnswKey } from '../settings.js';
+import { getSettings, Settings } from '../settings.js';
 import { syncRemote } from '../share.js';
 import { deleteExpiredSessions } from '../authStore.js';
 import { CHAT_MINUTES } from '../bodyLimits.js';
 import { runRailTask } from '../sources/rail.js';
 import { runCandidatesTask } from '../sources/osm.js';
-import { importStaticGtfs, TrainFeedName } from '../feeds/trains.js';
 
 interface RemoteRow { id: string; owner_id: string; url: string }
 
@@ -82,21 +81,3 @@ tasks.register({
   enabled: () => true,
   run: (log) => runCandidatesTask(db, areasOf(getSettings(db)), log),
 });
-
-function trainsStaticTask(feed: TrainFeedName, cron: string) {
-  tasks.register({
-    name: `trains-static-${feed}`,
-    label: `Trains timetable: ${feed}`,
-    description: `Pull the ${feed} GTFS static timetable and keep only trips touching the configured areas.`,
-    schedule: cron,
-    intervalMinutes: () => 7 * 24 * 60,
-    enabled: () => Boolean(tfnswKey(db)),
-    run: (log) => {
-      const key = tfnswKey(db);
-      if (!key) return Promise.resolve({ ok: true, message: 'Not configured (no TfNSW API key)' });
-      return importStaticGtfs(db, feed, key, areasOf(getSettings(db)), log);
-    },
-  });
-}
-trainsStaticTask('nswtrains', '0 5 * * 1');
-trainsStaticTask('sydneytrains', '0 5 * * 2');
