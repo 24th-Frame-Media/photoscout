@@ -97,6 +97,8 @@ app.use(
         'img-src': ["'self'", 'data:', 'blob:', 'https:'],
         'connect-src': ["'self'", 'https:'],
         'worker-src': ["'self'", 'blob:'],
+        // Radio streams: /api/radio/.../listen redirects to radio.garden and on to the station.
+        'media-src': ["'self'", 'https:'],
         // The installable app: its manifest and the service worker that lets it open offline.
         'manifest-src': ["'self'"],
         'font-src': ["'self'", 'data:', 'https:'],
