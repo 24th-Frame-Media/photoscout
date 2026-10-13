@@ -266,6 +266,8 @@ export interface EventItem {
   organiser?: string;
   going?: number;
   isGoing?: boolean;
+  /** The cruise of a community event, without its line (see Cruise). */
+  cruise?: Cruise | null;
 }
 export interface KitPhoto { id: string; url: string; thumbUrl: string; w: number; h: number }
 export interface RideInput { kind: 'car' | 'motorbike'; make: string; model: string; year: number | null; nickname: string; notes: string }
@@ -295,12 +297,28 @@ export interface Report {
   reporter: string | null; snapshot: string | null; author: { id: string; username: string; role: Role; banned: boolean } | null;
 }
 
+/** A cruise: the route to drive, where to meet and when the cars move off. The line is a copy, so anyone who can see the event sees it. */
+export interface Cruise {
+  /** `vertices` is left out of a list of events; the single event has it. */
+  route: { name: string; type: RouteType; vertices?: [number, number][] };
+  meet: { lat: number; lng: number; note: string };
+  rollOut: string;
+}
+/** What to send to attach one: a saved route of yours (`routeId`) or a line drawn for it (`vertices`). Leave both out to keep the current line. */
+export interface CruiseInput {
+  routeId?: string; vertices?: [number, number][]; name?: string; type?: RouteType;
+  meet?: { lat: number; lng: number; note: string }; rollOut?: string;
+}
+
 export interface CommunityEventInput {
   title: string; description: string; startTime: string; endTime: string | null; venueName: string; address: string;
   lat: number; lng: number; priceText: string; visibility: 'public' | 'unlisted';
+  /** An object attaches or changes a cruise, null takes it off, and leaving it out keeps it. */
+  cruise?: CruiseInput | null;
 }
-export interface CommunityEvent extends CommunityEventInput {
+export interface CommunityEvent extends Omit<CommunityEventInput, 'cruise'> {
   id: string; ownerId: string; owner: ProfileHit; going: number; isGoing: boolean; createdAt: string; updatedAt: string;
+  cruise: Cruise | null;
 }
 export interface SpotSuggestionInput { name: string; notes: string; lat: number; lng: number }
 export interface SpotSuggestion extends SpotSuggestionInput {

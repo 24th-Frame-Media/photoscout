@@ -134,12 +134,31 @@ Bodies are plain text; the server never stores or returns markup.
 | PUT/DELETE | `/api/posts/:id/vote` | Upvote / take it back. Replies `{ votes, voted }`. |
 | GET/POST | `/api/posts/:id/comments` | List (open to visitors) / add `{ body<=500 }`; 200 a day. |
 | DELETE | `/api/comments/:id` | Author or staff. |
-| GET | `/api/chat?after=<iso>` | Session needed. Up to 100 messages from the last 30 minutes, oldest first. |
+| GET | `/api/chat?after=<iso>` | Session needed. Up to 100 messages from the last 30 minutes, oldest first. New lines also arrive on the socket (below), for a client that subscribed. |
 | POST | `/api/chat` | `{ body<=300 }`; 10 a minute. Messages are deleted after 30 minutes (the `housekeeping` task, and reads ignore older ones anyway). |
 | DELETE | `/api/chat/:id` | Author or staff. |
 | POST | `/api/reports` | `{ targetKind: post\|comment\|chat\|community_event\|profile\|ride\|spot, targetId, reason<=300 }`. 409 if you already have an open report on it; 20 a day. |
 | GET | `/api/reports` | Staff: open reports oldest first, then recently settled, each with a text snapshot and the author. |
 | POST | `/api/reports/:id/resolve` | Staff: `{ action: dismiss\|hide }`. `hide` hides a post, comment or community event (hidden events 404 for everyone but the organiser and staff) and deletes a chat line; for a profile, ride or spot it only settles the report. |
+
+### Convoy and the live socket
+
+One WebSocket, `GET /ws`, carries the convoy rooms and pushes new chat lines. Without it the chat page polls `GET /api/chat` every 5 seconds, as before. A reverse proxy has to pass `Upgrade` through for `/ws` (Vite's dev proxy does with `ws: true`).
+
+- **Opening it.** The session cookie is required (no cookie, an expired or suspended session: 401) and `Origin`, when sent, has to be `PUBLIC_URL` (otherwise 403; this is what stops another site's page opening a socket with your cookie). At most 5 sockets per account. The first frame is `{ t: 'hello', me, rooms }`.
+- **Ending it.** Signing out closes that session's sockets, suspending or deleting an account closes all of theirs and takes them out of every convoy, all with close code 4401. A session that merely expires is caught at the next heartbeat (30 s). Dead sockets are found by ping/pong and dropped.
+- **Limits.** Messages are text JSON of at most 4 KB, each checked field by field. Ten messages in a burst, then five a second; the rest are dropped, and a socket that keeps flooding (50 refusals in 10 s) is closed with 1008.
+- **Messages to send.** `{t:'convoy.create',name}`, `{t:'convoy.join',code}`, `{t:'convoy.cruise',eventId}`, `{t:'convoy.leave',room}`, `{t:'convoy.dest',room,destination:{lat,lng,label}|null}` (leader only), `{t:'convoy.lead',room,to}` (leader only), `{t:'pos',lat,lng,heading,speed}`, `{t:'pos.stop'}`, `{t:'chat.sub'}`, `{t:'chat.unsub'}`.
+- **Messages received.** `room` (a whole room, sent on any change), `pos` (one member's position, never echoed to its sender), `left`, `error`, `chat`, `chat.gone`, `chat.refresh`.
+- **Rooms.** Held in memory only, in one process. An invite code is 8 characters from a 31-letter alphabet with no lookalikes; ten wrong guesses in ten minutes block that account's next tries. A room holds 30 members, a person can be in 3 rooms, positions are accepted at most about once a second per member and are stamped by the server. Positions are relayed from memory to memory: never written to the database, never logged, and cleared when a member leaves, stops sharing or disconnects. A member who drops off stays on the list (greyed, with a last-seen time) for 30 minutes; a room nobody is connected to is deleted after 30 minutes.
+- **Cruise rooms.** `convoy.cruise` starts (the organiser) or joins (anyone who has said they are going) the single room of an event that has a cruise. It opens with the meeting point as its destination.
+
+### Cruises
+
+A community event can carry a cruise: `cruise: { routeId | vertices, name?, type?, meet: { lat, lng, note<=200 }, rollOut }` on `POST`/`PATCH /api/community-events`. `rollOut` falls between the event's start and its end. Only the organiser can set or change it (staff can take it off with `cruise: null`); leaving `cruise` out of an edit keeps it.
+
+- **The line is a copy.** `routeId` has to be a route the organiser can read (their own, or a public one); anything else is "No such route", private or missing alike. The route's line, name and type are copied onto the event and nothing else (not its notes, access remarks, staging point or id), so the cruise stays visible to everyone who can see the event even if the saved route is private, and does not follow later edits to it.
+- `GET /api/community-events/:id` returns the cruise with `route.vertices`; the list leaves the line out.
 
 ### Suggested spots
 

@@ -17,10 +17,11 @@ import Feed from './pages/Feed.js';
 import Chat from './pages/Chat.js';
 import Drive from './pages/Drive.js';
 import Moderation from './pages/Moderation.js';
+import Convoy from './pages/Convoy.js';
 
 /** What everybody comes for sits in the bar; what is yours, or is a tool, sits under your name. */
 const NAV = [['/', 'Map'], ['/events', 'Events'], ['/feed', 'Feed'], ['/chat', 'Chat']] as const;
-const MORE = [['/drive', 'Drive'], ['/kit', 'Kit'], ['/plan', 'Plan a shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
+const MORE = [['/drive', 'Drive'], ['/convoy', 'Convoy'], ['/kit', 'Kit'], ['/plan', 'Plan a shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
 
 export default function App() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -95,6 +96,7 @@ export default function App() {
         <Route path="/drive" element={<Drive user={user} />} />
         <Route path="/feed" element={<Feed user={user} />} />
         <Route path="/chat" element={<Chat user={user} />} />
+        <Route path="/convoy" element={<Convoy user={user} />} />
         <Route path="/moderation" element={<Moderation user={user} />} />
         <Route path="/calendar" element={<Calendar user={user} />} />
         <Route path="/u/:username" element={<Profile user={user} />} />

@@ -36,6 +36,7 @@ export default function EventCard({ ev, dates, onOpen, onMark }: { ev: EventItem
       <p className="hint">{ev.isOnline ? '💻 Online' : `📍 ${place || 'Unknown location'}`}{ev.priceText ? ` · ${decodeEntities(ev.priceText)}` : ''}{ev.community ? ` · ${ev.going ?? 0} going` : ''}</p>
       <div className="eventcard__badges">
         {ev.community && <span className="eventbadge eventbadge--community">Community</span>}
+        {ev.cruise && <span className="eventbadge" title="A route to drive together">🚗 Cruise</span>}
         {ev.category && !ev.community && <span className="eventbadge">{ev.category}</span>}
         {isMultiDay(ev) && <span className="eventbadge">📅 {multiDaySpan(ev)} days</span>}
         {dates.length > 1 && (

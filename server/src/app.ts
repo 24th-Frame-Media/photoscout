@@ -52,6 +52,8 @@ import { assertPublicUrl, guardedFetch } from './ssrf.js';
 import { tasks } from './tasks/tasks.js';
 import { versionInfo } from './version.js';
 import { isRouteType, parseRouteSnap, parseRouteStaging, parseRouteVertices, serializeRouteWaypoints, routeJson, type RouteRow } from './routes.js';
+import { chatFeed } from './realtime.js';
+import { cruiseJson, readCruise, resolveCruise } from './cruise.js';
 import crypto from 'node:crypto';
 
 declare global {
@@ -1505,7 +1507,7 @@ interface CommunityRow {
   id: string; owner_id: string; title: string; description: string; start_time: string; end_time: string | null;
   venue_name: string; address: string; lat: number; lng: number; price_text: string; visibility: 'public' | 'unlisted';
   created_at: string; updated_at: string;
-  hidden?: number; owner_name?: string; owner_avatar?: string; owner_banned?: number; going?: number | bigint; is_going?: number | bigint;
+  cruise?: string | null; hidden?: number; owner_name?: string; owner_avatar?: string; owner_banned?: number; going?: number | bigint; is_going?: number | bigint;
 }
 
 /** With no end time an event counts as on for twelve hours after it starts. */
@@ -1516,12 +1518,14 @@ const COMMUNITY_SELECT =
   'EXISTS (SELECT 1 FROM community_rsvps r WHERE r.event_id = e.id AND r.user_id = ?) AS is_going ' +
   'FROM community_events e JOIN users u ON u.id = e.owner_id';
 
-function communityJson(r: CommunityRow) {
+/** `full` adds the cruise's line; a list leaves it out, since a list of 500 events would carry 500 routes. */
+function communityJson(r: CommunityRow, full = false) {
   return {
     id: r.id, ownerId: r.owner_id, owner: { username: r.owner_name ?? '', avatar: r.owner_avatar ?? '' },
     title: r.title, description: r.description, startTime: r.start_time, endTime: r.end_time,
     venueName: r.venue_name, address: r.address, lat: r.lat, lng: r.lng, priceText: r.price_text, visibility: r.visibility,
     going: Number(r.going ?? 0), isGoing: Number(r.is_going ?? 0) === 1,
+    cruise: cruiseJson(readCruise(r.cruise), full),
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -1545,7 +1549,7 @@ app.get('/api/community-events', (req, res) => {
   const rows = db.handle
     .prepare(`${COMMUNITY_SELECT} WHERE u.banned = 0 AND e.hidden = 0 AND ${STILL_ON} AND (e.visibility = 'public' OR e.owner_id = ?) ORDER BY e.start_time, e.id LIMIT 500`)
     .all(me, new Date().toISOString(), me) as unknown as CommunityRow[];
-  res.json(rows.map(communityJson));
+  res.json(rows.map((r) => communityJson(r)));
 });
 
 app.post('/api/community-events', (req, res) => {
@@ -1555,19 +1559,21 @@ app.post('/api/community-events', (req, res) => {
     .get(req.user!.id, new Date().toISOString()) as { n: number };
   if (upcoming.n >= MAX_UPCOMING_EVENTS) return res.status(409).json({ error: `You can have ${MAX_UPCOMING_EVENTS} upcoming events` });
   const v = input.value;
+  const cruise = req.body?.cruise == null ? null : resolveCruise(db, req.body.cruise, { ownerId: req.user!.id, start: v.startTime, end: v.endTime, current: null });
+  if (cruise && !cruise.ok) return res.status(400).json({ error: cruise.error });
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   db.handle
-    .prepare('INSERT INTO community_events (id, owner_id, title, description, start_time, end_time, venue_name, address, lat, lng, price_text, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.user!.id, v.title, v.description, v.startTime, v.endTime, v.venueName, v.address, v.lat, v.lng, v.priceText, v.visibility, now, now);
+    .prepare('INSERT INTO community_events (id, owner_id, title, description, start_time, end_time, venue_name, address, lat, lng, price_text, visibility, cruise, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user!.id, v.title, v.description, v.startTime, v.endTime, v.venueName, v.address, v.lat, v.lng, v.priceText, v.visibility, cruise?.ok ? JSON.stringify(cruise.value) : null, now, now);
   if (v.visibility === 'public') autoPost(req.user!.id, 'event', id, v.title, { lat: v.lat, lng: v.lng, place: v.venueName });
-  res.status(201).json(communityJson(communityEvent(id, req.user!.id)!));
+  res.status(201).json(communityJson(communityEvent(id, req.user!.id)!, true));
 });
 
 app.get('/api/community-events/:id', (req, res) => {
   const row = communityEvent(req.params.id, req.user?.id);
   if (!row || !communityReadable(row, req.user)) return res.status(404).json({ error: 'No such event' });
-  res.json(communityJson(row));
+  res.json(communityJson(row, true));
 });
 
 app.patch('/api/community-events/:id', (req, res) => {
@@ -1580,12 +1586,23 @@ app.patch('/api/community-events/:id', (req, res) => {
   });
   if (!input.ok) return res.status(400).json({ error: input.error });
   const v = input.value;
+  // The cruise: left out keeps it (checked again against the new times), null takes it off, an object sets it.
+  // Only the organiser can attach a route; staff can still take one off.
+  const body = (req.body ?? {}) as { cruise?: unknown };
+  let cruise = row.cruise ?? null;
+  if (body.cruise === null) cruise = null;
+  else if (body.cruise !== undefined && row.owner_id !== req.user!.id) return res.status(403).json({ error: 'Only the organiser can change the cruise' });
+  else if (body.cruise !== undefined || (cruise && (v.startTime !== row.start_time || v.endTime !== row.end_time))) {
+    const made = resolveCruise(db, body.cruise ?? {}, { ownerId: row.owner_id, start: v.startTime, end: v.endTime, current: readCruise(cruise) });
+    if (!made.ok) return res.status(400).json({ error: made.error });
+    cruise = JSON.stringify(made.value);
+  }
   db.handle
-    .prepare('UPDATE community_events SET title=?, description=?, start_time=?, end_time=?, venue_name=?, address=?, lat=?, lng=?, price_text=?, visibility=?, updated_at=? WHERE id=?')
-    .run(v.title, v.description, v.startTime, v.endTime, v.venueName, v.address, v.lat, v.lng, v.priceText, v.visibility, new Date().toISOString(), row.id);
+    .prepare('UPDATE community_events SET title=?, description=?, start_time=?, end_time=?, venue_name=?, address=?, lat=?, lng=?, price_text=?, visibility=?, cruise=?, updated_at=? WHERE id=?')
+    .run(v.title, v.description, v.startTime, v.endTime, v.venueName, v.address, v.lat, v.lng, v.priceText, v.visibility, cruise, new Date().toISOString(), row.id);
   // Made unlisted, an event leaves the feed; the posts are not remade if it goes public again.
   if (v.visibility === 'unlisted') dropPosts(['event', 'rsvp'], row.id);
-  res.json(communityJson(communityEvent(row.id, req.user!.id)!));
+  res.json(communityJson(communityEvent(row.id, req.user!.id)!, true));
 });
 
 app.delete('/api/community-events/:id', (req, res) => {
@@ -1776,7 +1793,7 @@ app.delete('/api/comments/:id', (req, res) => {
 });
 
 // --- chat ---------------------------------------------------------------------------
-// One public room. ponytail: polling every few seconds; move to the convoy WebSocket in Phase 5.
+// One public room. New lines are pushed to open sockets (see realtime.ts); a client that cannot connect polls GET /api/chat instead.
 
 const chatJson = (r: { id: string; body: string; created_at: string; username: string; avatar: string }) =>
   ({ id: r.id, body: r.body, created_at: r.created_at, author: { username: r.username, avatar: r.avatar } });
@@ -1802,7 +1819,9 @@ app.post('/api/chat', chatLimit, (req, res) => {
   const now = new Date().toISOString();
   db.handle.prepare('INSERT INTO chat_messages (id, owner_id, body, created_at) VALUES (?, ?, ?, ?)').run(id, req.user!.id, input.value, now);
   const me = findUserById(db, req.user!.id)!;
-  res.status(201).json(chatJson({ id, body: input.value, created_at: now, username: me.username, avatar: me.avatar }));
+  const line = chatJson({ id, body: input.value, created_at: now, username: me.username, avatar: me.avatar });
+  chatFeed.posted(line);
+  res.status(201).json(line);
 });
 
 app.delete('/api/chat/:id', (req, res) => {
@@ -1810,6 +1829,7 @@ app.delete('/api/chat/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.owner_id !== req.user!.id && !isStaff(req.user)) return res.status(403).json({ error: 'Forbidden' });
   db.handle.prepare('DELETE FROM chat_messages WHERE id = ?').run(req.params.id);
+  chatFeed.removed(req.params.id);
   res.json({ ok: true });
 });
 
@@ -1909,7 +1929,10 @@ app.post('/api/reports/:id/resolve', (req, res) => {
   // Hiding. A profile, ride or spot is only resolved: staff then suspend the user, or an admin deals with the spot.
   if (r.target_kind === 'post') db.handle.prepare('UPDATE posts SET hidden = 1 WHERE id = ?').run(r.target_id);
   else if (r.target_kind === 'comment') db.handle.prepare('UPDATE post_comments SET hidden = 1 WHERE id = ?').run(r.target_id);
-  else if (r.target_kind === 'chat') db.handle.prepare('DELETE FROM chat_messages WHERE id = ?').run(r.target_id);
+  else if (r.target_kind === 'chat') {
+    db.handle.prepare('DELETE FROM chat_messages WHERE id = ?').run(r.target_id);
+    chatFeed.removed(r.target_id);
+  }
   else if (r.target_kind === 'community_event') {
     db.handle.prepare('UPDATE community_events SET hidden = 1 WHERE id = ?').run(r.target_id);
     db.handle.prepare("UPDATE posts SET hidden = 1 WHERE kind IN ('event', 'rsvp') AND ref_id = ?").run(r.target_id);

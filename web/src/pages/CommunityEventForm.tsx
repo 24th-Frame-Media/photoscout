@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Map as MlMap, Marker } from 'maplibre-gl';
-import { api, type CommunityEventInput, type User } from '../api.js';
+import { api, type CommunityEventInput, type Route, type User } from '../api.js';
+import CruiseFields, { blankCruise, cruiseInput, draftFromCruise, type CruiseDraft } from '../components/CruiseFields.js';
 import { STYLE_URL } from '../map/layers.js';
 import { fromLocalInput, toLocalInput } from '../kit.js';
 
@@ -16,16 +17,31 @@ export default function CommunityEventForm({ user }: { user: User | null }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
+  const [cruise, setCruise] = useState<CruiseDraft>(blankCruise);
+  const setC = (patch: Partial<CruiseDraft>) => setCruise((c) => ({ ...c, ...patch }));
+  /** Who organises the event being edited, and whether it has a cruise. Only the organiser can change a cruise; staff can take one off. */
+  const [loaded, setLoaded] = useState<{ ownerId: string; cruise: boolean } | null>(null);
+  const [dropCruise, setDropCruise] = useState(false);
+  const [routes, setRoutes] = useState<Route[] | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    api.communityEvent(id).then((c) => setForm({
-      title: c.title, description: c.description, start: toLocalInput(c.startTime), end: c.endTime ? toLocalInput(c.endTime) : '',
-      venueName: c.venueName, address: c.address, priceText: c.priceText, lat: String(c.lat), lng: String(c.lng), visibility: c.visibility,
-    })).catch((err) => setError((err as Error).message));
+    api.communityEvent(id).then((c) => {
+      setForm({
+        title: c.title, description: c.description, start: toLocalInput(c.startTime), end: c.endTime ? toLocalInput(c.endTime) : '',
+        venueName: c.venueName, address: c.address, priceText: c.priceText, lat: String(c.lat), lng: String(c.lng), visibility: c.visibility,
+      });
+      setCruise(draftFromCruise(c.cruise));
+      setLoaded({ ownerId: c.ownerId, cruise: Boolean(c.cruise) });
+    }).catch((err) => setError((err as Error).message));
   }, [id]);
+  // Your own saved routes, for a cruise to follow.
+  useEffect(() => {
+    if (user) api.routes().then((all) => setRoutes(all.filter((r) => r.ownerId === user.id))).catch(() => setRoutes([]));
+  }, [user?.id]);
 
   if (!user) return <div className="page"><p className="hint">Sign in to add an event.</p></div>;
+  const ownsIt = !id || loaded?.ownerId === user.id;
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -39,6 +55,13 @@ export default function CommunityEventForm({ user }: { user: User | null }) {
       title: form.title, description: form.description, startTime, endTime: fromLocalInput(form.end),
       venueName: form.venueName, address: form.address, lat, lng, priceText: form.priceText, visibility: form.visibility,
     };
+    if (ownsIt) {
+      if (cruise.enabled) {
+        const c = cruiseInput(cruise);
+        if (!c.ok) return setError(c.error);
+        body.cruise = c.value;
+      } else if (loaded?.cruise) body.cruise = null;
+    } else if (dropCruise) body.cruise = null;
     setBusy(true);
     try {
       if (id) await api.updateCommunityEvent(id, body);
@@ -78,6 +101,14 @@ export default function CommunityEventForm({ user }: { user: User | null }) {
           <label>Latitude</label><input inputMode="decimal" value={form.lat} onChange={(e) => set({ lat: e.target.value })} />
           <label>Longitude</label><input inputMode="decimal" value={form.lng} onChange={(e) => set({ lng: e.target.value })} />
         </div>
+        {ownsIt
+          ? <CruiseFields draft={cruise} onChange={setC} routes={routes} />
+          : loaded?.cruise && (
+            <label className="toggle">
+              <input type="checkbox" checked={dropCruise} onChange={(e) => setDropCruise(e.target.checked)} />
+              Take the cruise off this event (only its organiser can change it)
+            </label>
+          )}
         <div className="eventcard__actions">
           <button type="submit" className="primary" disabled={busy}>{id ? 'Save changes' : 'Add event'}</button>
           {id && <button type="button" onClick={() => void remove()}>Delete</button>}

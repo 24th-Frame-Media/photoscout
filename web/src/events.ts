@@ -121,7 +121,7 @@ export function communityToItem(c: CommunityEvent): EventItem {
     group: `community:${c.id}`, title: c.title, description: c.description, startTime: c.startTime, endTime: c.endTime,
     venueName: c.venueName, address: c.address, locality: '', lat: c.lat, lng: c.lng, imageUrl: '', category: COMMUNITY_CATEGORY,
     priceText: c.priceText, isOnline: false, dateOnly: false, photoScore: 0, series: '', url: '', starred: false, hidden: false,
-    community: true, communityId: c.id, ownerId: c.ownerId, organiser: c.owner.username, going: c.going, isGoing: c.isGoing,
+    community: true, communityId: c.id, ownerId: c.ownerId, organiser: c.owner.username, going: c.going, isGoing: c.isGoing, cruise: c.cruise,
   };
 }
 

@@ -125,7 +125,7 @@ test('the legend groups the event layers under Events', () => {
 const community = (id: string, over: Partial<CommunityEvent> = {}): CommunityEvent => ({
   id, ownerId: 'u1', owner: { username: 'Alice', avatar: '' }, title: `Meet ${id}`, description: 'Bring a camera', startTime: at(10, 9),
   endTime: null, venueName: 'Showground', address: '', lat: -33.4, lng: 149.5, priceText: 'Free', visibility: 'public', going: 3, isGoing: true,
-  createdAt: at(1), updatedAt: at(1), ...over,
+  createdAt: at(1), updatedAt: at(1), cruise: null, ...over,
 });
 
 test('communityToItem: marked as community, never shortlisted or hidden, and its group cannot clash with a scraped one', () => {
