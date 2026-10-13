@@ -146,7 +146,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   font-size: 13px;
 }
 .chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
-.filterbar select { width: auto; }
+.filterbar select { width: auto; max-width: 100%; }
 .filterbar label.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; }
 
 .empty {
@@ -1766,3 +1766,27 @@ a.button.primary:hover { background: #ffb83d; text-decoration: none; }
 .legal h2 { margin-top: 1.6em; }
 .legal ul { padding-left: 1.2em; }
 .legal li { margin: 0.35em 0; }
+
+/* "By place" sort: a heading per venue above its cards. */
+.placegroup + .placegroup { margin-top: 22px; }
+.placegroup__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 8px 2px;
+  font-size: 15px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.placegroup__pin { opacity: 0.75; }
+.placegroup__count {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: var(--pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}

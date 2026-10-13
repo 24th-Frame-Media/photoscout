@@ -1,10 +1,10 @@
 /**
- * Filtering and dates for the Events and Calendar pages. Ported from event-scout's
- * own web app (web/src/filtering.ts, components/EventCard.tsx), keeping what a
- * read-only view of its events needs: its town, source and "recently found"
- * filters, the sorts, the merge and edit modes all belong to its admin.
+ * Filtering, sorting and dates for the Events and Calendar pages. Ported from event-scout's
+ * own web app (web/src/filtering.ts, components/EventCard.tsx). Its source and "recently found"
+ * filters are not here: the list this server serves does not say where an event was found or when.
  */
-import type { CommunityEvent, EventItem } from './api.js';
+import type { Area, CommunityEvent, EventItem } from './api.js';
+import { haversineKm } from './map/geo.js';
 
 export type DateChip = 'all' | 'today' | 'weekend' | 'week' | 'month';
 
@@ -29,16 +29,77 @@ export function isOver(ev: Pick<EventItem, 'startTime' | 'endTime'>, now = Date.
   return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1).getTime() <= now;
 }
 
+export type SortKey = 'date' | 'photo' | 'distance' | 'place';
+
+/**
+ * The location choices that are not the name of a town. Given a colon so none
+ * can collide with a real place name.
+ */
+export const NEARBY = 'nearby:any';
+export const ELSEWHERE = 'nearby:none';
+/** No coordinates and no name: nothing says where it is. */
+export const UNKNOWN = 'nearby:unknown';
+
 export interface Filters {
   dateChip: DateChip;
   /** One category, or '' for every category. */
   category: string;
+  /** A town (locality), NEARBY, ELSEWHERE or UNKNOWN; '' for no location filter. */
+  place: string;
   search: string;
+  hideOnline: boolean;
   showHidden: boolean;
   starredOnly: boolean;
+  sort: SortKey;
 }
 
-export const DEFAULT_FILTERS: Filters = { dateChip: 'all', category: '', search: '', showHidden: false, starredOnly: false };
+export const DEFAULT_FILTERS: Filters = {
+  dateChip: 'all', category: '', place: '', search: '', hideOnline: true, showHidden: false, starredOnly: false, sort: 'date',
+};
+
+/** Where "nearby" and "nearest" are measured from: the areas the app looks around, the first being home. */
+export type Geo = { home: Area; areas: Area[] };
+
+const FILTERS_KEY = 'photoscout.eventFilters';
+const SORTS: SortKey[] = ['date', 'photo', 'distance', 'place'];
+const CHIPS: DateChip[] = ['all', 'today', 'weekend', 'week', 'month'];
+
+/**
+ * The filters chosen on the Events page, remembered across visits.
+ * Checked field by field: private mode, cleared site data or a shape saved by
+ * an older version must never crash the page, only fall back to the defaults.
+ */
+export function loadFilters(): Filters {
+  try {
+    const raw = localStorage.getItem(FILTERS_KEY);
+    if (!raw) return DEFAULT_FILTERS;
+    const saved = JSON.parse(raw) as Partial<Filters> | null;
+    if (!saved || typeof saved !== 'object') return DEFAULT_FILTERS;
+    const d = DEFAULT_FILTERS;
+    const bool = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
+    const str = (v: unknown, fallback: string) => (typeof v === 'string' ? v : fallback);
+    return {
+      dateChip: CHIPS.includes(saved.dateChip as DateChip) ? (saved.dateChip as DateChip) : d.dateChip,
+      category: str(saved.category, d.category),
+      place: str(saved.place, d.place),
+      search: str(saved.search, d.search),
+      hideOnline: bool(saved.hideOnline, d.hideOnline),
+      showHidden: bool(saved.showHidden, d.showHidden),
+      starredOnly: bool(saved.starredOnly, d.starredOnly),
+      sort: SORTS.includes(saved.sort as SortKey) ? (saved.sort as SortKey) : d.sort,
+    };
+  } catch {
+    return DEFAULT_FILTERS;
+  }
+}
+
+export function saveFilters(f: Filters): void {
+  try {
+    localStorage.setItem(FILTERS_KEY, JSON.stringify(f));
+  } catch {
+    // Private window or quota: the filters just are not remembered.
+  }
+}
 
 /** The days a chip stands for, as [first, day after last], or null for no limit. */
 export function dateWindow(chip: DateChip, now = new Date()): [Date, Date] | null {
@@ -62,13 +123,67 @@ export function dateWindow(chip: DateChip, now = new Date()): [Date, Date] | nul
   }
 }
 
-export function applyFilters(events: EventItem[], f: Filters, now = new Date()): EventItem[] {
+/**
+ * The heading an event sorts and groups under.
+ *
+ * The venue comes first, since a trip is planned around it. A venue that opens
+ * with a number is a street address, and a heading per street number is what
+ * this sort exists to prevent, so it gives up its locality instead.
+ * A community event has no locality, so its address stands in.
+ */
+export function placeLabel(ev: EventItem): string {
+  const venue = (ev.venueName || '').trim();
+  const startsWithNumber = /^\d/.test(venue.split(',')[0].trim());
+  if (venue && !startsWithNumber) return venue;
+  return (ev.locality || venue || ev.address || '').trim();
+}
+
+const hasCoords = (ev: EventItem): ev is EventItem & { lat: number; lng: number } => ev.lat != null && ev.lng != null;
+
+/** Inside one of the areas that look for events (or home, when none is switched on). */
+function isNearby(ev: EventItem, geo: Geo | null): boolean {
+  if (!geo || !hasCoords(ev)) return false;
+  const areas = geo.areas.filter((a) => a.events);
+  return (areas.length ? areas : [geo.home]).some((a) => haversineKm(a.lat, a.lng, ev.lat, ev.lng) <= a.radiusKm);
+}
+
+/** Whether an event is in one location choice: a town, or one of the three above. */
+function inPlace(ev: EventItem, choice: string, geo: Geo | null): boolean {
+  if (choice === NEARBY) return isNearby(ev, geo);
+  if (choice === UNKNOWN) return !hasCoords(ev) && !placeLabel(ev);
+  if (choice === ELSEWHERE) return !isNearby(ev, geo) && (hasCoords(ev) || Boolean(placeLabel(ev)));
+  return ev.locality === choice;
+}
+
+/**
+ * The towns to offer in the location filter, busiest first, plus how many
+ * events are nearby, elsewhere and of unknown location.
+ */
+export function placesOf(events: EventItem[], geo: Geo | null): {
+  places: { name: string; count: number }[]; nearby: number; elsewhere: number; unknown: number;
+} {
+  const counts = new Map<string, number>();
+  let nearby = 0, elsewhere = 0, unknown = 0;
+  for (const ev of events) {
+    if (isNearby(ev, geo)) {
+      nearby++;
+      if (ev.locality) counts.set(ev.locality, (counts.get(ev.locality) ?? 0) + 1);
+    } else if (inPlace(ev, UNKNOWN, geo)) unknown++;
+    else elsewhere++;
+  }
+  const places = [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  return { places, nearby, elsewhere, unknown };
+}
+
+export function applyFilters(events: EventItem[], f: Filters, now = new Date(), geo: Geo | null = null): EventItem[] {
   const window = dateWindow(f.dateChip, now);
   const q = f.search.trim().toLowerCase();
-  return events.filter((ev) => {
+  const out = events.filter((ev) => {
     if (!f.showHidden && ev.hidden) return false;
     if (f.starredOnly && !ev.starred) return false;
+    if (f.hideOnline && ev.isOnline) return false;
     if (f.category && ev.category !== f.category) return false;
+    if (f.place && !inPlace(ev, f.place, geo)) return false;
     if (window) {
       const t = new Date(ev.startTime);
       if (t < window[0] || t >= window[1]) return false;
@@ -76,6 +191,23 @@ export function applyFilters(events: EventItem[], f: Filters, now = new Date()):
     if (q && !`${ev.title} ${ev.venueName} ${ev.description}`.toLowerCase().includes(q)) return false;
     return true;
   });
+
+  // Array.sort is stable, so ties keep the order they came in (start order).
+  if (f.sort === 'photo') return out.sort((a, b) => b.photoScore - a.photoScore || a.startTime.localeCompare(b.startTime));
+  if (f.sort === 'distance' && geo) {
+    const dist = (ev: EventItem) => (hasCoords(ev) ? haversineKm(geo.home.lat, geo.home.lng, ev.lat, ev.lng) : Number.POSITIVE_INFINITY);
+    return out.sort((a, b) => dist(a) - dist(b));
+  }
+  if (f.sort === 'place') {
+    // One venue's events land together, in date order; the unnamed go last.
+    return out.sort((a, b) => {
+      const pa = placeLabel(a);
+      const pb = placeLabel(b);
+      if (!pa !== !pb) return pa ? -1 : 1;
+      return pa.localeCompare(pb, undefined, { sensitivity: 'base' }) || a.startTime.localeCompare(b.startTime);
+    });
+  }
+  return out;
 }
 
 /** One card on the Events page: an event, and every date of its series shown. */

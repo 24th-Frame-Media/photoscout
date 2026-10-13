@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { CommunityEvent, EventItem } from '../src/api.js';
 import {
-  applyFilters, categoriesOf, COMMUNITY_CATEGORY, communityToItem, dateWindow, DEFAULT_FILTERS, dayKey, foldSeries, formatWhen, groupByDay, isMultiDay, isOver, mergeEvents, multiDaySpan,
+  applyFilters, categoriesOf, COMMUNITY_CATEGORY, communityToItem, dateWindow, DEFAULT_FILTERS, dayKey, ELSEWHERE, type Filters, foldSeries, loadFilters, NEARBY, placeLabel, placesOf, saveFilters, UNKNOWN, formatWhen, groupByDay, isMultiDay, isOver, mergeEvents, multiDaySpan,
 } from '../src/events.js';
 import { eventsGeoJSON } from '../src/map/layers.js';
 import { categoryOf } from '../src/map/legend.js';
@@ -162,4 +162,86 @@ test('merged community events flow through the filters, the series fold and the 
   const features = eventsGeoJSON(merged, NOW.getTime()).features;
   assert.deepEqual(features.map((f) => f.properties?.group), ['s', 'community:c']);
   assert.deepEqual(groupByDay(merged).get(dayKey(new Date(at(10, 9))))?.map((e) => e.group), ['s', 'community:c']);
+});
+
+// --- sorting and the location, online and remembered filters ---
+
+const HOME = { name: 'Bathurst', lat: -33.42, lng: 149.58, radiusKm: 50, events: true, busy: false };
+const GEO = { home: HOME, areas: [HOME] };
+
+function sortList(): EventItem[] {
+  // As the page gets them: in start order.
+  return mergeEvents([
+    event('far', { startTime: at(10), photoScore: 2, venueName: 'Zoo', locality: 'Dubbo', lat: -32.25, lng: 148.6 }),
+    event('near', { startTime: at(12), photoScore: 9, venueName: 'Mount Panorama', locality: 'Bathurst', lat: -33.44, lng: 149.56 }),
+    event('mid', { startTime: at(11), photoScore: 5, venueName: 'Mount Panorama', locality: 'Bathurst', lat: -33.5, lng: 149.7 }),
+    event('nowhere', { startTime: at(9, 8) }),
+    event('online', { startTime: at(13), isOnline: true, photoScore: 10, venueName: 'Zoom' }),
+  ], []);
+}
+const sorted = (sort: Filters['sort'], list = sortList(), geo: typeof GEO | null = GEO) =>
+  groups(applyFilters(list, { ...DEFAULT_FILTERS, sort }, NOW, geo));
+
+test('sorts: soonest, best for photos, nearest, by place', () => {
+  assert.deepEqual(sorted('date'), ['nowhere', 'far', 'mid', 'near'], 'the input order stands, online is hidden by default');
+  assert.deepEqual(sorted('photo'), ['near', 'mid', 'far', 'nowhere'], 'highest score first, ties by start');
+  assert.deepEqual(sorted('distance'), ['near', 'mid', 'far', 'nowhere'], 'no coordinates last');
+  assert.deepEqual(sorted('place'), ['mid', 'near', 'far', 'nowhere'], 'a venue together in date order, the unnamed last');
+  assert.deepEqual(sorted('distance', sortList(), null), ['nowhere', 'far', 'mid', 'near'], 'no home to measure from: left in order');
+});
+
+test('placeLabel: a street address gives up its locality, a community event falls back to its address', () => {
+  assert.equal(placeLabel(event('a', { venueName: 'Mount Panorama Circuit', locality: 'Bathurst' })), 'Mount Panorama Circuit');
+  assert.equal(placeLabel(event('b', { venueName: '105 William Street, Bathurst', locality: 'Bathurst' })), 'Bathurst');
+  assert.equal(placeLabel(event('c', { address: 'Showground Rd' })), 'Showground Rd');
+  assert.equal(placeLabel(event('d')), '');
+});
+
+test('filters: hide online, nearby, elsewhere, unknown and a town', () => {
+  const list = sortList();
+  const run = (patch: Partial<Filters>) => groups(applyFilters(list, { ...DEFAULT_FILTERS, ...patch }, NOW, GEO));
+  assert.deepEqual(run({ hideOnline: false }), ['nowhere', 'far', 'mid', 'near', 'online']);
+  assert.deepEqual(run({ place: NEARBY }), ['mid', 'near']);
+  assert.deepEqual(run({ place: ELSEWHERE }), ['far']);
+  assert.deepEqual(run({ place: UNKNOWN }), ['nowhere']);
+  assert.deepEqual(run({ place: 'Bathurst' }), ['mid', 'near']);
+  assert.deepEqual(placesOf(list, GEO).places, [{ name: 'Bathurst', count: 2 }]);
+  const counts = placesOf(list, GEO);
+  assert.deepEqual([counts.nearby, counts.elsewhere, counts.unknown], [2, 2, 1], 'the online one has a name only, so it is elsewhere');
+});
+
+test('community events keep working under every sort and filter', () => {
+  const merged = mergeEvents(sortList(), [community('c', { startTime: at(10, 9), lat: -33.43, lng: 149.57 })]);
+  for (const sort of ['date', 'photo', 'distance', 'place'] as const) {
+    assert.ok(sorted(sort, merged).includes('community:c'), sort);
+  }
+  assert.equal(sorted('photo', merged).at(-1), 'community:c', 'a score of 0 sorts last');
+  assert.equal(sorted('distance', merged)[0], 'community:c', 'it is the nearest');
+  const run = (patch: Partial<Filters>) => groups(applyFilters(merged, { ...DEFAULT_FILTERS, ...patch }, NOW, GEO));
+  assert.ok(run({ place: NEARBY }).includes('community:c'));
+  assert.ok(run({ hideOnline: true }).includes('community:c'), 'a community event is never online');
+  assert.ok(!run({ place: ELSEWHERE }).includes('community:c'));
+});
+
+test('loadFilters: defaults on nothing or junk, keeps what is valid, round-trips a save', () => {
+  const store = new Map<string, string>();
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => { store.set(k, v); },
+  };
+  try {
+    assert.deepEqual(loadFilters(), DEFAULT_FILTERS);
+    store.set('photoscout.eventFilters', 'not json');
+    assert.deepEqual(loadFilters(), DEFAULT_FILTERS);
+    store.set('photoscout.eventFilters', '42');
+    assert.deepEqual(loadFilters(), DEFAULT_FILTERS);
+    store.set('photoscout.eventFilters', JSON.stringify({ sort: 'sideways', dateChip: 9, hideOnline: 'yes', place: 7, category: 'Market', starredOnly: true }));
+    assert.deepEqual(loadFilters(), { ...DEFAULT_FILTERS, category: 'Market', starredOnly: true });
+    const chosen: Filters = { ...DEFAULT_FILTERS, sort: 'place', place: NEARBY, hideOnline: false, dateChip: 'week' };
+    saveFilters(chosen);
+    assert.deepEqual(loadFilters(), chosen);
+  } finally {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  }
+  assert.deepEqual(loadFilters(), DEFAULT_FILTERS, 'no storage at all: the accessor throws, the defaults come back');
 });
