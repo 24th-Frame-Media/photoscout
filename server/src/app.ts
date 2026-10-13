@@ -47,7 +47,7 @@ import { calendarTokenInfo, issueCalendarToken, revokeCalendarToken, userForCale
 import { addSuggestion, listSuggestions, resolveSuggestion, suggestionJson, suggestionRefusal } from './suggestions.js';
 import { getCachedRail, requestTilesForUnsnapped, trackGraphFor } from './sources/rail.js';
 import { commonsNearbyCached, lensStats } from './sources/commons.js';
-import { coverFields, deleteImages, detectImageType, MAX_PHOTO_BYTES, parseMultipart, saveImage, SPOT_COVER_COLS } from './photos.js';
+import { coverFields, deleteImages, detectImageType, MAX_PHOTO_BYTES, parseMultipart, photoMeta, saveImage, SPOT_COVER_COLS } from './photos.js';
 import { buildGpx } from './gpx.js';
 import { buildFeatureCollection, ImportError, importFeatureCollection, ShareBundle, syncRemote } from './share.js';
 import { assertPublicUrl, guardedFetch } from './ssrf.js';
@@ -632,7 +632,7 @@ app.post('/api/spots/:id/photos', uploadLimit, async (req, res, next) => {
 
     const parsedFocal = fields.focalLength ? Number(fields.focalLength) : null;
     const focalLength = parsedFocal !== null && Number.isFinite(parsedFocal) && parsedFocal > 0 ? parsedFocal : null;
-    const takenAt = fields.takenAt || null;
+    const { w, h, takenAt } = photoMeta(fields);
     const dateTimeOriginal = takenAt;
 
     const file = saveImage(files.photo);
@@ -642,7 +642,7 @@ app.post('/api/spots/:id/photos', uploadLimit, async (req, res, next) => {
     const kind = fields.kind === 'of_location' ? 'of_location' : 'taken_here';
     db.handle
       .prepare('INSERT INTO photos (id, spot_id, owner_id, kind, file, thumb, w, h, taken_at, caption, created_at, focal_length, date_time_original) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, spot.id, req.user!.id, kind, file, thumb, Number(fields.w ?? 0) || 0, Number(fields.h ?? 0) || 0,
+      .run(id, spot.id, req.user!.id, kind, file, thumb, w, h,
         takenAt, String(fields.caption ?? '').slice(0, 2000), now, focalLength, dateTimeOriginal);
     res.status(201).json(photoJson(db.handle.prepare('SELECT * FROM photos WHERE id = ?').get(id) as unknown as PhotoRow));
   } catch (err) { next(err); }
@@ -1439,6 +1439,7 @@ app.post('/api/kit/rides/:id/photos', uploadLimit, async (req, res, next) => {
     const { fields, files } = await parseMultipart(req, MAX_PHOTO_BYTES * 2 + 4096);
     if (!files.photo || !detectImageType(files.photo)) return res.status(400).json({ error: 'photo must be a JPEG, PNG or WebP file' });
     const thumbBuf = files.thumb && detectImageType(files.thumb) ? files.thumb : files.photo;
+    const { w, h } = photoMeta(fields);
     // Asked again: other uploads to this ride may have landed while this one was being read.
     refused = refusal();
     if (refused) return res.status(refused.status).json({ error: refused.error });
@@ -1447,7 +1448,7 @@ app.post('/api/kit/rides/:id/photos', uploadLimit, async (req, res, next) => {
     const thumb = saveImage(thumbBuf);
     const id = crypto.randomUUID();
     db.handle.prepare('INSERT INTO ride_photos (id, ride_id, owner_id, file, thumb, w, h, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, ride.id, ride.owner_id, file, thumb, Number(fields.w ?? 0) || 0, Number(fields.h ?? 0) || 0, new Date().toISOString());
+      .run(id, ride.id, ride.owner_id, file, thumb, w, h, new Date().toISOString());
     res.status(201).json(ridesJson([ride])[0]);
   } catch (err) { next(err); }
 });

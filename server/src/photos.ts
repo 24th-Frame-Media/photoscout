@@ -55,26 +55,73 @@ export interface MultipartResult {
   files: Record<string, Buffer>;
 }
 
+/** What is wrong with an upload that is the sender's doing; `status` lets the API error handler answer it as such. */
+export class UploadError extends Error {
+  constructor(message: string, readonly status = 400) { super(message); }
+}
+
+/** Form fields, field size and parts one upload may carry. A photo form has a handful of each. */
+const MAX_FIELDS = 20;
+const MAX_FIELD_BYTES = 16 * 1024;
+const MAX_PARTS = 30;
+
 export function parseMultipart(req: IncomingMessage, limitBytes: number): Promise<MultipartResult> {
   return new Promise((resolve, reject) => {
-    const bb = Busboy({ headers: req.headers, limits: { fileSize: limitBytes, files: 4 } });
+    let bb: Busboy.Busboy;
+    try {
+      bb = Busboy({ headers: req.headers, limits: { fileSize: limitBytes, files: 4, fields: MAX_FIELDS, fieldSize: MAX_FIELD_BYTES, parts: MAX_PARTS } });
+    } catch {
+      return reject(new UploadError('Expected a multipart/form-data upload'));
+    }
     const files: Record<string, Buffer> = {};
     const fields: Record<string, string> = {};
-    let tooBig = false;
-    bb.on('field', (name, value) => { fields[name] = value; });
+    let problem: UploadError | null = null;
+    const refuse = (message: string, status = 400): void => {
+      problem ??= new UploadError(message, status);
+      req.unpipe(bb);
+      reject(problem);
+    };
+    bb.on('field', (name, value, info) => {
+      if (info.nameTruncated || info.valueTruncated) refuse('A form field is too long');
+      fields[name] = value;
+    });
     bb.on('file', (name, stream) => {
       const chunks: Buffer[] = [];
       stream.on('data', (chunk) => chunks.push(chunk));
-      stream.on('limit', () => { tooBig = true; });
+      stream.on('limit', () => refuse(`Upload exceeds ${limitBytes} bytes`, 413));
       stream.on('close', () => { files[name] = Buffer.concat(chunks); });
     });
-    bb.on('error', reject);
-    bb.on('close', () => {
-      if (tooBig) return reject(new Error(`Upload exceeds ${limitBytes} bytes`));
-      resolve({ fields, files });
-    });
+    bb.on('partsLimit', () => refuse('Too many parts in the upload'));
+    bb.on('fieldsLimit', () => refuse('Too many form fields'));
+    bb.on('filesLimit', () => refuse('Too many files'));
+    bb.on('error', () => reject(problem ?? new UploadError('Malformed upload')));
+    bb.on('close', () => (problem ? reject(problem) : resolve({ fields, files })));
     req.pipe(bb);
   });
+}
+
+/** Largest width or height a stored photo may claim. */
+const MAX_PHOTO_SIDE = 100_000;
+
+/**
+ * The size and capture time a photo form states. A size left out is 0 (unknown) and a time left out is
+ * null; one that is given has to be a whole number of pixels, or a date.
+ */
+export function photoMeta(fields: Record<string, string>): { w: number; h: number; takenAt: string | null } {
+  const side = (name: 'w' | 'h'): number => {
+    const raw = fields[name];
+    if (raw === undefined || raw === '') return 0;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > MAX_PHOTO_SIDE) throw new UploadError(`${name} must be a whole number of pixels`);
+    return n;
+  };
+  let takenAt: string | null = null;
+  if (fields.takenAt) {
+    const ms = fields.takenAt.length <= 40 ? Date.parse(fields.takenAt) : NaN;
+    if (!Number.isFinite(ms)) throw new UploadError('takenAt must be a date');
+    takenAt = new Date(ms).toISOString();
+  }
+  return { w: side('w'), h: side('h'), takenAt };
 }
 
 /**
