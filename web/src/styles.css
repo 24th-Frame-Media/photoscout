@@ -1510,3 +1510,9 @@ section > .notify__check { margin-top: 10px; }
 
 /* the calendar link under Account */
 .calendarlink input { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; }
+/* the "show my location" dot and the suggest-a-spot card on the map */
+.mylocation { width: 16px; height: 16px; border-radius: 50%; background: var(--blue); border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(76, 195, 255, 0.25); }
+.suggestcard { position: absolute; top: 52px; left: 50%; transform: translateX(-50%); z-index: 7; width: min(360px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 8px; padding: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); }
+.suggestcard h3 { margin: 0; font-size: 15px; }
+.suggestcard .hint { margin: 0; color: var(--muted); font-size: 13px; }
+.suggestcard textarea { resize: vertical; }
