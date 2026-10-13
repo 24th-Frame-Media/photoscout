@@ -66,7 +66,7 @@ The session cookie is `Secure`, so run it behind HTTPS. Browsers make an excepti
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | Turns on "Continue with Google". |
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | — | Turns on "Continue with Discord". |
 | `ADMIN_IDS` | — | Comma-separated `provider:id` accounts that are admins, e.g. `google:1234,discord:5678`. Takes effect on their next sign-in. |
-| `TRUST_PROXY` | — | Behind a reverse proxy: hops to trust `X-Forwarded-For` from. |
+| `TRUST_PROXY` | — | Behind a reverse proxy: hops to trust `X-Forwarded-For` from. The proxy must also pass WebSocket upgrades on `/ws` (convoys and live chat); without it chat falls back to polling and convoys do not connect. |
 | `DATA_DIR` | `data/` in the repo (`/app/data` in the image) | Where the database and photos are kept. |
 | `TFNSW_API_KEY` | — | TfNSW Open Data key, for passenger trains and live traffic cameras. |
 | `EVENT_SCOUT_DATA` | `<DATA_DIR>/events` | Where the events engine keeps its own database (`event-scout.db`) and flyers. To bring an existing event-scout across, copy its `data/` folder here. |

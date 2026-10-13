@@ -127,7 +127,20 @@ export function deleteUser(db: Db, id: string): void {
 
 // --- sessions -------------------------------------------------------------
 
-const hashOf = (token: string): string => crypto.createHash('sha256').update(token).digest('hex');
+export const hashOf = (token: string): string => crypto.createHash('sha256').update(token).digest('hex');
+
+/**
+ * Who is told when sessions are ended on purpose (logout, a ban, a deleted
+ * account), so a live WebSocket does not outlast the cookie it was opened with.
+ * One session by its hash, or every session of one user.
+ */
+export type SessionsRevoked = { session: string } | { userId: string };
+const revocationListeners = new Set<(what: SessionsRevoked) => void>();
+export function onSessionsRevoked(listener: (what: SessionsRevoked) => void): () => void {
+  revocationListeners.add(listener);
+  return () => { revocationListeners.delete(listener); };
+}
+const revoked = (what: SessionsRevoked): void => { for (const listener of revocationListeners) listener(what); };
 
 export function createSession(db: Db, userId: string, now = Date.now()): { token: string; maxAgeMs: number } {
   const maxAgeMs = SESSION_DAYS * 24 * 3600 * 1000;
@@ -153,11 +166,14 @@ export function sessionUser(db: Db, token: string | undefined, now = Date.now())
 }
 
 export function deleteSession(db: Db, token: string | undefined): void {
-  if (token) db.handle.prepare('DELETE FROM sessions WHERE id = ?').run(hashOf(token));
+  if (!token) return;
+  db.handle.prepare('DELETE FROM sessions WHERE id = ?').run(hashOf(token));
+  revoked({ session: hashOf(token) });
 }
 
 export function deleteUserSessions(db: Db, userId: string): void {
   db.handle.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  revoked({ userId });
 }
 
 export function deleteExpiredSessions(db: Db, now = Date.now()): void {

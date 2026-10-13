@@ -420,6 +420,8 @@ export function createDb(filePath: string = path.join(dataDir, 'photoscout.db'))
   addColumnIfMissing(handle, 'users', 'bio', "bio TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(handle, 'users', 'instagram', "instagram TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(handle, 'community_events', 'hidden', 'hidden INTEGER NOT NULL DEFAULT 0');
+  // A cruise: the route, meeting point and roll-out time of an event, as one JSON document (see cruise.ts).
+  addColumnIfMissing(handle, 'community_events', 'cruise', 'cruise TEXT');
   addColumnIfMissing(handle, 'sightings', 'loaded', 'loaded INTEGER');
   addColumnIfMissing(handle, 'photos', 'focal_length', 'focal_length REAL');
   addColumnIfMissing(handle, 'photos', 'date_time_original', 'date_time_original TEXT');

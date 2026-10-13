@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
+import { WebSocket } from 'ws';
+import type { RealtimeOptions } from '../src/realtime.js';
 
 export interface Reply { status: number; headers: Headers; json: any; text: string }
 export type Client = ((method: string, url: string, body?: unknown, headers?: Record<string, string>) => Promise<Reply>) & {
@@ -49,7 +51,7 @@ function fakeProviders(): void {
  * `node --test` runs each file in its own process, so one app per file: the
  * database is a module singleton and DATA_DIR has to be set before it loads.
  */
-export async function startApp(env: Record<string, string> = {}) {
+export async function startApp(env: Record<string, string> = {}, realtime: RealtimeOptions = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photoscout-http-'));
   Object.assign(process.env, {
     DATA_DIR: dir,
@@ -60,6 +62,7 @@ export async function startApp(env: Record<string, string> = {}) {
   }, env);
   fakeProviders();
   const { app } = await import('../src/app.js');
+  const { attachRealtime } = await import('../src/realtime.js');
   // The OS can hand out a port fetch refuses outright ("bad port"); take another.
   let server: ReturnType<typeof app.listen>, base: string;
   for (;;) {
@@ -111,9 +114,26 @@ export async function startApp(env: Record<string, string> = {}) {
     return as('GET', `/api/auth/${provider}/callback?code=${code}&state=${encodeURIComponent(state)}`);
   }
 
+  // The WebSocket endpoint, on the same server, as index.ts mounts it. Options let a test shorten the heartbeat.
+  const stopRealtime = attachRealtime(server, realtime);
+
+  /**
+   * A WebSocket as a browser tab would open one: the client's cookies and this site's Origin, either of
+   * which a test can replace (or leave out with `null`).
+   */
+  function socket(as?: Client, opts: { origin?: string | null; cookie?: string | null; autoPong?: boolean } = {}): WebSocket {
+    const headers: Record<string, string> = {};
+    const origin = opts.origin === undefined ? 'https://photoscout.test' : opts.origin;
+    if (origin !== null) headers.Origin = origin;
+    const cookie = opts.cookie === undefined ? (as && as.jar.size ? [...as.jar].map(([k, v]) => `${k}=${v}`).join('; ') : null) : opts.cookie;
+    if (cookie) headers.Cookie = cookie;
+    return new WebSocket(`${base.replace('http', 'ws')}/ws`, { headers, autoPong: opts.autoPong ?? true });
+  }
+
   async function close() {
+    stopRealtime();
     server.close();
     await once(server, 'close');
   }
-  return { base, client, signIn, close, dataDir: dir };
+  return { base, client, signIn, socket, close, dataDir: dir };
 }
