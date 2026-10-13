@@ -215,6 +215,7 @@ export interface RailFeature extends GeoJSON.Feature { properties: { id: string;
 
 export interface TrainPosition {
   tripId: string; routeId: string; route: string; headsign: string; lat: number; lng: number; status: 'live' | 'scheduled'; delaySec: number;
+  serviceName?: string;
   bearing?: number | null; speedMps?: number | null; carriages?: number | null; network?: 'sydneytrains' | 'nswtrains' | null;
   path?: [number, number][]; pathAtKm?: number;
   /** Server snapped it onto OSM track; when false/absent the client snaps to the basemap's rail lines instead. */

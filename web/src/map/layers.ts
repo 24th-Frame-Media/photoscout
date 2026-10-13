@@ -389,9 +389,9 @@ export function applyTrainPitch(map: MlMap) {
   map.setPaintProperty('trains', 'circle-stroke-opacity', op);
 }
 
-export function updateTrains(map: MlMap, positions: { tripId: string; route: string; headsign: string; status: string; delaySec: number; lat: number; lng: number }[]) {
+export function updateTrains(map: MlMap, positions: { tripId: string; route: string; headsign: string; serviceName?: string; status: string; delaySec: number; lat: number; lng: number }[]) {
   setData(map, 'trains', { type: 'FeatureCollection', features: positions.map((p) => ({
-    type: 'Feature', properties: { id: p.tripId, route: p.route, headsign: p.headsign, status: p.status, delaySec: p.delaySec, no3d: trainsNo3d.has(p.tripId) }, geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+    type: 'Feature', properties: { id: p.tripId, route: p.route, headsign: p.headsign, serviceName: p.serviceName ?? '', status: p.status, delaySec: p.delaySec, no3d: trainsNo3d.has(p.tripId) }, geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
   })) });
 }
 
