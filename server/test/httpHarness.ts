@@ -60,9 +60,16 @@ export async function startApp(env: Record<string, string> = {}) {
   }, env);
   fakeProviders();
   const { app } = await import('../src/app.js');
-  const server = app.listen(0, '127.0.0.1');
-  await once(server, 'listening');
-  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  // The OS can hand out a port fetch refuses outright ("bad port"); take another.
+  let server: ReturnType<typeof app.listen>, base: string;
+  for (;;) {
+    server = app.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const refused = await fetch(base).then(() => false, (err: Error) => /bad port/.test(String((err.cause as Error | undefined)?.message)));
+    if (!refused) break;
+    server.close();
+  }
 
   /** A client with its own cookie jar, so one test can act as several people. */
   function client(): Client {
