@@ -16,6 +16,7 @@ import CommunityEventForm from './pages/CommunityEventForm.js';
 import Feed from './pages/Feed.js';
 import Chat from './pages/Chat.js';
 import Drive from './pages/Drive.js';
+import DriveConvoy from './convoy/DriveConvoy.js';
 import Moderation from './pages/Moderation.js';
 import Convoy from './pages/Convoy.js';
 
@@ -93,7 +94,7 @@ export default function App() {
         <Route path="/events" element={<Events user={user} />} />
         <Route path="/events/new" element={<CommunityEventForm user={user} />} />
         <Route path="/events/:id/edit" element={<CommunityEventForm user={user} />} />
-        <Route path="/drive" element={<Drive user={user} />} />
+        <Route path="/drive" element={<Drive user={user}><DriveConvoy /></Drive>} />
         <Route path="/feed" element={<Feed user={user} />} />
         <Route path="/chat" element={<Chat user={user} />} />
         <Route path="/convoy" element={<Convoy user={user} />} />

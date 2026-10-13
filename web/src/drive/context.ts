@@ -11,7 +11,10 @@ import type { Fix } from './camera.js';
 export interface DriveMapApi {
   map: MlMap | null;
   fix: Fix | null;
+  /** Whether a destination is chosen, and a way to choose one. */
+  hasTarget: boolean;
+  goTo(lat: number, lng: number, name: string): void;
 }
 
-export const DriveMapContext = createContext<DriveMapApi>({ map: null, fix: null });
+export const DriveMapContext = createContext<DriveMapApi>({ map: null, fix: null, hasTarget: false, goTo: () => {} });
 export const useDriveMap = (): DriveMapApi => useContext(DriveMapContext);

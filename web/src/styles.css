@@ -1724,3 +1724,13 @@ a.chip { text-decoration: none; }
 .editor-form label.toggle { display: flex; align-items: center; gap: 8px; color: var(--text); }
 a.button.primary { display: inline-block; background: var(--accent); border: 1px solid var(--accent); color: var(--on-accent); font-weight: 600; border-radius: var(--radius-sm); padding: 7px 14px; }
 a.button.primary:hover { background: #ffb83d; text-decoration: none; }
+
+/* the convoy you are in, on the Drive screen (web/src/convoy/DriveConvoy.tsx) */
+.driveconvoy {
+  position: absolute;
+  left: calc(env(safe-area-inset-left, 0px) + var(--drive-gap));
+  bottom: calc(var(--drive-bar-h) + env(safe-area-inset-bottom, 0px) + 2 * var(--drive-gap) + 24px);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  max-width: calc(100% - 2 * var(--drive-gap) - 120px);
+}
+.driveconvoy__name { padding: 6px 12px; border-radius: var(--pill); background: var(--glass); border: 1px solid var(--border); font-size: 15px; font-weight: 600; }
