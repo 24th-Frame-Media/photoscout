@@ -382,10 +382,16 @@ app.use(routing);
 
 // --- places / spots: shared visibility helpers ---------------------------------
 
-/** SQL fragment (with its params) restricting rows to what `user` may list. Unlisted rows never appear in a list. */
+/** SQL fragment (with its params) restricting rows to what `user` may list. Unlisted rows never appear in a list, and a suspended owner's public rows are out of sight. */
 function listVisibilityWhere(user: SessionUser | null | undefined): { sql: string; params: string[] } {
-  if (user) return { sql: "(visibility = 'public' OR (visibility = 'private' AND owner_id = ?))", params: [user.id] };
-  return { sql: "visibility = 'public'", params: [] };
+  const publicRow = "(visibility = 'public' AND owner_id NOT IN (SELECT id FROM users WHERE banned = 1))";
+  if (user) return { sql: `(${publicRow} OR (visibility = 'private' AND owner_id = ?))`, params: [user.id] };
+  return { sql: publicRow, params: [] };
+}
+
+/** Who may delete a row: whoever may edit it, and a moderator for anything that is not private, so abuse on the public map can be removed. */
+function canRemove(row: { visibility: Visibility; owner_id: string }, user: SessionUser | null | undefined): boolean {
+  return canEdit(row.owner_id, user ?? null) || (user?.role === 'moderator' && row.visibility !== 'private');
 }
 
 interface PlaceRow {
@@ -470,7 +476,7 @@ app.patch('/api/places/:id', (req, res) => {
 app.delete('/api/places/:id', (req, res) => {
   const row = db.handle.prepare('SELECT * FROM places WHERE id = ?').get(req.params.id) as unknown as PlaceRow | undefined;
   if (!row) return res.status(404).json({ error: 'Not found' });
-  if (!canEdit(row.owner_id, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canRemove(row, req.user)) return res.status(403).json({ error: 'Forbidden' });
   // Spots outlive their place: detached, not deleted.
   db.handle.prepare('UPDATE spots SET place_id = NULL WHERE place_id = ?').run(row.id);
   db.handle.prepare('DELETE FROM places WHERE id = ?').run(row.id);
@@ -583,7 +589,7 @@ app.patch('/api/spots/:id', (req, res) => {
 app.delete('/api/spots/:id', (req, res) => {
   const row = db.handle.prepare('SELECT * FROM spots WHERE id = ?').get(req.params.id) as unknown as SpotRow | undefined;
   if (!row) return res.status(404).json({ error: 'Not found' });
-  if (!canEdit(row.owner_id, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (!canRemove(row, req.user)) return res.status(403).json({ error: 'Forbidden' });
   const photos = db.handle.prepare('SELECT file, thumb FROM photos WHERE spot_id = ?').all(row.id) as { file: string; thumb: string }[];
   deleteImages(photos.flatMap((p) => [p.file, p.thumb]));
   db.handle.prepare('DELETE FROM photos WHERE spot_id = ?').run(row.id);

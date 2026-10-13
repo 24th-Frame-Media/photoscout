@@ -53,7 +53,8 @@ test('a moderator has none of an admin\'s other powers', async () => {
   assert.equal((await mod('POST', '/api/tasks/housekeeping/run')).status, 403);
   assert.equal((await mod('GET', '/api/remotes')).status, 403);
   assert.equal((await mod('PATCH', `/api/spots/${spot}`, { name: 'Mine now' })).status, 403, 'another person\'s spot');
-  assert.equal((await mod('DELETE', `/api/spots/${spot}`)).status, 403);
+  assert.equal((await mod('DELETE', `/api/spots/${secret}`)).status, 403, 'a private spot cannot be deleted');
+  assert.equal((await mod('DELETE', `/api/spots/${spot}`)).status, 200, 'a public one can, to take abuse off the map');
   assert.equal((await mod('GET', `/api/spots/${secret}`)).status, 404, 'a private spot stays private');
   assert.equal((await mod('PATCH', `/api/users/${adminId}`, { banned: true })).status, 403, 'suspending an admin');
   assert.equal((await mod('PATCH', `/api/users/${mod2Id}`, { banned: true })).status, 403, 'suspending a moderator');
