@@ -1539,7 +1539,8 @@ a.chip { text-decoration: none; }
   --drive-bar-h: 150px;
   padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }
-.drive__map { position: absolute; inset: 0; }
+/* .drive prefix: maplibre-gl.css loads after this file and would set it back to relative. */
+.drive .drive__map { position: absolute; inset: 0; }
 /* the map's own credit line rides above the readouts instead of under them */
 .drive .maplibregl-ctrl-bottom-right, .drive .maplibregl-ctrl-bottom-left { bottom: calc(var(--drive-bar-h) + env(safe-area-inset-bottom, 0px) + 2 * var(--drive-gap)); }
 
