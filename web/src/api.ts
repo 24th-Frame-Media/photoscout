@@ -41,6 +41,21 @@ export interface DroneContextResponse {
   airspaces: DroneAirspaceItem[];
   airports: DroneAirportItem[];
   fireHazards: DroneFireHazardItem[];
+  weather?: {
+    windKmh?: number | null;
+    gustKmh?: number | null;
+    visibilityM?: number | null;
+    tempC?: number | null;
+    cloudPct?: number | null;
+  };
+  aircraft?: {
+    count: number;
+    nearby: Array<{ hex: string; flight?: string; alt_baro?: number | null }>;
+  };
+  population?: {
+    buildingCount: number;
+    indicators: string[];
+  };
   assessment: DroneAssessmentResult;
   sources: {
     openaip?: {
@@ -54,6 +69,14 @@ export interface DroneContextResponse {
     rfs?: {
       fetchedAt: string;
       stale: boolean;
+      attribution: string;
+    };
+    weather?: {
+      fetchedAt: string;
+      attribution: string;
+    };
+    aircraft?: {
+      fetchedAt: string;
       attribution: string;
     };
   };

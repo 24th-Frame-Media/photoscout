@@ -1019,7 +1019,8 @@ app.get('/api/drone/context', async (req, res, next) => {
     let weatherSummary: { windKmh?: number | null; gustKmh?: number | null; visibilityM?: number | null; tempC?: number | null; cloudPct?: number | null } | undefined;
     let weatherMeta: { fetchedAt: string; attribution: string } | undefined;
     try {
-      const forecast = await fetchWeather(lat, lng, 1);
+      const weatherBaseUrl = process.env.OPEN_METEO_URL ?? 'https://api.open-meteo.com';
+      const forecast = await fetchWeather(weatherBaseUrl, lat, lng, 1);
       const currentHour = forecast?.hourly?.[0];
       weatherEvidence = weatherContextToEvidence({
         windKmh: currentHour?.windKmh,

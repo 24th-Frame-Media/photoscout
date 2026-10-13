@@ -162,7 +162,7 @@ export function airportsGeoJSON(airports: DroneAirportItem[]): {
           rule: 'CASR 101.238(d)(v)',
           sourceClassificationVerified: true,
           disclaimer:
-            'Controlled aerodrome 3 NM buffer (CASR 101.238(d)(v)). Operation requires permission from controlling authority.',
+            'Controlled aerodrome 3 NM conditional planning buffer (CASR 101.238(d)(v)). Conditions depend on aircraft category, weight (including 250 g threshold), and applicable permissions.',
         },
         geometry: apt.controlledBuffer,
       });
@@ -228,7 +228,7 @@ export function formatAirportDetail(props: Record<string, unknown>): string {
     return `<div class="drone-popup">
       <strong>${name}${icao}</strong><br />
       <span class="drone-popup-alert">Verified Controlled Aerodrome (CASR 101.238(d)(v))</span><br />
-      <em>3 NM perimeter mapped. Operation requires controlling authority permission.</em>
+      <em>3 NM conditional planning buffer shown. Conditions depend on aircraft category/weight (including 250 g threshold) and permissions. Confirm applicable CASA conditions before flight.</em>
     </div>`;
   }
 
@@ -236,6 +236,23 @@ export function formatAirportDetail(props: Record<string, unknown>): string {
     <strong>${name}${icao}</strong><br />
     <span>Aerodrome / landing area context</span><br />
     <em>Check for aircraft movements and approach/departure corridors before flight.</em>
+  </div>`;
+}
+
+export function formatControlled3nmDetail(props: Record<string, unknown>): string {
+  const name = escapeHtml(String(props.airportName || props.name || 'Controlled Aerodrome'));
+  const icao = props.icaoCode ? ` (${escapeHtml(String(props.icaoCode))})` : '';
+  const disclaimer = escapeHtml(
+    String(
+      props.disclaimer ||
+        'Controlled aerodrome 3 NM conditional planning buffer (CASR 101.238(d)(v)).'
+    )
+  );
+
+  return `<div class="drone-popup">
+    <strong>${name}${icao} — 3 NM Buffer</strong><br />
+    <span class="drone-popup-alert">${disclaimer}</span><br />
+    <em>Conditional planning buffer: conditions depend on aircraft category/weight (including 250 g threshold) and permissions. Confirm applicable CASA conditions before flight.</em>
   </div>`;
 }
 

@@ -6,6 +6,7 @@ import {
   droneFireHazardsGeoJSON,
   formatAirspaceDetail,
   formatAirportDetail,
+  formatControlled3nmDetail,
   formatFireHazardDetail,
   type DroneAirspaceItem,
   type DroneAirportItem,
@@ -232,4 +233,15 @@ test('drone web: detail popups escape provider strings and never contain banned 
   assert.ok(!fireDetail.includes('<img'));
   assert.ok(fireDetail.toLowerCase().includes('modelled'));
   assertNoBannedWords(fireDetail);
+
+  const controlled3nmDetail = formatControlled3nmDetail({
+    airportName: 'Bathurst Aerodrome',
+    icaoCode: 'YBTH',
+    disclaimer: 'Controlled aerodrome 3 NM conditional planning buffer (CASR 101.238(d)(v)).',
+  });
+  assert.ok(controlled3nmDetail.includes('Bathurst Aerodrome'));
+  assert.ok(controlled3nmDetail.includes('YBTH'));
+  assert.ok(controlled3nmDetail.includes('3 NM Buffer'));
+  assert.ok(controlled3nmDetail.includes('250 g'));
+  assertNoBannedWords(controlled3nmDetail);
 });

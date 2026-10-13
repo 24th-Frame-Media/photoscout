@@ -6,7 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { locateControl } from '../map/locateControl.js';
 import SuggestSpot from '../components/SuggestSpot.js';
-import { api, Candidate, type EventItem, FireIncident, Place, Plane, type PlaneInfo, type RadioPlace, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast } from '../api.js';
+import { api, Candidate, type DroneContextResponse, type EventItem, FireIncident, Place, Plane, type PlaneInfo, type RadioPlace, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast } from '../api.js';
 import { sunLook } from '../map/sunLook.js';
 import { hourAt, pickRadarFrame, RAINVIEWER_INDEX, radarTileUrl, weatherIcon, type RadarIndex } from '../map/weather.js';
 import {
@@ -14,7 +14,18 @@ import {
   updateMood, updatePlacesAndSpots, updatePlanes, updateRail, updateRays, setNearbyHighlight, updateShadows, updateTrains, updateWedges,
   TRAIN_LAYERS, setTrains3d, updatePlanePositions, hiddenLayers, setRadarFrame, FIRE_LAYERS, updateFires, updateCameras, EVENT_LAYERS, updateEvents,
   RADIO_LAYERS, updateRadioPlaces,
+  DRONE_LAYERS, updateDroneAirspaces, updateDroneAirports, updateDroneFireHazards,
 } from '../map/layers.js';
+import {
+  airspacesGeoJSON,
+  airportsGeoJSON,
+  droneFireHazardsGeoJSON,
+  formatAirspaceDetail,
+  formatAirportDetail,
+  formatControlled3nmDetail,
+  formatFireHazardDetail,
+} from '../map/drone.js';
+import DronePlanningPanel from '../components/DronePlanningPanel.js';
 import { due, MotionTracker, planePredict, trainPredict } from '../map/motion.js';
 import { carriageCount } from '../map/trains3d.js';
 import { collectRailTiles, RailSnapper } from '../map/railSnap.js';
@@ -81,7 +92,7 @@ const newSpot = (lat: number, lng: number, placeId: string | null = null): SpotD
 });
 
 /** Legend keys whose visibility is applied by their own effect below. */
-const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events', 'radio'];
+const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events', 'radio', 'drone'];
 const RADAR_POLL_MS = 10 * 60_000;
 
 type RouteHistoryEntry = { draft: RouteDraft; duration: number | null; ready: boolean };
@@ -134,8 +145,11 @@ export default function MapPage({ user }: { user: User | null }) {
   // Layer visibility: one source of truth for the legend and the chips.
   const [vis, setVis] = useState<Visibility>(loadVisibility);
   useEffect(() => saveVisibility(vis), [vis]);
-  const toggle = (key: string, on = !vis[key]) => setVis((v) => ({ ...v, [key]: on }));
-  const { planes: planesOn, rail: railOn, trains: trainsOn, candidates: candidatesOn, imagery, weather: weatherOn, fires: firesOn, cameras: camerasOn, events: eventsOn, radio: radioOn } = vis;
+  const toggle = (key: string, on = !vis[key]) => {
+    if (key === 'drone' && on) setSelected(null);
+    setVis((v) => ({ ...v, [key]: on }));
+  };
+  const { planes: planesOn, rail: railOn, trains: trainsOn, candidates: candidatesOn, imagery, weather: weatherOn, fires: firesOn, cameras: camerasOn, events: eventsOn, radio: radioOn, drone: droneOn } = vis;
   const railEffectiveOn = effectiveRailOn(railOn, trainsOn);
   const baseRailPaint = useRef<BaseRailPaintSnapshot[] | null>(null);
   const routesOn = vis.routes;
@@ -169,6 +183,11 @@ export default function MapPage({ user }: { user: User | null }) {
       player.destroy();
     };
   }, []);
+  const [droneData, setDroneData] = useState<DroneContextResponse | null>(null);
+  const [droneLoading, setDroneLoading] = useState(false);
+  const [droneError, setDroneError] = useState('');
+  const [dronePlanningPoint, setDronePlanningPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const droneMarker = useRef<Marker | null>(null);
 
   // Smooth movement between polls, and follow mode (camera on one vehicle).
   const planeMotion = useRef(new MotionTracker());
@@ -413,6 +432,98 @@ export default function MapPage({ user }: { user: User | null }) {
       });
     return () => { stop = true; };
   }, [map, radioOn, radioPlaces]);
+  // Drone planning overlay: airspaces, aerodromes, modelled fire hazard buffers, and CASR 101 assessment
+  const targetDroneLat = dronePlanningPoint ? dronePlanningPoint.lat : centre.lat;
+  const targetDroneLng = dronePlanningPoint ? dronePlanningPoint.lng : centre.lng;
+
+  const refreshDroneContext = () => {
+    if (!map || !droneOn) return;
+    setDroneLoading(true);
+    api.droneContext(targetDroneLat, targetDroneLng)
+      .then((res) => {
+        setDroneData(res);
+        setDroneLoading(false);
+        setDroneError('');
+        updateDroneAirspaces(map, airspacesGeoJSON(res.airspaces ?? []));
+        const { points, controlled3nm } = airportsGeoJSON(res.airports ?? []);
+        updateDroneAirports(map, points, controlled3nm);
+        updateDroneFireHazards(map, droneFireHazardsGeoJSON(res.fireHazards ?? []));
+      })
+      .catch((err) => {
+        setDroneLoading(false);
+        setDroneError((err as Error).message);
+      });
+  };
+
+  useEffect(() => {
+    if (!map) return;
+    setLayerVisible(map, DRONE_LAYERS, !!droneOn);
+    if (!droneOn) {
+      setDroneData(null);
+      setDroneError('');
+      updateDroneAirspaces(map, { type: 'FeatureCollection', features: [] });
+      updateDroneAirports(map, { type: 'FeatureCollection', features: [] }, { type: 'FeatureCollection', features: [] });
+      updateDroneFireHazards(map, { type: 'FeatureCollection', features: [] });
+      return;
+    }
+    let stop = false;
+    setDroneLoading(true);
+    const timer = setTimeout(() => {
+      api.droneContext(targetDroneLat, targetDroneLng)
+        .then((res) => {
+          if (stop) return;
+          setDroneData(res);
+          setDroneLoading(false);
+          setDroneError('');
+          updateDroneAirspaces(map, airspacesGeoJSON(res.airspaces ?? []));
+          const { points, controlled3nm } = airportsGeoJSON(res.airports ?? []);
+          updateDroneAirports(map, points, controlled3nm);
+          updateDroneFireHazards(map, droneFireHazardsGeoJSON(res.fireHazards ?? []));
+        })
+        .catch((err) => {
+          if (stop) return;
+          setDroneLoading(false);
+          setDroneError((err as Error).message);
+        });
+    }, dronePlanningPoint ? 0 : 500);
+
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [map, droneOn, targetDroneLat, targetDroneLng]);
+
+  useEffect(() => {
+    if (!map || !droneOn || !dronePlanningPoint) {
+      if (droneMarker.current) {
+        droneMarker.current.remove();
+        droneMarker.current = null;
+      }
+      return;
+    }
+    if (!droneMarker.current) {
+      const el = document.createElement('div');
+      el.className = 'drone-planning-marker';
+      el.innerHTML = '<span style="font-size:24px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));cursor:grab;" title="Drag to change drone planning location">🛸</span>';
+      const m = new Marker({ element: el, draggable: true })
+        .setLngLat([dronePlanningPoint.lng, dronePlanningPoint.lat])
+        .addTo(map);
+      m.on('dragend', () => {
+        const lngLat = m.getLngLat();
+        setDronePlanningPoint({ lat: lngLat.lat, lng: lngLat.lng });
+      });
+      droneMarker.current = m;
+    } else {
+      droneMarker.current.setLngLat([dronePlanningPoint.lng, dronePlanningPoint.lat]);
+    }
+  }, [map, droneOn, dronePlanningPoint?.lat, dronePlanningPoint?.lng]);
+
+  useEffect(() => {
+    return () => {
+      droneMarker.current?.remove();
+      droneMarker.current = null;
+    };
+  }, []);
 
   // Animation: move planes and trains between polls, at most every FRAME_MS, and only for shown layers.
   const trainById = useMemo(() => new Map(trainData.map((t) => [t.tripId, t])), [trainData]);
@@ -1044,6 +1155,22 @@ export default function MapPage({ user }: { user: User | null }) {
       showFirePopup(map, [lng, lat], hit.properties ?? {});
       return;
     }
+    if (hit.layer.id === 'drone-controlled-aerodrome-3nm-fill' || hit.layer.id === 'drone-controlled-aerodrome-3nm-line') {
+      openPopup(map, [lng, lat], formatControlled3nmDetail(hit.properties ?? {}));
+      return;
+    }
+    if (hit.layer.id === 'drone-airports-controlled' || hit.layer.id === 'drone-airports-caution') {
+      openPopup(map, [lng, lat], formatAirportDetail(hit.properties ?? {}));
+      return;
+    }
+    if (hit.layer.id === 'drone-fire-hazard-buffer-fill' || hit.layer.id === 'drone-fire-hazard-buffer-line') {
+      openPopup(map, [lng, lat], formatFireHazardDetail(hit.properties ?? {}));
+      return;
+    }
+    if (hit.layer.id.startsWith('drone-airspace-')) {
+      openPopup(map, [lng, lat], formatAirspaceDetail(hit.properties ?? {}));
+      return;
+    }
     if (hit.layer.id === 'clusters') {
       (map.getSource('spots') as GeoJSONSource).getClusterExpansionZoom(hit.properties.cluster_id)
         .then((zoom) => map.easeTo({ center: (hit.geometry as GeoJSON.Point).coordinates as [number, number], zoom }));
@@ -1303,6 +1430,7 @@ export default function MapPage({ user }: { user: User | null }) {
             { key: 'candidates', label: category('candidates').label, swatch: <Swatch cat={category('candidates')} />, on: candidatesOn, title: 'OpenStreetMap viewpoints, ruins and other candidates', onSelect: () => toggle('candidates') },
             { key: 'events', label: category('events').label, swatch: <Swatch cat={category('events')} />, on: !!eventsOn, title: 'Upcoming events from Event Scout that have a location', onSelect: () => toggle('events') },
             { key: 'road-quality', label: category('road-quality').label, swatch: <Swatch cat={category('road-quality')} />, on: !!vis['road-quality'], title: 'OpenStreetMap roads from z13: green good, amber fair, red poor/unpaved, grey unknown. Surface tags are incomplete, so grey and fair are often guesses.', onSelect: () => toggle('road-quality') },
+            { key: 'drone', label: category('drone').label, swatch: <Swatch cat={category('drone')} />, on: !!droneOn, title: 'Advisory drone planning rules, airspace, aerodromes, and cautions (CASR 101)', onSelect: () => toggle('drone') },
             { key: 'rail', label: category('rail').label, swatch: <Swatch cat={category('rail')} />, on: railOn, onSelect: () => toggle('rail') },
             { key: 'routes', label: category('routes').label, swatch: <Swatch cat={category('routes')} />, on: routesOn, title: 'Show or hide saved routes', onSelect: () => toggle('routes') },
           ] },
@@ -1340,6 +1468,20 @@ export default function MapPage({ user }: { user: User | null }) {
         </button>
         <span>{sunAnchor ? `${sunAnchor.lat.toFixed(5)}, ${sunAnchor.lng.toFixed(5)}` : 'No anchor set'}</span>
       </div>
+
+      {droneOn && !editing && !selected && (
+        <DronePlanningPanel
+          user={user}
+          data={droneData}
+          loading={droneLoading}
+          error={droneError}
+          planningPoint={dronePlanningPoint}
+          centre={centre}
+          onSetPlanningPoint={setDronePlanningPoint}
+          onClose={() => toggle('drone', false)}
+          onRefresh={refreshDroneContext}
+        />
+      )}
 
       {panelOpen && (
         <aside className={`panel panel--${sheetSize}`}>
