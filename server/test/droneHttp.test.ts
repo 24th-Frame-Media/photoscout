@@ -294,3 +294,39 @@ test('drone http: upstream provider errors do not leak secrets in responses', as
     await harness.close();
   }
 });
+
+test('drone http: includes population, weather, and aircraft context, preserving NOTAM and emergency gates', async () => {
+  const harness = await startApp();
+  try {
+    const client = harness.client();
+    await harness.signIn(client, 'google', { id: 'user-ctx', name: 'ContextTester' });
+
+    const res = await client('GET', '/api/drone/context?lat=-33.42&lng=149.58');
+    assert.equal(res.status, 200);
+
+    // NOTAM and non-fire emergency gates must ALWAYS be present in notChecked
+    const notChecked = res.json.assessment.notChecked;
+    assert.ok(Array.isArray(notChecked));
+    const notamGate = notChecked.find((e: any) => e.category === 'notam');
+    const emergencyGate = notChecked.find((e: any) => e.category === 'emergency');
+    assert.ok(notamGate, 'NOTAM gate must be present in notChecked');
+    assert.ok(emergencyGate, 'Emergency gate must be present in notChecked');
+    assert.equal(notamGate.severity, 'not_checked');
+    assert.equal(emergencyGate.severity, 'not_checked');
+
+    // Evidence must contain population, weather, and aircraft context items
+    const evidence = res.json.assessment.evidence;
+    const popEvidence = evidence.find((e: any) => e.category === 'population');
+    const wxEvidence = evidence.find((e: any) => e.category === 'weather');
+    const airEvidence = evidence.find((e: any) => e.category === 'aircraft');
+
+    assert.ok(popEvidence, 'Population context evidence must be present');
+    assert.ok(wxEvidence, 'Weather context evidence must be present');
+    assert.ok(airEvidence, 'Aircraft context evidence must be present');
+
+    assertNoBannedWords(JSON.stringify(res.json));
+  } finally {
+    await harness.close();
+  }
+});
+

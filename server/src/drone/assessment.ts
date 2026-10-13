@@ -22,6 +22,16 @@ const SEVERITY_PRECEDENCE: Record<DroneSeverity, number> = {
   info: 5,
 };
 
+export interface NotamProvider {
+  name: string;
+  configured: boolean;
+  fetchNotams?(bounds: { lat: number; lng: number; radiusM: number }): Promise<DroneEvidence[]>;
+}
+
+export const notamProviderSlot: { provider: NotamProvider | null } = {
+  provider: null,
+};
+
 export function createDefaultNotCheckedGates(): DroneEvidence[] {
   return [
     {
@@ -32,7 +42,7 @@ export function createDefaultNotCheckedGates(): DroneEvidence[] {
       title: 'NOTAMs',
       explanation:
         'Not checked — obtain current official aviation notices and temporary flight restrictions before flight.',
-      source: { name: 'Airservices Australia / NAIPS' },
+      source: { name: 'No authoritative provider configured' },
       userAction: 'Review official NAIPS / NOTAM briefing for tactical airspace activations.',
     },
     {
@@ -43,7 +53,7 @@ export function createDefaultNotCheckedGates(): DroneEvidence[] {
       title: 'Non-fire emergency operations',
       explanation:
         'Not checked — emergency operations (police, search and rescue, disaster response) may be underway; confirm with local sources.',
-      source: { name: 'State Emergency Services' },
+      source: { name: 'No authoritative provider configured' },
       userAction: 'Check local emergency broadcaster and do not operate near active emergency scenes.',
     },
   ];
@@ -251,13 +261,128 @@ export function aerodromeToEvidence(
   };
 }
 
+export function weatherContextToEvidence(details: {
+  windKmh?: number | null;
+  gustKmh?: number | null;
+  visibilityM?: number | null;
+  cloudPct?: number | null;
+  tempC?: number | null;
+  failed?: boolean;
+}): DroneEvidence {
+  if (details.failed) {
+    return {
+      id: 'weather-not-checked',
+      category: 'weather',
+      severity: 'not_checked',
+      authority: 'unknown',
+      ruleId: 'casr-101-095',
+      title: 'Weather awareness context',
+      explanation:
+        'Weather forecast feed unavailable. Pilot must check current weather and confirm daylight visual meteorological conditions.',
+      source: { name: 'Open-Meteo' },
+      userAction: 'Check local weather conditions and verify visual line of sight conditions before launch.',
+    };
+  }
+
+  const gust = details.gustKmh != null ? Math.round(details.gustKmh) : null;
+  const wind = details.windKmh != null ? Math.round(details.windKmh) : null;
+  const vis = details.visibilityM != null ? Math.round(details.visibilityM) : null;
+
+  const isWindy = (gust != null && gust >= 35) || (wind != null && wind >= 30);
+  const isLowVis = vis != null && vis < 5000;
+
+  if (isWindy || isLowVis) {
+    const reasons: string[] = [];
+    if (isWindy) reasons.push(`wind ${wind ?? '–'} km/h with gusts to ${gust ?? '–'} km/h`);
+    if (isLowVis) reasons.push(`reduced visibility (${vis} m)`);
+
+    return {
+      id: 'caution-weather',
+      category: 'weather',
+      severity: 'caution',
+      authority: 'regulator_guidance',
+      ruleId: 'casr-101-095',
+      title: 'Weather conditions context',
+      explanation: `Forecast indicates ${reasons.join(', ')}. Pilot must confirm daylight visual meteorological conditions and aircraft limits before flight.`,
+      source: { name: 'Open-Meteo Weather' },
+      userAction: 'Confirm conditions are within manufacturer operating limits and CASR 101.095 daylight VMC.',
+    };
+  }
+
+  return {
+    id: 'info-weather',
+    category: 'weather',
+    severity: 'info',
+    authority: 'regulator_guidance',
+    ruleId: 'casr-101-095',
+    title: 'Weather awareness context',
+    explanation: `Forecast indicates wind ${wind ?? '–'} km/h, visibility ${vis != null ? `${vis} m` : 'adequate'}. Operational context only — pilot must confirm on-site visual meteorological conditions.`,
+    source: { name: 'Open-Meteo Weather' },
+    userAction: 'Confirm daylight and visual meteorological conditions at launch site.',
+  };
+}
+
+export function aircraftContextToEvidence(details: {
+  count?: number;
+  nearby?: Array<{ hex: string; flight?: string; alt_baro?: number | null }>;
+  failed?: boolean;
+}): DroneEvidence {
+  if (details.failed) {
+    return {
+      id: 'aircraft-not-checked',
+      category: 'aircraft',
+      severity: 'not_checked',
+      authority: 'unknown',
+      ruleId: 'casr-101-055',
+      title: 'Aircraft activity context',
+      explanation:
+        'Live aircraft feed unavailable. Remote pilot must maintain continuous visual scan for all aircraft.',
+      source: { name: 'ADS-B Aircraft Feed' },
+      userAction: 'Maintain continuous visual and listening watch for manned aircraft.',
+    };
+  }
+
+  const count = details.count ?? 0;
+  if (count > 0) {
+    return {
+      id: 'caution-aircraft',
+      category: 'aircraft',
+      severity: 'caution',
+      authority: 'provider_context',
+      ruleId: 'casr-101-055',
+      title: 'Nearby aircraft activity context',
+      explanation: `${count} aircraft detected in vicinity via ADS-B. Incomplete coverage: aircraft without broadcast ADS-B Out or operating below receiver coverage are not detected. Pilot must maintain continuous visual scan for traffic.`,
+      source: { name: 'ADS-B Aircraft Feed' },
+      userAction: 'Maintain continuous visual and listening watch; give way to all manned aircraft.',
+    };
+  }
+
+  return {
+    id: 'info-aircraft',
+    category: 'aircraft',
+    severity: 'info',
+    authority: 'provider_context',
+    ruleId: 'casr-101-055',
+    title: 'Aircraft activity context',
+    explanation:
+      'No broadcast ADS-B aircraft detected in vicinity. Incomplete coverage: aircraft without ADS-B Out or below receiver coverage are not detected.',
+    source: { name: 'ADS-B Aircraft Feed' },
+    userAction: 'Maintain continuous visual and listening scan for non-broadcast aircraft.',
+  };
+}
+
 export function evaluateDroneAssessment(
   input: DroneAssessmentInput
 ): DroneAssessmentResult {
   const evidenceList = [...(input.evidence ?? [])];
   evidenceList.sort((a, b) => SEVERITY_PRECEDENCE[a.severity] - SEVERITY_PRECEDENCE[b.severity]);
 
-  const notChecked = input.notChecked ?? createDefaultNotCheckedGates();
+  const defaultGates = createDefaultNotCheckedGates();
+  const gateMap = new Map<string, DroneEvidence>();
+  for (const g of defaultGates) gateMap.set(g.id, g);
+  for (const g of input.notChecked ?? []) gateMap.set(g.id, g);
+  const notChecked = Array.from(gateMap.values());
+
   const pilotChecklist = input.pilotChecklist ?? createDefaultPilotChecklist();
 
   const hasRestriction = evidenceList.some((e) => e.severity === 'restriction');

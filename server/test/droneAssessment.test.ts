@@ -8,6 +8,9 @@ import {
   fireIncidentToEvidence,
   populousCautionToEvidence,
   aerodromeToEvidence,
+  weatherContextToEvidence,
+  aircraftContextToEvidence,
+  notamProviderSlot,
   type DroneAssessmentInput,
 } from '../src/drone/assessment.js';
 import type { DroneEvidence, DroneSeverity } from '../src/drone/types.js';
@@ -215,3 +218,50 @@ test('drone assessment: evaluation output never produces banned conclusion words
   const result = evaluateDroneAssessment({ evidence: testEvidence });
   assertNoBannedWords(result);
 });
+
+test('drone assessment: weatherContextToEvidence handles high winds, low visibility, and feed failure without claiming safety', () => {
+  const windy = weatherContextToEvidence({ windKmh: 25, gustKmh: 42, visibilityM: 10000 });
+  assert.equal(windy.severity, 'caution');
+  assert.equal(windy.ruleId, 'casr-101-095');
+  assert.ok(windy.explanation.includes('wind'));
+  assertNoBannedWords(windy);
+
+  const lowVis = weatherContextToEvidence({ windKmh: 10, gustKmh: 15, visibilityM: 3000 });
+  assert.equal(lowVis.severity, 'caution');
+  assert.ok(lowVis.explanation.includes('visibility'));
+  assertNoBannedWords(lowVis);
+
+  const normal = weatherContextToEvidence({ windKmh: 12, gustKmh: 18, visibilityM: 10000 });
+  assert.equal(normal.severity, 'info');
+  assertNoBannedWords(normal);
+
+  const failed = weatherContextToEvidence({ failed: true });
+  assert.equal(failed.severity, 'not_checked');
+  assert.ok(failed.explanation.includes('unavailable'));
+  assertNoBannedWords(failed);
+});
+
+test('drone assessment: aircraftContextToEvidence handles nearby traffic, clear sky, and feed failure without claiming clearance', () => {
+  const traffic = aircraftContextToEvidence({ count: 2, nearby: [{ hex: '7c0001' }] });
+  assert.equal(traffic.severity, 'caution');
+  assert.equal(traffic.ruleId, 'casr-101-055');
+  assert.ok(traffic.explanation.includes('2 aircraft'));
+  assert.ok(traffic.explanation.includes('Incomplete coverage'));
+  assertNoBannedWords(traffic);
+
+  const clear = aircraftContextToEvidence({ count: 0, nearby: [] });
+  assert.equal(clear.severity, 'info');
+  assert.ok(clear.explanation.includes('Incomplete coverage'));
+  assertNoBannedWords(clear);
+
+  const failed = aircraftContextToEvidence({ failed: true });
+  assert.equal(failed.severity, 'not_checked');
+  assert.ok(failed.explanation.includes('unavailable'));
+  assertNoBannedWords(failed);
+});
+
+test('drone assessment: notamProviderSlot provides interface slot for future authoritative NOTAM provider', () => {
+  assert.equal(typeof notamProviderSlot, 'object');
+  assert.equal(notamProviderSlot.provider, null);
+});
+

@@ -32,7 +32,8 @@ import { fetchFires, fetchFiresWithMeta } from './feeds/rfs.js';
 import { fetchAurora } from './feeds/spaceWeather.js';
 import buffer from '@turf/buffer';
 import { fetchOpenAipContext, MAX_RADIUS_M } from './providers/openaip.js';
-import { airspaceToEvidence, aerodromeToEvidence, evaluateDroneAssessment } from './drone/assessment.js';
+import { airspaceToEvidence, aerodromeToEvidence, evaluateDroneAssessment, weatherContextToEvidence, aircraftContextToEvidence } from './drone/assessment.js';
+import { evaluatePopulationContext } from './drone/population.js';
 import { createDroneFireHazards, fireHazardToEvidence, createFireNotCheckedGate, type DroneFireHazard } from './drone/fireHazards.js';
 import type { DroneEvidence, DroneEvidenceSource } from './drone/types.js';
 import { fetchBuildings } from './sources/osm.js';
@@ -988,7 +989,86 @@ app.get('/api/drone/context', async (req, res, next) => {
       fireEvidenceList.push(createFireNotCheckedGate('Feed unavailable'));
     }
 
-    // 2. OpenAIP context with requesting user's key
+    // 2. Population context from buildings and events
+    let popEvidence: DroneEvidence;
+    let popSummary: { buildingCount: number; indicators: string[] } | undefined;
+    try {
+      const buildings = await fetchBuildings(lat, lng, 350);
+      const bCount = buildings?.features?.length ?? 0;
+      let nearbyEvs: Array<{ title: string; distanceM?: number }> = [];
+      try {
+        const allEvs = eventList();
+        nearbyEvs = allEvs
+          .filter((ev) => ev.lat != null && ev.lng != null && haversine(lat, lng, ev.lat, ev.lng) <= 1000)
+          .map((ev) => ({ title: ev.title, distanceM: Math.round(haversine(lat, lng, ev.lat!, ev.lng!)) }));
+      } catch {}
+      popEvidence = evaluatePopulationContext({
+        buildingCount: bCount,
+        events: nearbyEvs,
+      });
+      popSummary = {
+        buildingCount: bCount,
+        indicators: nearbyEvs.map((e) => e.title),
+      };
+    } catch {
+      popEvidence = evaluatePopulationContext({ osmUnavailable: true });
+    }
+
+    // 3. Weather awareness context
+    let weatherEvidence: DroneEvidence;
+    let weatherSummary: { windKmh?: number | null; gustKmh?: number | null; visibilityM?: number | null; tempC?: number | null; cloudPct?: number | null } | undefined;
+    let weatherMeta: { fetchedAt: string; attribution: string } | undefined;
+    try {
+      const forecast = await fetchWeather(lat, lng, 1);
+      const currentHour = forecast?.hourly?.[0];
+      weatherEvidence = weatherContextToEvidence({
+        windKmh: currentHour?.windKmh,
+        gustKmh: currentHour?.gustKmh,
+        visibilityM: currentHour?.visibilityM,
+        tempC: currentHour?.tempC,
+        cloudPct: currentHour?.cloudPct,
+      });
+      weatherSummary = {
+        windKmh: currentHour?.windKmh,
+        gustKmh: currentHour?.gustKmh,
+        visibilityM: currentHour?.visibilityM,
+        tempC: currentHour?.tempC,
+        cloudPct: currentHour?.cloudPct,
+      };
+      weatherMeta = {
+        fetchedAt: forecast.fetchedAt,
+        attribution: 'Weather forecast provided by Open-Meteo (CC BY 4.0)',
+      };
+    } catch {
+      weatherEvidence = weatherContextToEvidence({ failed: true });
+    }
+
+    // 4. Aircraft awareness context (ADS-B)
+    let aircraftEvidence: DroneEvidence;
+    let aircraftSummary: { count: number; nearby: Array<{ hex: string; flight?: string; alt_baro?: number | null }> } | undefined;
+    let aircraftMeta: { fetchedAt: string; attribution: string } | undefined;
+    try {
+      const baseUrl = process.env.ADSB_URL ?? 'https://api.adsb.lol';
+      const planes = await fetchPlanes(baseUrl, lat, lng, 15);
+      aircraftEvidence = aircraftContextToEvidence({
+        count: planes.length,
+        nearby: planes.map((p) => ({ hex: p.hex, flight: p.flight, alt_baro: p.alt_baro })),
+      });
+      aircraftSummary = {
+        count: planes.length,
+        nearby: planes.slice(0, 5).map((p) => ({ hex: p.hex, flight: p.flight, alt_baro: p.alt_baro })),
+      };
+      aircraftMeta = {
+        fetchedAt: new Date().toISOString(),
+        attribution: 'Live aircraft positions via ADS-B (awareness context only)',
+      };
+    } catch {
+      aircraftEvidence = aircraftContextToEvidence({ failed: true });
+    }
+
+    const contextEvidence = [popEvidence, weatherEvidence, aircraftEvidence];
+
+    // 5. OpenAIP context with requesting user's key
     const openAipResult = await fetchOpenAipContext({
       db,
       userId: req.user.id,
@@ -999,7 +1079,7 @@ app.get('/api/drone/context', async (req, res, next) => {
 
     if (openAipResult.status === 'not_configured') {
       const assessment = evaluateDroneAssessment({
-        evidence: fireEvidenceList,
+        evidence: [...fireEvidenceList, ...contextEvidence],
       });
 
       return res.json({
@@ -1008,16 +1088,21 @@ app.get('/api/drone/context', async (req, res, next) => {
         airspaces: [],
         airports: [],
         fireHazards,
+        weather: weatherSummary,
+        aircraft: aircraftSummary,
+        population: popSummary,
         assessment,
         sources: {
           rfs: rfsMeta,
+          weather: weatherMeta,
+          aircraft: aircraftMeta,
         },
       });
     }
 
     if (openAipResult.status === 'error') {
       const assessment = evaluateDroneAssessment({
-        evidence: fireEvidenceList,
+        evidence: [...fireEvidenceList, ...contextEvidence],
         stale: true,
       });
 
@@ -1027,9 +1112,14 @@ app.get('/api/drone/context', async (req, res, next) => {
         airspaces: [],
         airports: [],
         fireHazards,
+        weather: weatherSummary,
+        aircraft: aircraftSummary,
+        population: popSummary,
         assessment,
         sources: {
           rfs: rfsMeta,
+          weather: weatherMeta,
+          aircraft: aircraftMeta,
         },
       });
     }
@@ -1069,7 +1159,7 @@ app.get('/api/drone/context', async (req, res, next) => {
       aerodromeToEvidence(apt, openAipSource)
     );
 
-    const allEvidence = [...airspaceEvidence, ...airportEvidence, ...fireEvidenceList];
+    const allEvidence = [...airspaceEvidence, ...airportEvidence, ...fireEvidenceList, ...contextEvidence];
     const assessment = evaluateDroneAssessment({
       evidence: allEvidence,
       stale: openAipResult.source.stale || (rfsMeta?.stale ?? false),
@@ -1080,10 +1170,15 @@ app.get('/api/drone/context', async (req, res, next) => {
       airspaces: openAipResult.data.airspaces,
       airports: airportsWithBuffers,
       fireHazards,
+      weather: weatherSummary,
+      aircraft: aircraftSummary,
+      population: popSummary,
       assessment,
       sources: {
         openaip: openAipResult.source,
         rfs: rfsMeta,
+        weather: weatherMeta,
+        aircraft: aircraftMeta,
       },
     });
   } catch (err) {
