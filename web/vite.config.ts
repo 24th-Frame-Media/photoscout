@@ -8,6 +8,8 @@ export default defineConfig({
     port: 5174,
     proxy: {
       '/api': 'http://localhost:3003',
+      // The convoy and chat socket.
+      '/ws': { target: 'http://localhost:3003', ws: true },
     },
   },
   build: {
