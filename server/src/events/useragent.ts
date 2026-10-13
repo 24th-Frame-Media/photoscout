@@ -50,6 +50,22 @@ export const BROWSER_HEADERS: Record<string, string> = {
 };
 
 /**
+ * What this app says it is when it has no reason to say anything else.
+ *
+ * Public pages (a Facebook event, say) answer a request that names itself
+ * honestly with the same HTML a browser gets, so nothing that does not need a
+ * costume wears one. BROWSER_HEADERS stays for the readers that do: a signed-in
+ * session, whose cookie Facebook ties to a browser's headers.
+ */
+export const HONEST_USER_AGENT = 'PhotoScout/0.4 (+https://github.com/kapsikkum/photoscout)';
+
+export const HONEST_HEADERS: Record<string, string> = {
+  'User-Agent': HONEST_USER_AGENT,
+  Accept: 'text/html,application/xhtml+xml',
+  'Accept-Language': 'en-AU,en;q=0.9',
+};
+
+/**
  * The same identity in the shape `Network.setUserAgentOverride` wants.
  *
  * Setting the UA string alone leaves `navigator.userAgentData` reporting the
