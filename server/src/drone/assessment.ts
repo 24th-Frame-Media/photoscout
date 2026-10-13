@@ -219,7 +219,7 @@ export function populousCautionToEvidence(details: {
 }
 
 export function aerodromeToEvidence(
-  airport: OpenAipAirport,
+  airport: OpenAipAirport & { controlledBuffer?: GeoJSON.Geometry },
   source: DroneEvidenceSource
 ): DroneEvidence {
   if (airport.controlled === true) {
@@ -231,7 +231,7 @@ export function aerodromeToEvidence(
       ruleId: 'casr-101-075',
       title: `Controlled aerodrome proximity: ${airport.name}`,
       explanation: `Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). Standard RPA operating conditions prohibit operation within 3 NM without permission.`,
-      geometry: airport.geometry,
+      geometry: airport.controlledBuffer ?? airport.geometry,
       source,
       userAction: 'Do not operate within 3 NM of controlled aerodrome without required permission.',
     };

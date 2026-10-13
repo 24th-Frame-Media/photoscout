@@ -1,4 +1,63 @@
 /** Typed client for every server/src/index.ts endpoint. */
+import type { DroneAirspaceItem, DroneAirportItem, DroneFireHazardItem } from './map/drone.js';
+
+export type DroneSeverity = 'restriction' | 'caution' | 'not_checked' | 'pilot_responsibility' | 'info';
+export type DroneAuthority = 'legislation' | 'regulator_guidance' | 'provider_context' | 'product_policy' | 'unknown';
+
+export interface DroneEvidenceSource {
+  name: string;
+  fetchedAt?: string;
+  expiresAt?: string;
+  stale?: boolean;
+  url?: string;
+}
+
+export interface DroneEvidence {
+  id: string;
+  category: 'airspace' | 'airport' | 'fire' | 'population' | 'notam' | 'emergency' | 'weather' | 'aircraft' | 'operator';
+  severity: DroneSeverity;
+  authority: DroneAuthority;
+  ruleId?: string;
+  title: string;
+  explanation: string;
+  geometry?: GeoJSON.Geometry;
+  source: DroneEvidenceSource;
+  userAction: string;
+}
+
+export interface DroneAssessmentResult {
+  overallSeverity: DroneSeverity;
+  summary: string;
+  evidence: DroneEvidence[];
+  notChecked: DroneEvidence[];
+  pilotChecklist: DroneEvidence[];
+  stale?: boolean;
+  evaluatedAt: string;
+}
+
+export interface DroneContextResponse {
+  configured: boolean;
+  message?: string;
+  airspaces: DroneAirspaceItem[];
+  airports: DroneAirportItem[];
+  fireHazards: DroneFireHazardItem[];
+  assessment: DroneAssessmentResult;
+  sources: {
+    openaip?: {
+      provider: string;
+      endpoint: string;
+      fetchedAt: string;
+      expiresAt: string;
+      stale: boolean;
+      attribution: string;
+    };
+    rfs?: {
+      fetchedAt: string;
+      stale: boolean;
+      attribution: string;
+    };
+  };
+}
 
 export type Role = 'admin' | 'moderator' | 'contributor';
 export type Visibility = 'private' | 'unlisted' | 'public';
@@ -555,6 +614,9 @@ export const api = {
   marine: (lat: number, lng: number) => fetch(`/api/marine?lat=${lat}&lng=${lng}`).then((r) => json<MarineData>(r)),
   // --- fires (NSW RFS) ---
   fires: () => fetch('/api/fires').then((r) => json<FireIncident[]>(r)),
+  // --- drone planning context ---
+  droneContext: (lat: number, lng: number, radiusM = 10000) =>
+    fetch(`/api/drone/context?lat=${lat}&lng=${lng}&radiusM=${radiusM}`).then((r) => json<DroneContextResponse>(r)),
   // --- aurora (NOAA space weather) ---
   aurora: () => fetch('/api/aurora').then((r) => json<AuroraData>(r)),
   // --- planes ---

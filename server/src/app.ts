@@ -28,8 +28,13 @@ import { parseGoodTimes, GoodTimesError, DEFAULT_GOOD_TIMES } from './goodTimes.
 import { fetchPlanes, fetchPlaneInfo, isValidHex, isValidCallsign } from './feeds/planes.js';
 import { fetchWeather } from './feeds/weather.js';
 import { fetchMarine } from './feeds/marine.js';
-import { fetchFires } from './feeds/rfs.js';
+import { fetchFires, fetchFiresWithMeta } from './feeds/rfs.js';
 import { fetchAurora } from './feeds/spaceWeather.js';
+import buffer from '@turf/buffer';
+import { fetchOpenAipContext, MAX_RADIUS_M } from './providers/openaip.js';
+import { airspaceToEvidence, aerodromeToEvidence, evaluateDroneAssessment } from './drone/assessment.js';
+import { createDroneFireHazards, fireHazardToEvidence, createFireNotCheckedGate, type DroneFireHazard } from './drone/fireHazards.js';
+import type { DroneEvidence, DroneEvidenceSource } from './drone/types.js';
 import { fetchBuildings } from './sources/osm.js';
 import { fetchRoadCell, parseCell } from './sources/roads.js';
 import { fetchCameras } from './feeds/cameras.js';
@@ -926,6 +931,164 @@ app.get('/api/fires', async (_req, res, next) => {
   try {
     res.json(await fetchFires());
   } catch (err) { next(err); }
+});
+
+// --- drone planning context -------------------------------------------------
+
+app.get('/api/drone/context', async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in required' });
+
+  const rawLat = req.query.lat;
+  const rawLng = req.query.lng;
+  const rawRadius = req.query.radiusM;
+
+  if (rawLat == null || rawLng == null) {
+    return res.status(400).json({ error: 'lat and lng query parameters are required' });
+  }
+
+  const lat = Number(rawLat);
+  const lng = Number(rawLng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return res.status(400).json({ error: 'lat must be between -90 and 90, lng between -180 and 180' });
+  }
+
+  let radiusM = 10_000;
+  if (rawRadius != null) {
+    radiusM = Number(rawRadius);
+    if (!Number.isFinite(radiusM) || radiusM <= 0 || radiusM > MAX_RADIUS_M) {
+      return res.status(400).json({ error: `radiusM must be a positive number up to ${MAX_RADIUS_M}` });
+    }
+  }
+
+  try {
+    // 1. Fire hazards from RFS feed
+    let fireHazards: DroneFireHazard[] = [];
+    let fireEvidenceList: DroneEvidence[] = [];
+    let rfsMeta: { fetchedAt: string; stale: boolean; attribution: string } | undefined;
+
+    try {
+      const rfsResult = await fetchFiresWithMeta();
+      fireHazards = createDroneFireHazards(rfsResult.incidents);
+      const fireSource: DroneEvidenceSource = {
+        name: 'NSW Rural Fire Service',
+        fetchedAt: rfsResult.fetchedAt,
+        stale: rfsResult.stale,
+      };
+      rfsMeta = {
+        fetchedAt: rfsResult.fetchedAt,
+        stale: rfsResult.stale,
+        attribution: 'Data provided by NSW Rural Fire Service (CC BY 4.0)',
+      };
+      fireEvidenceList = fireHazards.map((h) => fireHazardToEvidence(h, fireSource));
+      if (rfsResult.stale) {
+        fireEvidenceList.push(createFireNotCheckedGate('RFS feed data is stale'));
+      }
+    } catch {
+      fireEvidenceList.push(createFireNotCheckedGate('Feed unavailable'));
+    }
+
+    // 2. OpenAIP context with requesting user's key
+    const openAipResult = await fetchOpenAipContext({
+      db,
+      userId: req.user.id,
+      lat,
+      lng,
+      radiusM,
+    });
+
+    if (openAipResult.status === 'not_configured') {
+      const assessment = evaluateDroneAssessment({
+        evidence: fireEvidenceList,
+      });
+
+      return res.json({
+        configured: false,
+        message: openAipResult.message,
+        airspaces: [],
+        airports: [],
+        fireHazards,
+        assessment,
+        sources: {
+          rfs: rfsMeta,
+        },
+      });
+    }
+
+    if (openAipResult.status === 'error') {
+      const assessment = evaluateDroneAssessment({
+        evidence: fireEvidenceList,
+        stale: true,
+      });
+
+      return res.json({
+        configured: true,
+        message: openAipResult.error,
+        airspaces: [],
+        airports: [],
+        fireHazards,
+        assessment,
+        sources: {
+          rfs: rfsMeta,
+        },
+      });
+    }
+
+    // status === 'ok' | 'stale'
+    const openAipSource: DroneEvidenceSource = {
+      name: 'openAIP Core API',
+      fetchedAt: openAipResult.source.fetchedAt,
+      expiresAt: openAipResult.source.expiresAt,
+      stale: openAipResult.source.stale,
+    };
+
+    const airspaceEvidence = openAipResult.data.airspaces.map((as) =>
+      airspaceToEvidence(as, openAipSource)
+    );
+
+    const airportsWithBuffers = openAipResult.data.airports.map((apt) => {
+      if (apt.controlled === true) {
+        try {
+          const bufFeature = buffer(apt.geometry as any, 5556, { units: 'meters' });
+          const controlledBuffer = (
+            bufFeature && 'geometry' in bufFeature
+              ? bufFeature.geometry
+              : bufFeature && 'features' in bufFeature && bufFeature.features[0]
+                ? bufFeature.features[0].geometry
+                : undefined
+          ) as GeoJSON.Polygon | undefined;
+          return { ...apt, controlledBuffer };
+        } catch {
+          return apt;
+        }
+      }
+      return apt;
+    });
+
+    const airportEvidence = airportsWithBuffers.map((apt) =>
+      aerodromeToEvidence(apt, openAipSource)
+    );
+
+    const allEvidence = [...airspaceEvidence, ...airportEvidence, ...fireEvidenceList];
+    const assessment = evaluateDroneAssessment({
+      evidence: allEvidence,
+      stale: openAipResult.source.stale || (rfsMeta?.stale ?? false),
+    });
+
+    return res.json({
+      configured: true,
+      airspaces: openAipResult.data.airspaces,
+      airports: airportsWithBuffers,
+      fireHazards,
+      assessment,
+      sources: {
+        openaip: openAipResult.source,
+        rfs: rfsMeta,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // --- events (from event-scout) --------------------------------------------
