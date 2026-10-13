@@ -12,6 +12,7 @@ import EventsModel from '../settings/events/Model.js';
 import EventsNotify from '../settings/events/Notify.js';
 import EventTasks from '../settings/events/EventTasks.js';
 import { GROUPS, Tab, tabFromHash } from '../settings/tabs.js';
+import SignInSetup from '../settings/SignInSetup.js';
 
 export default function Settings({ user, account, onChange }: { user: User | null; account: string | null; onChange: () => void }) {
   const isAdmin = user?.role === 'admin';
@@ -217,6 +218,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
         </div>
       )}
       {isAdmin && tab === 'tasks' && <><Tasks /><div className="evs"><EventTasks /></div></>}
+      {isAdmin && tab === 'signin' && <SignInSetup />}
       {isAdmin && tab === 'users' && <Users me={user!} />}
       </div>
       </div>

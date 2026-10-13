@@ -17,7 +17,7 @@ import {
   bodyProblem, CHAT_MINUTES, MAX_CHAT_BODY, MAX_POST_BODY, parseCheckin, parseCommunityEvent, parseGear, parseMessage, parseProfile, parseReport, parseRide, parseSuggestion,
 } from './bodyLimits.js';
 import { catalog, searchCatalog } from './gearCatalog.js';
-import { configuredProviders, generateCodeVerifier, generateState, provider, publicUrl } from './oauth.js';
+import { authConfigView, configuredProviders, generateCodeVerifier, generateState, provider, publicUrl, updateCredentials } from './oauth.js';
 import { corsDecision, readOrigins } from './cors.js';
 import { applySettingsUpdate, getSettings, memberSettings, publicSettings, tfnswKey } from './settings.js';
 import { geocode } from './geocode.js';
@@ -220,13 +220,13 @@ app.get('/api/auth/status', (req, res) => {
     user: req.user ? findUserById(db, req.user.id) : null,
     // What to put in ADMIN_IDS to make this account an admin. Its own, and only to itself.
     account: req.user ? accountIdOf(db, req.user.id) : null,
-    providers: configuredProviders(),
+    providers: configuredProviders(db),
   });
 });
 
 /** Send the browser to the provider, remembering what was sent so the answer can be checked. */
 app.get('/api/auth/:provider/start', (req, res) => {
-  const p = provider(req.params.provider);
+  const p = provider(db, req.params.provider);
   if (!p) return res.status(404).json({ error: 'That sign-in is not set up' });
   const state = generateState();
   const verifier = generateCodeVerifier();
@@ -243,7 +243,7 @@ app.get('/api/auth/:provider/callback', async (req, res) => {
   const fail = (why: string) => res.redirect(`/login?error=${encodeURIComponent(why)}`);
   const [name, state, verifier] = (readCookie(req.headers.cookie, OAUTH_COOKIE) ?? '').split('.');
   res.clearCookie(OAUTH_COOKIE, secureCookie);
-  const p = provider(req.params.provider);
+  const p = provider(db, req.params.provider);
   const code = typeof req.query.code === 'string' ? req.query.code : '';
   const returned = typeof req.query.state === 'string' ? req.query.state : '';
   if (!p || !code || !state || !verifier || name !== req.params.provider || !secureEqual(returned, state)) {
@@ -323,6 +323,18 @@ app.delete('/api/users/:id', (req, res) => {
   if (req.params.id === req.user!.id) return res.status(400).json({ error: 'Cannot delete your own account' });
   deleteUser(db, req.params.id);
   res.json({ ok: true });
+});
+
+/** Sign-in set-up, for Settings → Sign-in. The secrets themselves never leave the server. */
+app.get('/api/auth-config', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  res.json(authConfigView(db));
+});
+app.put('/api/auth-config/:provider', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const refused = updateCredentials(db, req.params.provider, (req.body ?? {}) as Record<string, unknown>);
+  if (refused) return res.status(400).json({ error: refused });
+  res.json(authConfigView(db));
 });
 
 // --- settings -----------------------------------------------------------------

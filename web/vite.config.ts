@@ -6,6 +6,8 @@ export default defineConfig({
   worker: { format: 'es' }, // MapLibre's worker is an ES module
   server: {
     port: 5174,
+    // Saves are only accepted from PUBLIC_URL, so moving to another port when this one is taken would break them.
+    strictPort: true,
     proxy: {
       '/api': 'http://localhost:3003',
       // The convoy and chat socket.

@@ -17,6 +17,14 @@ export interface User {
 
 export type Provider = 'google' | 'discord';
 
+/** How sign-in is set up, as an admin sees it. The secrets stay on the server. */
+export interface AuthConfig {
+  publicUrl: string;
+  publicUrlFromEnv: boolean;
+  adminIdsSet: boolean;
+  providers: { name: Provider; clientId: string; secretSet: boolean; fromEnv: boolean; ready: boolean; redirectUrl: string }[];
+}
+
 export interface AuthStatus {
   authed: boolean;
   user: User | null;
@@ -429,6 +437,11 @@ export const api = {
   updateUser: (id: string, patch: { role?: Role; banned?: boolean }) =>
     fetch(`/api/users/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(patch) }).then((r) => json<User>(r)),
   deleteUser: (id: string) => fetch(`/api/users/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
+
+  // --- sign-in set-up (admins) ---
+  authConfig: () => fetch('/api/auth-config').then((r) => json<AuthConfig>(r)),
+  saveAuthProvider: (name: Provider, body: { clientId?: string; clientSecret?: string; clear?: boolean }) =>
+    fetch(`/api/auth-config/${name}`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(body) }).then((r) => json<AuthConfig>(r)),
 
   // --- settings ---
   settings: () => fetch('/api/settings').then((r) => json<Settings>(r)),

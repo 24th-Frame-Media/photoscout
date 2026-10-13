@@ -1750,6 +1750,8 @@ a.button.primary:hover { background: #ffb83d; text-decoration: none; }
   .settingspick { display: block; width: 100%; font-size: 16px; padding: 10px 12px; }
 }
 .arealist { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.signinsetup { margin: 14px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
+.signinsetup h3 { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
 .arealist__row { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
 .arealist__head { display: flex; align-items: center; gap: 8px; }
 .arealist__head input { flex: 1; min-width: 0; }
