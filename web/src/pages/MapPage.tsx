@@ -6,13 +6,14 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { locateControl } from '../map/locateControl.js';
 import SuggestSpot from '../components/SuggestSpot.js';
-import { api, Candidate, type EventItem, FireIncident, Place, Plane, type PlaneInfo, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast } from '../api.js';
+import { api, Candidate, type EventItem, FireIncident, Place, Plane, type PlaneInfo, type RadioPlace, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast } from '../api.js';
 import { sunLook } from '../map/sunLook.js';
 import { hourAt, pickRadarFrame, RAINVIEWER_INDEX, radarTileUrl, weatherIcon, type RadarIndex } from '../map/weather.js';
 import {
   CLICKABLE, initFeedLayers, initLayers, PLANE_LAYERS, setImagery, setLayerVisible, setTerrain3d, STYLE_URL, updateCandidates, updateDraft, updateRoads, ROADS_MIN_ZOOM,
   updateMood, updatePlacesAndSpots, updatePlanes, updateRail, updateRays, setNearbyHighlight, updateShadows, updateTrains, updateWedges,
   TRAIN_LAYERS, setTrains3d, updatePlanePositions, hiddenLayers, setRadarFrame, FIRE_LAYERS, updateFires, updateCameras, EVENT_LAYERS, updateEvents,
+  RADIO_LAYERS, updateRadioPlaces,
 } from '../map/layers.js';
 import { due, MotionTracker, planePredict, trainPredict } from '../map/motion.js';
 import { carriageCount } from '../map/trains3d.js';
@@ -30,6 +31,8 @@ import { useMapTime } from '../time.js';
 import { useEvents } from '../useEvents.js';
 import { decodeEntities, formatWhen } from '../events.js';
 import EventDetail from '../components/EventDetail.js';
+import RadioPanel, { RadioAudioController, type RadioPlayerState } from '../components/RadioPanel.js';
+import RadioWidget from '../components/RadioWidget.js';
 import TimeBar from '../components/TimeBar.js';
 import SpotPanel from '../components/SpotPanel.js';
 import SpotEditor, { SpotDraft } from '../components/SpotEditor.js';
@@ -78,7 +81,7 @@ const newSpot = (lat: number, lng: number, placeId: string | null = null): SpotD
 });
 
 /** Legend keys whose visibility is applied by their own effect below. */
-const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events'];
+const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events', 'radio'];
 const RADAR_POLL_MS = 10 * 60_000;
 
 type RouteHistoryEntry = { draft: RouteDraft; duration: number | null; ready: boolean };
@@ -132,7 +135,7 @@ export default function MapPage({ user }: { user: User | null }) {
   const [vis, setVis] = useState<Visibility>(loadVisibility);
   useEffect(() => saveVisibility(vis), [vis]);
   const toggle = (key: string, on = !vis[key]) => setVis((v) => ({ ...v, [key]: on }));
-  const { planes: planesOn, rail: railOn, trains: trainsOn, candidates: candidatesOn, imagery, weather: weatherOn, fires: firesOn, cameras: camerasOn, events: eventsOn } = vis;
+  const { planes: planesOn, rail: railOn, trains: trainsOn, candidates: candidatesOn, imagery, weather: weatherOn, fires: firesOn, cameras: camerasOn, events: eventsOn, radio: radioOn } = vis;
   const railEffectiveOn = effectiveRailOn(railOn, trainsOn);
   const baseRailPaint = useRef<BaseRailPaintSnapshot[] | null>(null);
   const routesOn = vis.routes;
@@ -142,6 +145,30 @@ export default function MapPage({ user }: { user: User | null }) {
   const [planeData, setPlaneData] = useState<Plane[]>([]);
   const [trainData, setTrainData] = useState<TrainPosition[]>([]);
   const [cameraData, setCameraData] = useState<TrafficCamera[]>([]);
+  const [radioPlaces, setRadioPlaces] = useState<RadioPlace[] | null>(null);
+  const [selectedRadioPlace, setSelectedRadioPlace] = useState<RadioPlace | null>(null);
+
+  const radioPlayer = useRef<RadioAudioController | null>(null);
+  if (!radioPlayer.current) {
+    radioPlayer.current = new RadioAudioController();
+  }
+  const [radioPlayerState, setRadioPlayerState] = useState<RadioPlayerState>({
+    activeStation: null,
+    playbackState: 'idle',
+    playbackError: null,
+  });
+
+  useEffect(() => {
+    const player = radioPlayer.current;
+    if (!player) return;
+    player.setOnStateChange((st) => setRadioPlayerState(st));
+    if (typeof window !== 'undefined') {
+      (window as any).__photoscoutRadioPlayer = player;
+    }
+    return () => {
+      player.destroy();
+    };
+  }, []);
 
   // Smooth movement between polls, and follow mode (camera on one vehicle).
   const planeMotion = useRef(new MotionTracker());
@@ -162,7 +189,13 @@ export default function MapPage({ user }: { user: User | null }) {
 
   // --- map lifecycle ---
   useEffect(() => {
-    const m = new MlMap({ container: container.current!, style: STYLE_URL, center: [149.577, -33.419], zoom: 10, maxPitch: 70 });
+    let m: MlMap;
+    try {
+      m = new MlMap({ container: container.current!, style: STYLE_URL, center: [149.577, -33.419], zoom: 10, maxPitch: 70 });
+    } catch (e) {
+      setError((e as Error).message);
+      return;
+    }
     m.addControl(new NavigationControl({ visualizePitch: true }), 'top-right');
     m.addControl(homeControl(), 'top-right');
     m.addControl(locateControl((message) => setFollowNote(message)), 'top-right');
@@ -355,6 +388,31 @@ export default function MapPage({ user }: { user: User | null }) {
     setLayerVisible(map, EVENT_LAYERS, !!eventsOn);
     if (eventsOn) updateEvents(map, eventFeed.events ?? []);
   }, [map, eventsOn, eventFeed.events]);
+
+  // Radio Garden locations: fetched once when the layer is enabled. No polling.
+  useEffect(() => {
+    if (!map) return;
+    setLayerVisible(map, RADIO_LAYERS, !!radioOn);
+    if (!radioOn) {
+      setSelectedRadioPlace(null);
+      return;
+    }
+    if (radioPlaces) {
+      updateRadioPlaces(map, radioPlaces);
+      return;
+    }
+    let stop = false;
+    api.radioPlaces()
+      .then((res) => {
+        if (stop) return;
+        setRadioPlaces(res.places);
+        updateRadioPlaces(map, res.places);
+      })
+      .catch((err) => {
+        if (!stop) setError((err as Error).message);
+      });
+    return () => { stop = true; };
+  }, [map, radioOn, radioPlaces]);
 
   // Animation: move planes and trains between polls, at most every FRAME_MS, and only for shown layers.
   const trainById = useMemo(() => new Map(trainData.map((t) => [t.tripId, t])), [trainData]);
@@ -941,8 +999,28 @@ export default function MapPage({ user }: { user: User | null }) {
       if (rail) return showRailPassPopup(map, lat, lng);
     }
     const hit = map.queryRenderedFeatures(e.point, { layers: CLICKABLE.filter((l) => map.getLayer(l)) })[0];
-    if (!hit) return setSelected(null);
+    if (!hit) {
+      setSelected(null);
+      setSelectedRadioPlace(null);
+      return;
+    }
     const id = hit.properties?.id as string;
+    if (hit.layer.id === 'radio-clusters') {
+      (map.getSource('radio') as GeoJSONSource).getClusterExpansionZoom(hit.properties.cluster_id)
+        .then((zoom) => map.easeTo({ center: (hit.geometry as GeoJSON.Point).coordinates as [number, number], zoom }));
+      return;
+    }
+    if (hit.layer.id === 'radio-points') {
+      const radioId = hit.properties?.id as string;
+      const title = (hit.properties?.title as string) || '';
+      const country = (hit.properties?.country as string) || '';
+      const stationCount = Number(hit.properties?.stationCount || 1);
+      const [rLng, rLat] = (hit.geometry as GeoJSON.Point).coordinates as [number, number];
+      setSelected(null);
+      setSelectedRadioPlace({ id: radioId, title, country, lng: rLng, lat: rLat, stationCount });
+      return;
+    }
+    setSelectedRadioPlace(null);
     if (hit.layer.id === 'cameras') {
       const coords = (hit.geometry as GeoJSON.Point).coordinates as [number, number];
       showCameraPopup(map, coords, hit.properties ?? {});
@@ -1153,11 +1231,14 @@ export default function MapPage({ user }: { user: User | null }) {
   }
 
   const panelOpen = !!editing || !!selectedSpot || !!selectedPlace || !!selectedCandidate || !!selectedRoute || shouldShowSunPlanner(sunAnchor, null);
+  const isPanelActive = panelOpen || !!selectedRadioPlace;
   const placeSpots = selectedPlace ? spots.filter((s) => s.placeId === selectedPlace.id) : [];
   const selectedSunBearing = selectedSpot ? resolveSunPlannerBearing(selectedSpot, sunAnchor, sunAnchorBearing) : null;
 
+  const hasRadioWidget = !!radioPlayerState.activeStation;
+
   return (
-    <div className={`mapshell${panelOpen ? ' mapshell--panel' : ''}${editing ? ' mapshell--editing' : ''}`}>
+    <div className={`mapshell${isPanelActive ? ' mapshell--panel' : ''}${editing ? ' mapshell--editing' : ''}${hasRadioWidget ? ' mapshell--has-radio-widget' : ''}`}>
       <div ref={container} className="mapshell__map" />
       {error && <div className="maptoast error">{error}</div>}
       {follow && (
@@ -1216,6 +1297,7 @@ export default function MapPage({ user }: { user: User | null }) {
             { key: 'weather', label: category('weather').label, swatch: <Swatch cat={category('weather')} />, on: weatherOn, title: 'Rain radar (RainViewer, recent past only) and the forecast at the map centre for the map time', onSelect: () => toggle('weather') },
             { key: 'cameras', label: category('cameras').label, swatch: <Swatch cat={category('cameras')} />, on: camerasOn, title: 'NSW live traffic cameras (TfNSW)', onSelect: () => toggle('cameras') },
             { key: 'fires', label: category('fires').label, swatch: <Swatch cat={category('fires')} />, on: !!vis.fires, onSelect: () => toggle('fires') },
+            { key: 'radio', label: category('radio').label, swatch: <Swatch cat={category('radio')} />, on: !!radioOn, title: 'World radio locations (Radio Garden)', onSelect: () => toggle('radio') },
           ] },
           { label: 'Scout', items: [
             { key: 'candidates', label: category('candidates').label, swatch: <Swatch cat={category('candidates')} />, on: candidatesOn, title: 'OpenStreetMap viewpoints, ruins and other candidates', onSelect: () => toggle('candidates') },
@@ -1390,6 +1472,28 @@ export default function MapPage({ user }: { user: User | null }) {
             </>
           )}
         </aside>
+      )}
+
+      {selectedRadioPlace && (
+        <RadioPanel
+          place={selectedRadioPlace}
+          onClose={() => setSelectedRadioPlace(null)}
+          sheetSize={sheetSize}
+          onToggleSheet={() => setSheetSize((s) => (s === 'half' ? 'peek' : 'half'))}
+          playerState={radioPlayerState}
+          onStationClick={(st) => radioPlayer.current?.handleStationClick(st)}
+          onStop={() => radioPlayer.current?.stop()}
+        />
+      )}
+
+      {radioPlayerState.activeStation && (
+        <RadioWidget
+          station={radioPlayerState.activeStation}
+          playbackState={radioPlayerState.playbackState}
+          playbackError={radioPlayerState.playbackError}
+          onPlayPause={() => radioPlayer.current?.handleStationClick(radioPlayerState.activeStation!)}
+          onStop={() => radioPlayer.current?.stop()}
+        />
       )}
 
       {weatherOn && (

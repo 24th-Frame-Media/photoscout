@@ -65,6 +65,10 @@ const ANONYMOUS_READS = [
   // The feed (scope=following is refused to a visitor by the handler: the query is not seen here) and a post's comments.
   /^\/api\/feed$/,
   /^\/api\/posts\/[^/]+\/comments$/,
+  // Radio Garden layer: cached places, on-demand station lists, and direct redirects.
+  /^\/api\/radio\/places$/,
+  /^\/api\/radio\/places\/[^/]+\/stations$/,
+  /^\/api\/radio\/stations\/[^/]+\/listen$/,
 ];
 
 export function normalizePath(p: string): string {

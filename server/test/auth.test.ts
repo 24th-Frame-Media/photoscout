@@ -22,7 +22,8 @@ test('needsAuth: a visitor may read the public map and nothing else', () => {
   for (const open of ['/api/spots', '/api/spots/abc', '/api/places', '/api/places/abc', '/api/routes', '/api/routes/abc',
     '/api/spots/abc/photos', '/api/photos/abc/file', '/api/photos/abc/thumb', '/api/Spots/', '/api/spots?bbox=1,2,3,4', '/api/settings', '/api/rail', '/api/fires', '/api/aurora', '/api/events', '/api/events/solo-12', '/api/Events/',
     '/api/profiles/Alice', '/api/Profiles/Alice/', '/api/community-events', '/api/community-events/abc', '/api/kit/photos/abc/file', '/api/kit/photos/abc/thumb',
-    '/api/feed', '/api/feed?scope=all&before=2030-01-01T00:00:00Z', '/api/posts/abc/comments']) {
+    '/api/feed', '/api/feed?scope=all&before=2030-01-01T00:00:00Z', '/api/posts/abc/comments',
+    '/api/radio/places', '/api/radio/places/abc/stations', '/api/radio/stations/abc/listen']) {
     assert.equal(needsAuth('GET', open), false, open);
   }
   // Writes to the new resources are never open, whatever their path.

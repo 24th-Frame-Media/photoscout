@@ -238,6 +238,34 @@ export interface CamerasResponse {
   cameras: TrafficCamera[];
 }
 
+export interface RadioPlace {
+  id: string;
+  title: string;
+  country: string;
+  lng: number;
+  lat: number;
+  stationCount: number;
+}
+
+export interface RadioStation {
+  id: string;
+  title: string;
+  placeId: string;
+  streamDomain?: string;
+  listenUrl: string;
+}
+
+export interface RadioPlacesResponse {
+  places: RadioPlace[];
+}
+
+export interface RadioStationsResponse {
+  placeId: string;
+  title?: string;
+  country?: string;
+  stations: RadioStation[];
+}
+
 export interface ScoutEvent {
   group: string; title: string; description: string; startTime: string; endTime: string; venueName: string;
   address: string; locality: string; lat: number; lng: number; imageUrl: string | null; category: string; goodDuring: boolean;
@@ -540,6 +568,10 @@ export const api = {
   spotTrains: (spotId: string, hours = 6) => fetch(`/api/spots/${spotId}/trains?hours=${hours}`).then((r) => json<{ configured: boolean; passes: TrainPass[] }>(r)),
   // --- traffic cameras (TfNSW) ---
   cameras: () => fetch('/api/cameras').then((r) => json<CamerasResponse>(r)),
+  // --- Radio Garden layer ---
+  radioPlaces: () => fetch('/api/radio/places').then((r) => json<RadioPlacesResponse>(r)),
+  radioStations: (placeId: string) => fetch(`/api/radio/places/${encodeURIComponent(placeId)}/stations`).then((r) => json<RadioStationsResponse>(r)),
+  radioListenUrl: (channelId: string) => `/api/radio/stations/${encodeURIComponent(channelId)}/listen`,
 
   // --- Event Scout ---
   spotNearby: (spotId: string) => fetch(`/api/spots/${spotId}/nearby`).then((r) => json<NearbyResult>(r)),

@@ -245,3 +245,19 @@ test('share links are counted, and what the caller posts is not stored', async (
   assert.equal((await c('POST', '/api/shares', {})).status, 201, 'revoking one makes room');
   assert.equal((await bob('DELETE', `/api/shares/${rows[1].token}`)).status, 403);
 });
+
+test('radio endpoints: public read-only, strict ID validation, and safe redirect', async () => {
+  const anon = app.client();
+
+  // Redirect validates token and returns 307
+  const badListen = await anon('GET', '/api/radio/stations/invalid..id/listen');
+  assert.equal(badListen.status, 400);
+
+  const goodListen = await anon('GET', '/api/radio/stations/LWYfKJRw/listen');
+  assert.equal(goodListen.status, 307);
+  assert.equal(goodListen.headers.get('location'), 'https://radio.garden/api/ara/content/listen/LWYfKJRw/channel.mp3');
+
+  // Place station validation
+  const badPlace = await anon('GET', '/api/radio/places/invalid..id/stations');
+  assert.equal(badPlace.status, 400);
+});
