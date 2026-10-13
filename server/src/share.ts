@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import { Db } from './db.js';
 import { Visibility } from './auth.js';
-import { parseGoodTimes, GoodTimes } from './goodTimes.js';
+import { parseGoodTimes, GoodTimes, GoodTimesError } from './goodTimes.js';
+import { bodyProblem } from './bodyLimits.js';
 import { guardedFetch } from './ssrf.js';
 import { saveImage } from './photos.js';
 
@@ -79,20 +80,71 @@ export function buildFeatureCollection(
 
 export interface UpsertResult { places: number; spots: number }
 
+/** Features one import may carry. Each is a write, and the body is already capped at a couple of megabytes. */
+export const MAX_IMPORT_FEATURES = 2000;
+
+/** A bundle that cannot be imported; the message is safe to show to the person who sent it. */
+export class ImportError extends Error {}
+
+/** Throws an ImportError for the first feature that is not a place or spot a create route would take. */
+function validateImport(bundle: ShareBundle): void {
+  if (bundle.features.length > MAX_IMPORT_FEATURES) throw new ImportError(`An import can hold ${MAX_IMPORT_FEATURES} features at most`);
+  bundle.features.forEach((f, i) => {
+    const at = `Feature ${i + 1}`;
+    const p = (f as any)?.properties;
+    if (typeof f !== 'object' || f === null || typeof p !== 'object' || p === null || Array.isArray(p)) throw new ImportError(`${at}: properties are required`);
+    if (p.kind !== 'place' && p.kind !== 'spot') return; // other kinds are skipped, as before
+    const g = f.geometry as { type?: unknown; coordinates?: unknown } | null | undefined;
+    const c = g?.coordinates;
+    if (g?.type !== 'Point' || !Array.isArray(c) || c.length < 2 || typeof c[0] !== 'number' || typeof c[1] !== 'number'
+      || !Number.isFinite(c[0]) || !Number.isFinite(c[1]) || Math.abs(c[0]) > 180 || Math.abs(c[1]) > 90) {
+      throw new ImportError(`${at}: geometry must be a Point with [lng, lat] in range`);
+    }
+    const problem = bodyProblem({ ...p, lat: c[1], lng: c[0] });
+    if (problem) throw new ImportError(`${at}: ${problem}`);
+    for (const field of ['source', 'sourceRef']) {
+      if (p[field] !== undefined && (typeof p[field] !== 'string' || p[field].length > 200)) throw new ImportError(`${at}: ${field} must be text of at most 200 characters`);
+    }
+    if (p.kind === 'spot') {
+      try {
+        parseGoodTimes(p.goodTimes);
+      } catch (err) {
+        if (err instanceof GoodTimesError) throw new ImportError(`${at}: ${err.message}`);
+        throw err;
+      }
+    }
+  });
+}
+
 /**
  * `POST /api/import`: a plain GeoJSON FeatureCollection of places and spots,
  * with no photos. Upserts by `source`+`sourceRef` when a feature carries
  * both (a re-import of something already tagged, e.g. a promoted OSM
  * candidate); otherwise it's a fresh row tagged `source='import'`.
+ * Only the importer's own rows are matched, and the whole bundle is checked
+ * first and written in one transaction: a bad feature writes nothing.
  */
 export function importFeatureCollection(db: Db, bundle: ShareBundle, ownerId: string): { places: number; spots: number } {
+  validateImport(bundle);
+  db.handle.exec('BEGIN');
+  try {
+    const result = writeImport(db, bundle, ownerId);
+    db.handle.exec('COMMIT');
+    return result;
+  } catch (err) {
+    db.handle.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+function writeImport(db: Db, bundle: ShareBundle, ownerId: string): { places: number; spots: number } {
   const now = new Date().toISOString();
   let places = 0;
   let spots = 0;
   const placeIdMap = new Map<string, string>();
 
   const findBySourceRef = (table: 'places' | 'spots', source: string, sourceRef: string): { id: string } | undefined =>
-    db.handle.prepare(`SELECT id FROM ${table} WHERE source = ? AND source_ref = ?`).get(source, sourceRef) as any;
+    db.handle.prepare(`SELECT id FROM ${table} WHERE source = ? AND source_ref = ? AND owner_id = ?`).get(source, sourceRef, ownerId) as any;
 
   for (const f of bundle.features.filter((x) => x.properties.kind === 'place')) {
     const p = f.properties;

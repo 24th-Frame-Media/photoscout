@@ -49,7 +49,7 @@ import { getCachedRail, requestTilesForUnsnapped, trackGraphFor } from './source
 import { commonsNearbyCached, lensStats } from './sources/commons.js';
 import { coverFields, deleteImages, detectImageType, MAX_PHOTO_BYTES, parseMultipart, saveImage, SPOT_COVER_COLS } from './photos.js';
 import { buildGpx } from './gpx.js';
-import { buildFeatureCollection, importFeatureCollection, ShareBundle, syncRemote } from './share.js';
+import { buildFeatureCollection, ImportError, importFeatureCollection, ShareBundle, syncRemote } from './share.js';
 import { assertPublicUrl, guardedFetch } from './ssrf.js';
 import { tasks } from './tasks/tasks.js';
 import { versionInfo } from './version.js';
@@ -692,7 +692,12 @@ app.post('/api/import', (req, res) => {
   if (!bundle || bundle.type !== 'FeatureCollection' || !Array.isArray(bundle.features)) {
     return res.status(400).json({ error: 'A GeoJSON FeatureCollection is required' });
   }
-  res.json(importFeatureCollection(db, bundle, req.user!.id));
+  try {
+    res.json(importFeatureCollection(db, bundle, req.user!.id));
+  } catch (err) {
+    if (err instanceof ImportError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
 });
 
 app.get('/api/export.geojson', (req, res) => {
