@@ -32,6 +32,30 @@ function ipv4(host: string): number[] | null {
   return parts.every((n) => n >= 0 && n <= 255) ? parts : null;
 }
 
+/** The eight 16-bit groups of an IPv6 address, or null if it is not well formed. A trailing dotted IPv4 counts as two groups. */
+function ipv6Groups(host: string): number[] | null {
+  let text = host;
+  const dotted = /^(.*:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(text);
+  if (dotted) {
+    const v4 = ipv4(dotted[2]);
+    if (!v4) return null;
+    text = `${dotted[1]}${((v4[0] << 8) | v4[1]).toString(16)}:${((v4[2] << 8) | v4[3]).toString(16)}`;
+  }
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const parse = (part: string): number[] | null => {
+    if (part === '') return [];
+    const groups = part.split(':');
+    return groups.every((x) => /^[\da-f]{1,4}$/i.test(x)) ? groups.map((x) => parseInt(x, 16)) : null;
+  };
+  const head = parse(halves[0]);
+  const tail = halves.length === 2 ? parse(halves[1]) : [];
+  if (!head || !tail) return null;
+  if (halves.length === 1) return head.length === 8 ? head : null;
+  const missing = 8 - head.length - tail.length;
+  return missing >= 1 ? [...head, ...Array(missing).fill(0), ...tail] : null;
+}
+
 /**
  * Whether an address belongs to this machine, this network, or nowhere.
  *
@@ -51,22 +75,24 @@ export function isPrivateAddress(address: string): boolean {
     if (a === 172 && b >= 16 && b <= 31) return true;  // RFC 1918
     if (a === 192 && b === 168) return true;           // RFC 1918
     if (a === 100 && b >= 64 && b <= 127) return true; // carrier NAT
+    if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking, 198.18.0.0/15
     if (a === 192 && b === 0) return true;             // protocol assignments
     if (a >= 224) return true;                         // multicast and reserved
     return false;
   }
 
-  // IPv6. Anything mapping onto a v4 address is judged as that address.
-  // Node's URL normalises a mapped address to hex groups (`::ffff:7f00:1`),
-  // not the dotted form it was typed in, so both are matched here.
+  // IPv6. Anything that carries an IPv4 address (mapped, compatible, NAT64, 6to4)
+  // is judged as that address. Node's URL normalises the dotted form to hex groups,
+  // so the groups are what is read.
   if (host.includes(':')) {
-    const dottedMapped = /^(?:::ffff:|64:ff9b::)([\d.]+)$/i.exec(host);
-    if (dottedMapped) return isPrivateAddress(dottedMapped[1]);
-    const hexMapped = /^(?:::ffff:|64:ff9b::)([\da-f]{1,4}):([\da-f]{1,4})$/i.exec(host);
-    if (hexMapped) {
-      const hi = parseInt(hexMapped[1], 16);
-      const lo = parseInt(hexMapped[2], 16);
-      return isPrivateAddress(`${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`);
+    const g = ipv6Groups(host);
+    if (g) {
+      const embedded = (hi: number, lo: number): boolean => isPrivateAddress(`${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`);
+      const zeros = (from: number, to: number): boolean => g.slice(from, to).every((n) => n === 0);
+      if (zeros(0, 5) && g[5] === 0xffff) return embedded(g[6], g[7]);            // ::ffff:a.b.c.d
+      if (zeros(0, 6)) return embedded(g[6], g[7]);                              // ::a.b.c.d, and :: and ::1
+      if (g[0] === 0x64 && g[1] === 0xff9b && zeros(2, 6)) return embedded(g[6], g[7]); // 64:ff9b::/96
+      if (g[0] === 0x2002) return embedded(g[1], g[2]);                          // 6to4, 2002::/16
     }
     if (host === '::' || host === '::1') return true;  // unspecified, loopback
     if (/^f[cd]/i.test(host)) return true;             // unique-local

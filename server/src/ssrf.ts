@@ -1,36 +1,16 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { isPrivateAddress } from './events/nethost.js';
 
 /**
  * SSRF guard for remotes and share syncs: http(s) only, private/loopback/
  * link-local addresses blocked unless the operator opted in for a LAN setup.
  */
 
-/** Pure classifier, so the IP ranges can be tested without a network. */
+/** Pure classifier, so the IP ranges can be tested without a network. One list, shared with the event fetcher. */
 export function isPrivateIp(ip: string): boolean {
-  const kind = net.isIP(ip);
-  if (kind === 4) {
-    const parts = ip.split('.').map(Number);
-    const [a, b] = parts;
-    if (a === 10) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 127) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 0) return true;
-    return false;
-  }
-  if (kind === 6) {
-    const lower = ip.toLowerCase();
-    if (lower === '::1' || lower === '::') return true;
-    if (lower.startsWith('fe80:') || lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true;
-    if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique local, fc00::/7
-    // IPv4-mapped: ::ffff:a.b.c.d
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
-    if (mapped) return isPrivateIp(mapped[1]);
-    return false;
-  }
-  return true; // not a recognisable IP at all: refuse rather than guess
+  if (!net.isIP(ip)) return true; // not a recognisable IP at all: refuse rather than guess
+  return isPrivateAddress(ip);
 }
 
 export class SsrfError extends Error {}
