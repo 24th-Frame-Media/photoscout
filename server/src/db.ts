@@ -184,6 +184,33 @@ CREATE TABLE IF NOT EXISTS reports (
 CREATE INDEX IF NOT EXISTS idx_reports_open ON reports(resolved_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_reports_target ON reports(target_kind, target_id);
 
+-- A spot somebody suggested for the public map. Nothing here is on the map
+-- until a moderator approves it, which makes a public spot of it.
+CREATE TABLE IF NOT EXISTS spot_suggestions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  lat REAL NOT NULL,
+  lng REAL NOT NULL,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolved_by TEXT,
+  outcome TEXT,
+  spot_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_suggestions_open ON spot_suggestions(resolved_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_suggestions_user ON spot_suggestions(user_id, created_at);
+
+-- The secret in a calendar subscription link. Only its SHA-256 is kept, so a
+-- copy of this table subscribes nobody; one row per person, replaced when
+-- they make a new link.
+CREATE TABLE IF NOT EXISTS calendar_tokens (
+  user_id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS places (
   id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL,

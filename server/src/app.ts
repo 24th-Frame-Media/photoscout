@@ -14,7 +14,7 @@ import {
   sessionUser, setProfile, setUserBanned, setUserRole, setUsername, upsertOAuthUser, usernameTaken,
 } from './authStore.js';
 import {
-  bodyProblem, CHAT_MINUTES, MAX_CHAT_BODY, MAX_POST_BODY, parseCheckin, parseCommunityEvent, parseGear, parseMessage, parseProfile, parseReport, parseRide,
+  bodyProblem, CHAT_MINUTES, MAX_CHAT_BODY, MAX_POST_BODY, parseCheckin, parseCommunityEvent, parseGear, parseMessage, parseProfile, parseReport, parseRide, parseSuggestion,
 } from './bodyLimits.js';
 import { catalog, searchCatalog } from './gearCatalog.js';
 import { configuredProviders, generateCodeVerifier, generateState, provider, publicUrl } from './oauth.js';
@@ -36,7 +36,12 @@ import {
 } from './feeds/trains.js';
 import { nearbyFor } from './feeds/eventScout.js';
 import { eventsApi } from './events/index.js';
-import { eventList, MAX_GROUP_LENGTH, setUserEventState, userEventStates, withState } from './events.js';
+import { eventList, flyerIsShown, MAX_GROUP_LENGTH, setUserEventState, userEventStates, withState } from './events.js';
+import { flyerRelative, isSafeFlyerPath } from './events/flyers.js';
+import { store as flyerStore } from './events/flyerStore.js';
+import { buildIcs } from './events/ics.js';
+import { calendarTokenInfo, issueCalendarToken, revokeCalendarToken, userForCalendarToken } from './calendarToken.js';
+import { addSuggestion, listSuggestions, resolveSuggestion, suggestionJson, suggestionRefusal } from './suggestions.js';
 import { getCachedRail, requestTilesForUnsnapped, trackGraphFor } from './sources/rail.js';
 import { commonsNearbyCached, lensStats } from './sources/commons.js';
 import { coverFields, deleteImages, detectImageType, MAX_PHOTO_BYTES, parseMultipart, saveImage, SPOT_COVER_COLS } from './photos.js';
@@ -884,6 +889,31 @@ app.put('/api/events/:group/state', async (req, res, next) => {
     }
     res.json({ group, ...setUserEventState(db, req.user!.id, group, { starred, hidden }) });
   } catch (err) { next(err); }
+});
+
+/** What a browser is told about a stored flyer: the type from our own list, never sniffed, and nothing it could run. */
+const FLYER_TYPES: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', avif: 'image/avif', gif: 'image/gif' };
+
+/**
+ * A flyer this server keeps, for anyone, so long as its event is on show.
+ * Both halves of the path are checked against the shapes the store writes before
+ * the disk is touched, so nothing can climb out of the folder.
+ */
+app.get('/api/flyer/:day/:name', (req, res) => {
+  const { day, name } = req.params;
+  const type = FLYER_TYPES[name.split('.').pop() ?? ''];
+  if (!isSafeFlyerPath(day, name) || !type || !flyerIsShown(day, name)) return res.status(404).json({ error: 'No such flyer' });
+  const relative = flyerRelative(day, name);
+  if (!flyerStore.has(relative)) return res.status(404).json({ error: 'No such flyer' });
+  // Named by a hash of the address it came from, so it never changes once written.
+  res.set({
+    'Content-Type': type,
+    'Content-Disposition': 'inline',
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+    'Cache-Control': 'public, max-age=31536000, immutable',
+  });
+  res.sendFile(flyerStore.absolute(relative), { dotfiles: 'deny' });
 });
 
 // --- aurora (NOAA space weather) ----------------------------------------
@@ -1878,6 +1908,72 @@ app.post('/api/reports/:id/resolve', (req, res) => {
   db.handle.prepare('UPDATE reports SET resolved_at = ?, resolved_by = ? WHERE target_kind = ? AND target_id = ? AND resolved_at IS NULL')
     .run(now, req.user!.id, r.target_kind, r.target_id);
   res.json({ ok: true });
+});
+
+// --- suggested spots -----------------------------------------------------------------
+// Anyone signed in may suggest a place for the public map. It waits in the moderators' queue (the
+// Moderation page) and is not a spot until one of them approves it.
+
+app.post('/api/suggestions', (req, res) => {
+  const input = parseSuggestion(req.body);
+  if (!input.ok) return res.status(400).json({ error: input.error });
+  const refusal = suggestionRefusal(db, req.user!.id);
+  if (refusal) return res.status(429).json({ error: refusal });
+  res.status(201).json(suggestionJson(addSuggestion(db, req.user!.id, input.value)));
+});
+
+app.get('/api/suggestions', (req, res) => {
+  if (!isStaff(req.user)) return res.status(403).json({ error: 'Staff only' });
+  res.json(listSuggestions(db).map(suggestionJson));
+});
+
+app.post('/api/suggestions/:id/resolve', (req, res) => {
+  if (!isStaff(req.user)) return res.status(403).json({ error: 'Staff only' });
+  const action = (req.body as { action?: unknown } | undefined)?.action;
+  if (action !== 'approve' && action !== 'reject') return res.status(400).json({ error: 'action must be approve or reject' });
+  const done = resolveSuggestion(db, req.params.id, req.user!.id, action);
+  if (!done.ok) return res.status(done.status).json({ error: done.error });
+  res.json({ ok: true, spotId: done.spotId });
+});
+
+// --- calendar subscription ------------------------------------------------------------
+// A calendar app cannot sign in, so a person gets a secret link: the public events plus their own
+// stars, minus what they have hidden. The link is shown once when made; only its hash is kept.
+
+app.get('/api/calendar-link', (req, res) => {
+  const info = calendarTokenInfo(db, req.user!.id);
+  res.json({ exists: info !== null, createdAt: info?.createdAt ?? null });
+});
+
+/** Makes the link, or a new one that replaces (and so ends) the old. */
+app.post('/api/calendar-link', (req, res) => {
+  const token = issueCalendarToken(db, req.user!.id);
+  res.status(201).json({ token, url: `${publicUrl()}/api/calendar/${token}.ics` });
+});
+
+app.delete('/api/calendar-link', (req, res) => {
+  revokeCalendarToken(db, req.user!.id);
+  res.json({ ok: true });
+});
+
+/** The feed itself. A token that is not live is a 404, whatever is wrong with it. */
+app.get('/api/calendar/:file', (req, res) => {
+  const token = /^([0-9a-f]{64})\.ics$/.exec(req.params.file)?.[1];
+  const userId = token ? userForCalendarToken(db, token) : null;
+  if (!userId) return res.status(404).json({ error: 'No such calendar' });
+  const starredOnly = req.query.starred === '1';
+  const states = userEventStates(db, userId);
+  const listed = eventList()
+    .filter((ev) => !states.get(ev.group)?.hidden && (!starredOnly || states.get(ev.group)?.starred))
+    .map((ev) => ({ ...ev, uid: ev.group }));
+  const community = starredOnly ? [] : (db.handle
+    .prepare(`${COMMUNITY_SELECT} WHERE u.banned = 0 AND e.hidden = 0 AND ${STILL_ON} AND e.visibility = 'public' ORDER BY e.start_time, e.id LIMIT 500`)
+    .all('', new Date().toISOString()) as unknown as CommunityRow[])
+    .map((r) => ({ uid: `community:${r.id}`, title: r.title, description: r.description, startTime: r.start_time, endTime: r.end_time, venueName: r.venue_name, address: r.address, url: '', lat: r.lat, lng: r.lng }));
+  const all = [...listed, ...community];
+  res.set('Content-Type', 'text/calendar; charset=utf-8');
+  res.set('Cache-Control', 'private, max-age=300');
+  res.send(buildIcs(all, { name: starredOnly ? 'PhotoScout - shortlist' : 'PhotoScout events', description: `${all.length} events from PhotoScout` }));
 });
 
 // --- 404 + error handling, then the built frontend -------------------------------

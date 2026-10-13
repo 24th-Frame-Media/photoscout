@@ -147,6 +147,18 @@ export function parseReport(body: unknown): Parsed<ReportInput> {
   }));
 }
 
+export interface SuggestionInput { name: string; notes: string; lat: number; lng: number }
+
+/** A spot suggested for the public map: a name and a place, and a note on why. */
+export function parseSuggestion(body: unknown): Parsed<SuggestionInput> {
+  return parsed(body, (b) => ({
+    name: text(b, 'name', 120, undefined, true),
+    notes: text(b, 'notes', 1000, ''),
+    lat: number(b, 'lat', -90, 90, undefined),
+    lng: number(b, 'lng', -180, 180, undefined),
+  }));
+}
+
 export const RIDE_KINDS =['car', 'motorbike'] as const;
 export const GEAR_KINDS = ['camera', 'lens', 'other'] as const;
 export const EVENT_VISIBILITIES = ['public', 'unlisted'] as const;

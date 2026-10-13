@@ -33,6 +33,8 @@ const OPEN_ROUTES = [
   // A share token is itself the credential; `/api/shares` (plural, managing
   // your own links) is a different, protected route.
   /^\/api\/share\//,
+  // A calendar link is secret like a share token: whoever holds the token is the subscriber.
+  /^\/api\/calendar\/[^/]+$/,
 ];
 
 /**
@@ -53,6 +55,8 @@ const ANONYMOUS_READS = [
   // Events, from a list this server keeps for a minute (see events.ts), so
   // asking costs event-scout nothing more however many visitors there are.
   /^\/api\/events(\/[^/]+)?$/,
+  // A stored flyer; the route checks that its event is still on show.
+  /^\/api\/flyer\/[^/]+\/[^/]+$/,
   // A profile by handle, the public community events, and the pictures of a
   // ride. The profile search (`/api/profiles` with no handle) is not here.
   /^\/api\/profiles\/[^/]+$/,

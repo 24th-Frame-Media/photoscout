@@ -95,12 +95,18 @@ export function setUserRole(db: Db, id: string, role: Role): void {
 /** A banned account keeps its rows and loses its sessions; signing in again gets it nowhere. */
 export function setUserBanned(db: Db, id: string, banned: boolean): void {
   db.handle.prepare('UPDATE users SET banned = ? WHERE id = ?').run(banned ? 1 : 0, id);
-  if (banned) deleteUserSessions(db, id);
+  // Their calendar link goes with their sessions; reinstating them does not bring it back.
+  if (banned) {
+    deleteUserSessions(db, id);
+    db.handle.prepare('DELETE FROM calendar_tokens WHERE user_id = ?').run(id);
+  }
 }
 
 /** The account and everything of theirs that other tables hold: Kit (and its photo files), follows, community events and RSVPs. */
 export function deleteUser(db: Db, id: string): void {
   deleteUserSessions(db, id);
+  db.handle.prepare('DELETE FROM calendar_tokens WHERE user_id = ?').run(id);
+  db.handle.prepare('DELETE FROM spot_suggestions WHERE user_id = ? AND resolved_at IS NULL').run(id);
   const photos = db.handle.prepare('SELECT file, thumb FROM ride_photos WHERE owner_id = ?').all(id) as { file: string; thumb: string }[];
   deleteImages(photos.flatMap((p) => [p.file, p.thumb]));
   db.handle.prepare('DELETE FROM ride_photos WHERE owner_id = ?').run(id);
