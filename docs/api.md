@@ -25,6 +25,7 @@ Every other method than `GET` and `HEAD` needs a session, and one from another s
 | PATCH/DELETE | `/api/users/:id` | Admin: change `role` or `banned`, or remove a user. Not your own account. |
 | GET/PUT | `/api/settings` | Home area, extra areas, remotes policy, feed URLs. PUT is admin-only; members and visitors get the cut-down read. |
 | GET | `/api/geocode?q=` | Nominatim search, cached. |
+| GET | `/api/route?coords=lng,lat;lng,lat&steps=1` | Sign-in required. A driving route from OSRM (`OSRM_URL`), passed through as OSRM's JSON with GeoJSON geometry; `steps=1` adds the turn-by-turn steps. Two to 25 points; cached five minutes. 502 if the routing service is down. |
 | GET | `/api/version` | Build info. |
 | GET/POST | `/api/places` | List (visibility-filtered) / create. |
 | GET/PATCH/DELETE | `/api/places/:id` | |

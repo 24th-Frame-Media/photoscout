@@ -30,6 +30,10 @@ services:
       # Where the web crawler below is listening (the events engine asks it for
       # finds and sends it verdicts). Settings can point it elsewhere.
       CRAWLER_URL: ${CRAWLER_URL:-http://crawler:3002}
+      # Driving directions. The bundled osrm service below, once its data is
+      # preprocessed (see README: Driving directions). Unset outside Docker, it
+      # falls back to the public OSRM demo, which is for development only.
+      OSRM_URL: ${OSRM_URL:-http://osrm:5000}
       TZ: ${TZ:-Australia/Sydney}
     # Makes host.docker.internal resolve on Linux, where it otherwise does not.
     extra_hosts:
@@ -71,6 +75,17 @@ services:
     memswap_limit: 512m
     cpus: 1
     pids_limit: 128
+    restart: unless-stopped
+
+  # Routing for Drive: OSRM on the Australia extract, preprocessed once into ./osrm
+  # (README: Driving directions). Not published to the host; the app asks it.
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    command: osrm-routed --algorithm mld /data/australia-latest.osrm
+    expose:
+      - "5000"
+    volumes:
+      - ${OSRM_DATA:-./osrm}:/data:ro
     restart: unless-stopped
 
 volumes:

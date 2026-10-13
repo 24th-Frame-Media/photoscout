@@ -5,3 +5,4 @@ data/
 *.tsbuildinfo
 .env
 .claude/worktrees/
+osrm/

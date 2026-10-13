@@ -21,6 +21,7 @@ import { configuredProviders, generateCodeVerifier, generateState, provider, pub
 import { corsDecision, readOrigins } from './cors.js';
 import { applySettingsUpdate, getSettings, memberSettings, publicSettings, tfnswKey } from './settings.js';
 import { geocode } from './geocode.js';
+import { routing } from './routing.js';
 import { bboxFromRadius, haversine, parseBbox, parseLatLng } from './geo.js';
 import { parseGoodTimes, GoodTimesError, DEFAULT_GOOD_TIMES } from './goodTimes.js';
 import { fetchPlanes, fetchPlaneInfo, isValidHex, isValidCallsign } from './feeds/planes.js';
@@ -91,6 +92,8 @@ app.use(
         'img-src': ["'self'", 'data:', 'blob:', 'https:'],
         'connect-src': ["'self'", 'https:'],
         'worker-src': ["'self'", 'blob:'],
+        // The installable app: its manifest and the service worker that lets it open offline.
+        'manifest-src': ["'self'"],
         'font-src': ["'self'", 'data:', 'https:'],
         'object-src': ["'none'"],
         'base-uri': ["'self'"],
@@ -170,7 +173,7 @@ const writeLimit = limit(MINUTE, 90, 'changes');
 // third party one, so they are counted on their own and kept low.
 const upstreamLimit = limit(MINUTE, 60, 'lookups');
 app.use(
-  ['/api/geocode', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates'],
+  ['/api/geocode', '/api/route', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates'],
   upstreamLimit
 );
 app.use(/^\/api\/(spots|places)\/[^/]+\/(nearby|commons|trains)$/, upstreamLimit);
@@ -347,6 +350,10 @@ app.get('/api/geocode', async (req, res, next) => {
 });
 
 app.get('/api/version', (_req, res) => res.json(versionInfo()));
+
+// --- driving routes (OSRM, behind the sign-in gate and the upstream limit) -----------
+
+app.use(routing);
 
 // --- places / spots: shared visibility helpers ---------------------------------
 
@@ -1994,7 +2001,10 @@ app.use('/api', (err: Error & { status?: number }, req: express.Request, res: ex
 
 const webDist = path.resolve(__dirname, '../../web/dist');
 if (fs.existsSync(webDist)) {
-  app.use(express.static(webDist));
+  app.use(express.static(webDist, {
+    // The service worker is re-checked on every launch, so a new build reaches installed copies.
+    setHeaders: (res, file) => { if (path.basename(file) === 'sw.js') res.setHeader('Cache-Control', 'no-cache'); },
+  }));
   app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
 }
 

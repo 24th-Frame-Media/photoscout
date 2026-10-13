@@ -124,7 +124,8 @@ export function routeLightingMix(
 
 // --- OSRM API Helpers --------------------------------------------------------
 
-const OSRM = 'https://router.project-osrm.org/route/v1/driving';
+/** Our server's route proxy (server/src/routing.ts): OSRM's own JSON, from whichever OSRM it is pointed at. */
+const ROUTE_API = '/api/route';
 
 export interface OsrmFullRouteResult {
   coordinates: [number, number][];
@@ -139,14 +140,28 @@ export function routingWaypoints(waypoints: [number, number][], type: RouteType)
   return first[0] === last[0] && first[1] === last[1] ? waypoints : [...waypoints, first];
 }
 
+/** `lng,lat;lng,lat` for the route API: plain decimals (no exponents, which the server refuses), about 10 cm of precision. */
+export function routeCoordsParam(waypoints: [number, number][]): string {
+  return waypoints.map(([lng, lat]) => `${+lng.toFixed(6)},${+lat.toFixed(6)}`).join(';');
+}
+
+/** The route API takes this many stops at most. */
+export const MAX_ROUTE_STOPS = 25;
+
+/** At most `max` stops, keeping both ends and spreading the rest evenly. */
+export function thinStops(stops: [number, number][], max = MAX_ROUTE_STOPS): [number, number][] {
+  if (stops.length <= max) return stops;
+  return Array.from({ length: max }, (_, i) => stops[Math.round((i * (stops.length - 1)) / (max - 1))]);
+}
+
 /** Fetch full OSRM road route connecting an array of waypoints, including total distance & duration. */
 export async function fetchOsrmFullRoute(waypoints: [number, number][]): Promise<OsrmFullRouteResult | null> {
   if (waypoints.length < 2) return null;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
-    const locs = waypoints.map((pt) => `${pt[0]},${pt[1]}`).join(';');
-    const r = await fetch(`${OSRM}/${locs}?geometries=geojson&overview=full`, { signal: controller.signal });
+    const locs = routeCoordsParam(waypoints);
+    const r = await fetch(`${ROUTE_API}?coords=${locs}`, { signal: controller.signal });
     if (!r.ok) return null;
     const data = await r.json() as {
       code?: string;

@@ -11,6 +11,7 @@ A map of photography spots, the events worth shooting, and when the light works 
 - **Plan shoot.** Pick a spot and a date range, tick what you're after (golden light, open shade, alignment, clear sky, trains…), and get ranked time windows. Drill into a day's light, shade and weather, preview the view from the spot, or find the exact dates the sun lines up with a bearing on a small interactive map.
 - **Live feeds.** Planes overhead (adsb.lol), NSW passenger trains (TfNSW), a rail network layer with crowdsourced freight sightings, nearby crowds from the built-in events engine, Wikimedia Commons photos, and OpenStreetMap suggestions you can turn into spots.
 - **Events.** The events engine (what was event-scout) runs inside this server: it gathers upcoming events from the sources an admin switches on, places and culls them, and shows them on an Events page, a Calendar and a clustered map layer. Anyone can browse them; signed-in users keep their own shortlist and hide what they don't want. Admins manage areas, sources, the crawler, the local model and notifications under Settings.
+- **Drive.** An in-car screen (`/drive`) with turn-by-turn directions to a searched, tapped or saved destination, or along a saved route. Heading-up map that follows you, speed, spoken prompts, rerouting, and the screen kept awake. Install PhotoScout to your home screen from the browser's menu and it opens like an app.
 - **Import, export, share.** KML/KMZ, GPX, GeoJSON, CSV and Google Takeout in; GeoJSON, GPX or a zip with photos out. Share links, and syncing spots from other instances.
 - **Accounts.** Sign in with Google or Discord; there are no passwords. Anonymous visitors see public spots, places and routes, and the events. Signed-in contributors add and edit their own; admins manage everyone's, the users and the settings.
 
@@ -57,6 +58,23 @@ Sign-in goes to Google or Discord and back; this app keeps the provider's id for
 
 The session cookie is `Secure`, so run it behind HTTPS. Browsers make an exception for `localhost`.
 
+### Driving directions (OSRM)
+
+Drive and snapped routes ask this server for a route (`/api/route`), and the server asks an [OSRM](https://project-osrm.org) instance. In development that is the public demo, which is not for real use. For production, docker-compose includes an `osrm` service on the official image; it needs a one-time preprocess of the Australia extract from Geofabrik. Extracting wants a few GB of memory and takes a while; serving afterwards wants a few GB.
+
+```bash
+mkdir -p osrm && cd osrm
+curl -LO https://download.geofabrik.de/australia-oceania/australia-latest.osm.pbf
+
+# osrm-extract, osrm-partition and osrm-customize, in that order (the multi-level Dijkstra pipeline)
+docker run --rm -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-extract -p /opt/car.lua /data/australia-latest.osm.pbf
+docker run --rm -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-partition /data/australia-latest.osrm
+docker run --rm -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend osrm-customize /data/australia-latest.osrm
+cd .. && docker compose up -d
+```
+
+The compose file mounts `./osrm` into the `osrm` container and sets `OSRM_URL=http://osrm:5000` for the app. Re-run the three steps on a fresh extract now and then to pick up new roads. The app caches routes for five minutes and asks OSRM for no more than 60 routes a minute per signed-in user.
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -70,6 +88,7 @@ The session cookie is `Secure`, so run it behind HTTPS. Browsers make an excepti
 | `DATA_DIR` | `data/` in the repo (`/app/data` in the image) | Where the database and photos are kept. |
 | `TFNSW_API_KEY` | — | TfNSW Open Data key, for passenger trains and live traffic cameras. |
 | `EVENT_SCOUT_DATA` | `<DATA_DIR>/events` | Where the events engine keeps its own database (`event-scout.db`) and flyers. To bring an existing event-scout across, copy its `data/` folder here. |
+| `OSRM_URL` | `https://router.project-osrm.org` | Driving directions for Drive and snapped routes. The default is the public OSRM demo, for development only; in production point it at your own (below). docker-compose sets it to the bundled `osrm` service. |
 | `ADSB_URL` | `https://api.adsb.lol` | Planes feed; airplanes.live also works. |
 | `OVERPASS_URL` | — | OpenStreetMap Overpass server to try first (rail, suggestions); public mirrors are tried after it. |
 | `TZ` | `Australia/Sydney` | What counts as "today" and when daily tasks run. |
