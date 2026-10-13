@@ -97,22 +97,25 @@ export interface FetchOpenAipOptions {
 
 export function normalizeAirspaceType(type: number | string): string {
   if (typeof type === 'string') return type.toUpperCase();
+  // OpenAIP Core schema's documented airspace type enum.
   switch (type) {
     case 0:
-      return 'RESTRICTED';
+      return 'OTHER';
     case 1:
-      return 'DANGER';
+      return 'RESTRICTED';
     case 2:
-      return 'PROHIBITED';
+      return 'DANGER';
     case 3:
-      return 'CTR';
+      return 'PROHIBITED';
     case 4:
+      return 'CTR';
+    case 7:
       return 'TMA';
-    case 14:
+    case 17:
       return 'ALERT';
-    case 15:
+    case 18:
       return 'WARNING';
-    case 23:
+    case 26:
       return 'CTA';
     default:
       return `AIRSPACE_${type}`;

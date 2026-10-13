@@ -11,6 +11,20 @@ import {
 
 const TEST_SECRET_KEY = 'secret-openaip-test-key-999888';
 
+test('openaip: maps documented OpenAIP numeric airspace types correctly', () => {
+  // OpenAIP Core API schema enum: 0 Other, 1 Restricted, 2 Danger,
+  // 3 Prohibited, 4 CTR, 7 TMA, 17 Alert, 18 Warning, 26 CTA.
+  assert.equal(normalizeAirspaceType(0), 'OTHER');
+  assert.equal(normalizeAirspaceType(1), 'RESTRICTED');
+  assert.equal(normalizeAirspaceType(2), 'DANGER');
+  assert.equal(normalizeAirspaceType(3), 'PROHIBITED');
+  assert.equal(normalizeAirspaceType(4), 'CTR');
+  assert.equal(normalizeAirspaceType(7), 'TMA');
+  assert.equal(normalizeAirspaceType(17), 'ALERT');
+  assert.equal(normalizeAirspaceType(18), 'WARNING');
+  assert.equal(normalizeAirspaceType(26), 'CTA');
+});
+
 test('openaip: missing requester key returns typed not_configured result without network call', async () => {
   const db = createDb(':memory:');
   const userId = 'user-without-key';
@@ -57,7 +71,7 @@ test('openaip: valid request sends key ONLY in server-side header, not query str
             {
               _id: 'airspace-1',
               name: 'R559 BATHURST',
-              type: 0, // RESTRICTED
+              type: 1, // RESTRICTED
               geometry: {
                 type: 'Polygon',
                 coordinates: [
