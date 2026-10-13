@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, type EventItem, type User } from '../api.js';
 import {
-  applyFilters, type Card, categoriesOf, DATE_CHIPS, decodeEntities, ELSEWHERE, type Filters, foldSeries, type Geo, loadFilters, NEARBY, placeLabel, placesOf, saveFilters, type SortKey, UNKNOWN,
+  applyFilters, type Card, categoriesOf, isRecent, sourcesOf, DATE_CHIPS, decodeEntities, ELSEWHERE, type Filters, foldSeries, type Geo, loadFilters, NEARBY, placeLabel, placesOf, saveFilters, type SortKey, UNKNOWN,
 } from '../events.js';
 import { useEvents } from '../useEvents.js';
 import EventCard from '../components/EventCard.js';
@@ -41,6 +41,8 @@ export default function Events({ user }: { user: User | null }) {
   const filtered = useMemo(() => applyFilters(all, filters, new Date(), geo), [events, filters, geo]);
   const cards = useMemo(() => foldSeries(filtered), [filtered]);
   const categories = useMemo(() => categoriesOf(all), [events]);
+  const sourceNames = useMemo(() => sourcesOf(all), [events]);
+  const recentCount = useMemo(() => all.filter((e) => !e.hidden && isRecent(e)).length, [events]);
   const { places, nearby, elsewhere, unknown } = useMemo(() => placesOf(all, geo), [events, geo]);
   const folded = filtered.length - cards.length;
   // `?open=<community id>` is how the feed links to an event.
@@ -85,6 +87,16 @@ export default function Events({ user }: { user: User | null }) {
           {(geo || filters.sort === 'distance') && <option value="distance">Nearest first</option>}
           <option value="place">By place</option>
         </select>
+        {sourceNames.length > 1 && (
+          <select value={filters.source} title="Filter by source" onChange={(e) => set({ source: e.target.value })}>
+            <option value="">All sources</option>
+            {sourceNames.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
+        <label className="toggle" title="Found in the last week">
+          <input type="checkbox" checked={filters.recentOnly} onChange={(e) => set({ recentOnly: e.target.checked })} />
+          New ({recentCount})
+        </label>
         <label className="toggle">
           <input type="checkbox" checked={filters.hideOnline} onChange={(e) => set({ hideOnline: e.target.checked })} />
           Hide online

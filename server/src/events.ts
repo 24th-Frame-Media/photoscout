@@ -38,6 +38,10 @@ export interface EventItem {
   series: string;
   /** One link to a listing of the event, '' when there is none. */
   url: string;
+  /** Where it was found, by source name (e.g. 'facebook'), each once. */
+  sources: string[];
+  /** When it first showed in the list, or null if it was found before that was kept. */
+  foundAt: string | null;
   /** The caller's own, false for a visitor. */
   starred: boolean;
   hidden: boolean;
@@ -93,6 +97,8 @@ export function publicEvent(raw: unknown): EventItem | null {
     photoScore: typeof ev.photoScore === 'number' && Number.isFinite(ev.photoScore) ? ev.photoScore : 0,
     series: str(ev.series),
     url: sources.map((s) => webUrl((s as { url?: unknown } | null)?.url)).find(Boolean) ?? '',
+    sources: [...new Set(sources.map((s) => str((s as { source?: unknown } | null)?.source)).filter(Boolean))],
+    foundAt: str(ev.shownAt) || str(ev.firstSeenAt) || null,
     starred: false,
     hidden: false,
   };

@@ -48,13 +48,17 @@ export interface Filters {
   place: string;
   search: string;
   hideOnline: boolean;
+  /** One source name, or '' for every source. */
+  source: string;
+  /** Only events first shown in the last RECENT_DAYS. */
+  recentOnly: boolean;
   showHidden: boolean;
   starredOnly: boolean;
   sort: SortKey;
 }
 
 export const DEFAULT_FILTERS: Filters = {
-  dateChip: 'all', category: '', place: '', search: '', hideOnline: true, showHidden: false, starredOnly: false, sort: 'date',
+  dateChip: 'all', category: '', place: '', search: '', hideOnline: true, source: '', recentOnly: false, showHidden: false, starredOnly: false, sort: 'date',
 };
 
 /** Where "nearby" and "nearest" are measured from: the areas the app looks around, the first being home. */
@@ -84,6 +88,8 @@ export function loadFilters(): Filters {
       place: str(saved.place, d.place),
       search: str(saved.search, d.search),
       hideOnline: bool(saved.hideOnline, d.hideOnline),
+      source: str(saved.source, d.source),
+      recentOnly: bool(saved.recentOnly, d.recentOnly),
       showHidden: bool(saved.showHidden, d.showHidden),
       starredOnly: bool(saved.starredOnly, d.starredOnly),
       sort: SORTS.includes(saved.sort as SortKey) ? (saved.sort as SortKey) : d.sort,
@@ -99,6 +105,19 @@ export function saveFilters(f: Filters): void {
   } catch {
     // Private window or quota: the filters just are not remembered.
   }
+}
+
+export const RECENT_DAYS = 7;
+
+/** First shown within RECENT_DAYS. One found before that was kept is not. */
+export function isRecent(ev: Pick<EventItem, 'foundAt'>, now = Date.now()): boolean {
+  if (!ev.foundAt) return false;
+  return now - new Date(ev.foundAt).getTime() < RECENT_DAYS * 86400000;
+}
+
+/** Every source name in the list, sorted, for the source filter. */
+export function sourcesOf(events: EventItem[]): string[] {
+  return [...new Set(events.flatMap((e) => e.sources))].sort();
 }
 
 /** The days a chip stands for, as [first, day after last], or null for no limit. */
@@ -182,6 +201,8 @@ export function applyFilters(events: EventItem[], f: Filters, now = new Date(), 
     if (!f.showHidden && ev.hidden) return false;
     if (f.starredOnly && !ev.starred) return false;
     if (f.hideOnline && ev.isOnline) return false;
+    if (f.source && !ev.sources.includes(f.source)) return false;
+    if (f.recentOnly && !isRecent(ev, now.getTime())) return false;
     if (f.category && ev.category !== f.category) return false;
     if (f.place && !inPlace(ev, f.place, geo)) return false;
     if (window) {
@@ -252,7 +273,7 @@ export function communityToItem(c: CommunityEvent): EventItem {
   return {
     group: `community:${c.id}`, title: c.title, description: c.description, startTime: c.startTime, endTime: c.endTime,
     venueName: c.venueName, address: c.address, locality: '', lat: c.lat, lng: c.lng, imageUrl: '', category: COMMUNITY_CATEGORY,
-    priceText: c.priceText, isOnline: false, dateOnly: false, photoScore: 0, series: '', url: '', starred: false, hidden: false,
+    priceText: c.priceText, isOnline: false, dateOnly: false, photoScore: 0, series: '', url: '', sources: [], foundAt: null, starred: false, hidden: false,
     community: true, communityId: c.id, ownerId: c.ownerId, organiser: c.owner.username, going: c.going, isGoing: c.isGoing, cruise: c.cruise,
   };
 }

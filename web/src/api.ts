@@ -269,6 +269,10 @@ export interface EventItem {
   series: string;
   /** One link to a listing, '' when there is none. */
   url: string;
+  /** Where it was found, by source name, each once. */
+  sources: string[];
+  /** When it first showed in the list, or null. */
+  foundAt: string | null;
   starred: boolean;
   hidden: boolean;
   /** Set only on an event somebody here made (see CommunityEvent); a scraped one leaves all of these out. */

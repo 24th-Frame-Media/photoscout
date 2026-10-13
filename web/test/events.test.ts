@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { CommunityEvent, EventItem } from '../src/api.js';
 import {
-  applyFilters, categoriesOf, COMMUNITY_CATEGORY, communityToItem, dateWindow, DEFAULT_FILTERS, dayKey, ELSEWHERE, type Filters, foldSeries, loadFilters, NEARBY, placeLabel, placesOf, saveFilters, UNKNOWN, formatWhen, groupByDay, isMultiDay, isOver, mergeEvents, multiDaySpan,
+  applyFilters, categoriesOf, COMMUNITY_CATEGORY, communityToItem, dateWindow, DEFAULT_FILTERS, dayKey, ELSEWHERE, type Filters, foldSeries, loadFilters, NEARBY, placeLabel, placesOf, saveFilters, UNKNOWN, formatWhen, groupByDay, isMultiDay, isOver, mergeEvents, multiDaySpan, isRecent, sourcesOf
 } from '../src/events.js';
 import { eventsGeoJSON } from '../src/map/layers.js';
 import { categoryOf } from '../src/map/legend.js';
@@ -15,7 +15,7 @@ function event(group: string, over: Partial<EventItem> = {}): EventItem {
   return {
     group, title: `Event ${group}`, description: '', startTime: at(10), endTime: null, venueName: '', address: '', locality: '',
     lat: null, lng: null, imageUrl: '', category: '', priceText: '', isOnline: false, dateOnly: false, photoScore: 0,
-    series: '', url: '', starred: false, hidden: false, ...over,
+    series: '', url: '', sources: [], foundAt: null, starred: false, hidden: false, ...over,
   };
 }
 const groups = (list: { group: string }[]) => list.map((e) => e.group);
