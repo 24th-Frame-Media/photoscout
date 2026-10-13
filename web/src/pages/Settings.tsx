@@ -226,10 +226,10 @@ export default function Settings({ user, account, onChange }: { user: User | nul
 
 /** What looks at an area, for the line under it. */
 function areaUses(a: Area, home: boolean): string {
-  const uses = [home ? 'the map opens here' : 'the map', 'feeds'];
+  const uses = ['the map', 'feeds'];
   if (a.events) uses.push('events');
   if (a.busy) uses.push('busy venues (within 10 km)');
-  return `Used by ${uses.join(', ')}`;
+  return `${home ? 'The map opens here. ' : ''}Used for ${uses.join(', ')}`;
 }
 
 function Tasks() {
