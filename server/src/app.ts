@@ -46,6 +46,7 @@ import { assertPublicUrl, guardedFetch } from './ssrf.js';
 import { tasks } from './tasks/tasks.js';
 import { versionInfo } from './version.js';
 import { isRouteType, parseRouteSnap, parseRouteStaging, parseRouteVertices, serializeRouteWaypoints, routeJson, type RouteRow } from './routes.js';
+import { fetchRadioPlaces, fetchRadioStations, getProviderListenUrl, isValidRadioId } from './sources/radioGarden.js';
 import crypto from 'node:crypto';
 
 declare global {
@@ -164,7 +165,7 @@ const writeLimit = limit(MINUTE, 90, 'changes');
 // third party one, so they are counted on their own and kept low.
 const upstreamLimit = limit(MINUTE, 60, 'lookups');
 app.use(
-  ['/api/geocode', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates'],
+  ['/api/geocode', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates', '/api/radio'],
   upstreamLimit
 );
 app.use(/^\/api\/(spots|places)\/[^/]+\/(nearby|commons|trains)$/, upstreamLimit);
@@ -1003,6 +1004,41 @@ app.get('/api/cameras/:id/image', async (req, res, next) => {
       clearTimeout(timer);
     }
   } catch (err) { next(err); }
+});
+
+// --- Radio Garden layer (unsupported provider behind server adapter) ---------
+
+app.get('/api/radio/places', async (_req, res) => {
+  try {
+    const places = await fetchRadioPlaces(db);
+    res.json({ places });
+  } catch (err) {
+    const status = (err as any).status ?? 502;
+    res.status(status).json({ error: (err as Error).message });
+  }
+});
+
+app.get('/api/radio/places/:id/stations', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidRadioId(id)) {
+      return res.status(400).json({ error: 'Invalid place ID' });
+    }
+    const details = await fetchRadioStations(db, id);
+    res.json(details);
+  } catch (err) {
+    const status = (err as any).status ?? 502;
+    res.status(status).json({ error: (err as Error).message });
+  }
+});
+
+app.get('/api/radio/stations/:id/listen', (req, res) => {
+  const { id } = req.params;
+  if (!isValidRadioId(id)) {
+    return res.status(400).json({ error: 'Invalid station channel ID' });
+  }
+  const listenUrl = getProviderListenUrl(id);
+  res.redirect(307, listenUrl);
 });
 
 // --- Event Scout: nearby events and busyness --------------------------------------
