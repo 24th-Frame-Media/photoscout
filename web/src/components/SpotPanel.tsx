@@ -68,6 +68,7 @@ export default function SpotPanel({ spot, place, time, fires = [], canEdit, onEd
         {spot.facingDeg != null ? `Facing ${Math.round(spot.facingDeg)}° (${spot.fovDeg ?? 60}° FOV)` : 'No facing set'} · {spot.visibility}
       </p>
       {spot.notes && <p className="panel__notes">{spot.notes}</p>}
+      <p className="hint"><Link to={`/drive?to=${spot.lat},${spot.lng}`}>Drive there</Link></p>
       {spot.tags.length > 0 && <div className="chiprow">{spot.tags.map((t) => <span key={t} className="chip">#{t}</span>)}</div>}
 
       <h4>Photos</h4>

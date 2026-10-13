@@ -1183,6 +1183,7 @@ export default function MapPage({ user }: { user: User | null }) {
         <button className={`chip${imagery ? ' active' : ''}`} onClick={() => toggle('imagery')}><Swatch cat={category('imagery')} />{category('imagery').label}</button>
         <button className={`chip${terrain ? ' active' : ''}`} onClick={() => setTerrainOn(!terrain)}>3D</button>
         <button className={`chip${goodOnly ? ' active' : ''}`} onClick={() => setGoodOnly(!goodOnly)} title="Only spots whose good times match the map time">Good now</button>
+        {user && <Link className="chip" to="/drive" title="Turn-by-turn navigation for the car">Drive</Link>}
         <MapMenus menus={[
           { label: 'Live', items: [
             { key: 'planes', label: category('planes').label, swatch: <Swatch cat={category('planes')} />, on: planesOn, title: 'Live aircraft, dead-reckoned 15 minutes ahead', onSelect: () => toggle('planes') },
@@ -1348,6 +1349,7 @@ export default function MapPage({ user }: { user: User | null }) {
               {selectedRoute.notes && <p className="panel__notes">{selectedRoute.notes}</p>}
               <div className="panel__actions">
                 <Link to={`/plan?route=${selectedRoute.id}`}><button>Plan shoot</button></Link>
+                {user && <Link to={`/drive?route=${selectedRoute.id}`}><button>Drive it</button></Link>}
                 {canEdit(selectedRoute.ownerId) && <><button className="primary" onClick={() => openRouteEdit(routeToDraft(selectedRoute))}>Edit</button><button onClick={() => void deleteRoute(selectedRoute)}>Delete</button></>}
               </div>
             </>

@@ -1519,3 +1519,156 @@ section > .notify__check { margin-top: 10px; }
 .suggestcard textarea { resize: vertical; }
 /* Wide tables scroll inside their card on a phone rather than pushing the page sideways. */
 @media (max-width: 820px) { .triptable, .crawltable { display: block; overflow-x: auto; } }
+
+/* ==== Drive: in-car navigation (/drive) ====
+   Everything for the Drive screen lives in this block. It is read at arm's
+   length from a car seat: big type, 56px touch targets, nothing small. The
+   screen covers the top bar; Exit is its way back. */
+a.chip { text-decoration: none; }
+.drive {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  --drive-gap: 12px;
+  --drive-bar-h: 150px;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+.drive__map { position: absolute; inset: 0; }
+/* the map's own credit line rides above the readouts instead of under them */
+.drive .maplibregl-ctrl-bottom-right, .drive .maplibregl-ctrl-bottom-left { bottom: calc(var(--drive-bar-h) + env(safe-area-inset-bottom, 0px) + 2 * var(--drive-gap)); }
+
+.drive__top {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + var(--drive-gap));
+  left: calc(env(safe-area-inset-left, 0px) + var(--drive-gap));
+  right: calc(env(safe-area-inset-right, 0px) + var(--drive-gap));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.drive__top > * { pointer-events: auto; }
+.drive__alert, .drive__arrived, .maneuver, .drivesearch, .drive__bar {
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+}
+.drive__alert { padding: 14px 16px; font-size: 18px; line-height: 1.35; border-color: var(--red); }
+.drive__arrived { padding: 18px 16px; font-size: 26px; font-weight: 700; text-align: center; border-color: var(--green); color: var(--green); }
+
+.drive button, .drivebtn {
+  min-height: 56px;
+  min-width: 56px;
+  padding: 0 18px;
+  font-size: 18px;
+  border-radius: var(--radius);
+}
+.drivebtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+.drivebtn.is-off { color: var(--muted); }
+.drivebtn[aria-pressed='true']:not(.is-off) { border-color: var(--accent); color: var(--accent); }
+.drive__tools {
+  position: absolute;
+  right: calc(env(safe-area-inset-right, 0px) + var(--drive-gap));
+  top: 48%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 3;
+}
+.drive__tools .primary { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45); }
+
+/* the next turn */
+.maneuver { padding: 12px 16px; }
+.maneuver__main { display: flex; align-items: center; gap: 16px; }
+.maneuver__arrow { width: 72px; height: 72px; flex: none; color: var(--accent); }
+.maneuver__words { display: flex; flex-direction: column; min-width: 0; }
+.maneuver__dist { font-size: clamp(34px, 9vw, 54px); font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.maneuver__text { font-size: clamp(20px, 5vw, 28px); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.maneuver__then { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 18px; color: var(--muted); }
+.maneuver__then .maneuver__arrow { width: 26px; height: 26px; color: var(--muted); }
+.maneuver--busy { font-size: 28px; font-weight: 700; text-align: center; color: var(--accent); padding: 22px 16px; }
+
+/* where to */
+.drivesearch { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.drivesearch__row { display: flex; gap: 8px; }
+.drivesearch__row input { flex: 1; min-width: 0; min-height: 56px; font-size: 19px; }
+.drivesearch__results { list-style: none; margin: 0; padding: 0; max-height: 38vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.drivesearch__results button { width: 100%; text-align: left; font-size: 17px; line-height: 1.3; padding: 10px 14px; }
+.drivesearch .hint, .drivesearch .status-line { margin: 0; font-size: 15px; }
+
+/* speed, GPS, and the trip so far */
+.drive__bar {
+  position: absolute;
+  left: calc(env(safe-area-inset-left, 0px) + var(--drive-gap));
+  right: calc(env(safe-area-inset-right, 0px) + var(--drive-gap));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--drive-gap));
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: 'speed trip' 'gps trip';
+  column-gap: 20px;
+  align-items: center;
+  padding: 12px 16px;
+  z-index: 2;
+}
+.drive__speed { grid-area: speed; display: flex; align-items: baseline; gap: 8px; }
+.drive__kmh { font-size: clamp(60px, 17vw, 96px); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; min-width: 1.6ch; text-align: right; }
+.drive__unit { font-size: 18px; color: var(--muted); }
+.drive__gps { grid-area: gps; display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--muted); }
+.drive__dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); flex: none; }
+.drive__gps--good .drive__dot { background: var(--green); }
+.drive__gps--fair .drive__dot { background: var(--accent); }
+.drive__gps--poor .drive__dot, .drive__gps--none .drive__dot { background: var(--red); }
+.drive__gps--none { color: var(--red); }
+.drive__sub { color: var(--muted); }
+.drive__trip { grid-area: trip; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.drive__trip p { margin: 0; }
+.drive__summary { font-size: 20px; line-height: 1.3; }
+.drive__summary strong { font-size: 28px; }
+.drive__hint { font-size: 18px; color: var(--muted); }
+.drive__msg { font-size: 17px; color: var(--red); }
+.drive__actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.drive__actions button { flex: 1 1 120px; }
+
+/* the car and the destination, drawn on the map */
+.drivecar svg { width: 46px; height: 46px; fill: var(--accent); stroke: #0e1014; stroke-width: 2.5; stroke-linejoin: round; filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.6)); }
+.drivepin svg { width: 38px; height: 38px; fill: var(--accent); filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.6)); }
+.drivepin circle { fill: #0e1014; }
+
+/* landscape on a phone: the turn on the left, the readouts on the right, the buttons along the top */
+@media (orientation: landscape) and (max-height: 600px) {
+  .drive__top { right: auto; width: min(46%, 480px); }
+  .maneuver { padding: 8px 14px; }
+  .maneuver__arrow { width: 56px; height: 56px; }
+  .maneuver__dist { font-size: clamp(28px, 6vw, 44px); }
+  .maneuver__text { font-size: clamp(17px, 3.2vw, 24px); }
+  .drivesearch__results { max-height: 30vh; }
+  .drive__tools {
+    top: calc(env(safe-area-inset-top, 0px) + var(--drive-gap));
+    transform: none;
+    flex-direction: row;
+  }
+  .drive__bar { left: auto; width: min(46%, 440px); padding: 8px 14px; }
+  .drive__kmh { font-size: clamp(48px, 11vw, 72px); }
+  .drive__summary { font-size: 17px; }
+  .drive__summary strong { font-size: 22px; }
+  .drive button, .drivebtn { min-height: 52px; }
+}
