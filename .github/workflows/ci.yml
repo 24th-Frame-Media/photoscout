@@ -50,7 +50,7 @@ jobs:
       matrix:
         include:
           - image: photoscout
-            file: ${{ matrix.file }}
+            file: Dockerfile
             scope: app
           - image: photoscout-crawler
             file: Dockerfile.crawler
