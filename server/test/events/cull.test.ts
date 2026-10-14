@@ -297,3 +297,35 @@ test('a title that names another day than the one listed is culled', () => {
   assert.equal(titleDateMismatch('Cars and Coffee', relay.startTime), null);
   assert.equal(cullReason(ev({ ...bathurstTown, area: 'Bathurst', ...relay, description: '', edited: ['startTime'] }), hubs, ON), null);
 });
+
+test('pages of an event site that are not events are caught: sections, ticket types, packages', () => {
+  const junk: [string, string][] = [
+    ['2026 Boost Mobile Gold Coast 500 | Getting Around | Supercars', 'https://www.supercars.com/events/2026-gold-coast/getting-around'],
+    ['2026 Boost Mobile Gold Coast 500 | Plan Your Visit | Supercars', 'https://www.supercars.com/events/2026-gold-coast/plan-your-visit'],
+    ['2026 Penrite Oil Sandown 500 | Schedule | Supercars', 'https://www.supercars.com/events/2026-sandown/schedule'],
+    ['2026 bp Adelaide Grand Final | Tickets and Packages | Supercars', 'https://www.supercars.com/events/2026-adelaide/tickets-and-packages'],
+    ['2026 Penrite Oil Sandown 500 | Whats on | Supercars', 'https://www.supercars.com/events/2026-sandown/whats-on'],
+    ['2026 Boost Mobile Gold Coast 500 | Community | Supercars', 'https://www.supercars.com/events/2026-gold-coast/community'],
+    ['2026 Repco Supercars Championship | Track Club | Supercars', 'https://www.supercars.com/trackclub'],
+    ['2026 Boost Mobile Gold Coast 500 - Supercars Track Club', 'https://trackclub.supercars.com/event/supercars-track-club-ettwqm'],
+    ['Supercars and Super2 Calendar | Supercars', 'https://www.supercars.com/calendar?tab=UPCOMING'],
+    ['Penrite Oil Sandown 500: General Admission', 'https://tickets.supercars.com/shows/Show.aspx?sh=SANDGA26'],
+    ['Penrite Oil Sandown 500: Unreserved Upgrade', 'https://tickets.supercars.com/shows/Show.aspx?sh=SANDBU26'],
+    ['2026 Boost Mobile Gold Coast 500 Pit Lane Walk', 'https://tickets.supercars.com/shows/Show.aspx?sh=GOLDPW26'],
+    ['Pit Garage Suite - Level 1 | Supercars', 'https://www.supercars.com/tickets/exclusive-experiences/2026-gold-coast-500'],
+    ['The Lounge | Supercars', 'https://www.supercars.com/tickets/shared-experiences/2026-gold-coast-500'],
+    ['Victory Club', 'https://travel.supercars.com/experiences/victory-club'],
+    ['Video Landing Page | Supercars', 'https://www.supercars.com/videos'],
+  ];
+  for (const [title, url] of junk) assert.ok(detectNotAnEvent(title, '', url), `should catch: ${title}`);
+
+  const real: [string, string][] = [
+    ['2026 Boost Mobile Gold Coast 500 | Supercars', 'https://www.supercars.com/events/2026-gold-coast'],
+    ['Repco Bathurst 1000 | Supercars', 'https://www.supercars.com/events/2026-bathurst'],
+    ['Mount Panorama Cars and Coffee - October', 'https://www.instagram.com/p/abc123/'],
+    ['Bathurst Swap Meet | Bathurst Regional Council', 'https://www.bathurst.nsw.gov.au/events/swap-meet'],
+    ['Bathurst Show: Grand Parade', 'https://bathurstshow.com.au/grand-parade'],
+    ['Challenge Bathurst', 'https://challengebathurst.com/'],
+  ];
+  for (const [title, url] of real) assert.equal(detectNotAnEvent(title, '', url), null, `should keep: ${title}`);
+});

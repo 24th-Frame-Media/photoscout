@@ -102,6 +102,17 @@ export function regionsNamedIn(text: string): string[] {
   return [...found];
 }
 
+/** Sections of an event's site, as they appear in its page titles. */
+const SITE_SECTIONS = new Set([
+  'plan your visit', 'getting around', 'getting there', 'schedule', 'tickets', 'tickets and packages', 'packages',
+  'whats on', 'community', 'track club', 'accommodation', 'travel', 'faq', 'faqs', 'parking', 'map', 'maps',
+  'merchandise', 'results', 'gallery', 'news', 'videos', 'video landing page', 'partners', 'sponsors',
+  'entertainment', 'food and drink', 'hospitality', 'experiences', 'information',
+]);
+
+/** A title that ends in a kind of ticket rather than naming an event. */
+const TICKET_TYPE = /(^|[:|–—-]\s*|\s)(general admission|(un)?reserved grandstand|grandstand reserved|paddock pass|pit lane walk|trackside parking|(un)?reserved upgrade|unreserved)$/i;
+
 /**
  * Rule-based detection of non-event listings.
  *
@@ -161,6 +172,27 @@ export function detectNotAnEvent(title?: string, description?: string, url?: str
   // A site's own listing of events, which is a page about events and not one.
   if (/^(events?|event calendar|events calendar|calendar|what'?s on|upcoming events)(\s*[|–—-]|$)/i.test(t)) {
     return 'Events index page, not an event';
+  }
+
+  // A section of an event's own site, read as an event of its own:
+  // "Gold Coast 500 | Plan Your Visit | Supercars". The first segment is the
+  // event's name, so only the ones after it are checked.
+  const segments = t.split(/\s+[|–—]\s+/).map((s) => s.trim().toLowerCase().replace(/['’]/g, ''));
+  if (segments.slice(1).some((s) => SITE_SECTIONS.has(s)) || SITE_SECTIONS.has(segments[0] ?? '')) {
+    return 'A section of a site, not an event';
+  }
+  if (segments.some((s) => /\bcalendar$/.test(s))) return 'Events index page, not an event';
+
+  // One kind of ticket to an event, sold as its own page: "Sandown 500: General Admission".
+  if (TICKET_TYPE.test(t)) return 'A ticket type, not an event';
+
+  if (url) {
+    try {
+      const { hostname, pathname } = new URL(url);
+      if (/\/(exclusive-|shared-)?experiences\//i.test(pathname)) return 'A hospitality package, not an event';
+      if (/^(trackclub|travel)\./i.test(hostname) || /\/trackclub(\/|$)/i.test(pathname)) return 'A membership or travel page, not an event';
+      if (/\/videos?(\/|$)/i.test(pathname)) return 'A video page, not an event';
+    } catch { /* invalid URL, skip */ }
   }
 
   // Standalone navigation-only section titles
