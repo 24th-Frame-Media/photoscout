@@ -8,6 +8,7 @@ import {
   formatAirportDetail,
   formatControlled3nmDetail,
   formatFireHazardDetail,
+  flightRadiusGeoJSON,
   type DroneAirspaceItem,
   type DroneAirportItem,
   type DroneFireHazardItem,
@@ -244,4 +245,24 @@ test('drone web: detail popups escape provider strings and never contain banned 
   assert.ok(controlled3nmDetail.includes('3 NM Buffer'));
   assert.ok(controlled3nmDetail.includes('250 g'));
   assertNoBannedWords(controlled3nmDetail);
+});
+
+test('drone web: flightRadiusGeoJSON creates bounded circular polygon with default and custom radius in km', () => {
+  const fc = flightRadiusGeoJSON(-33.42, 149.58, 5);
+  assert.equal(fc.type, 'FeatureCollection');
+  assert.equal(fc.features.length, 1);
+
+  const feature = fc.features[0];
+  assert.equal(feature.geometry.type, 'Polygon');
+  const poly = feature.geometry as GeoJSON.Polygon;
+  assert.ok(poly.coordinates[0].length >= 32, 'Must have at least 32 points for circular polygon');
+  // First and last coordinates must match for closed GeoJSON polygon
+  const first = poly.coordinates[0][0];
+  const last = poly.coordinates[0][poly.coordinates[0].length - 1];
+  assert.equal(first[0], last[0]);
+  assert.equal(first[1], last[1]);
+
+  assert.equal(feature.properties?.radiusKm, 5);
+  assert.equal(feature.properties?.radiusM, 5000);
+  assertNoBannedWords(JSON.stringify(fc));
 });

@@ -28,6 +28,8 @@ export interface DroneAirportItem {
   controlled?: boolean;
   geometry: GeoJSON.Point;
   controlledBuffer?: GeoJSON.Geometry;
+  distanceM?: number;
+  outsidePlannedRadius?: boolean;
   runways?: Array<{
     designator?: string;
     surface?: string | number;
@@ -126,6 +128,57 @@ export function airspacesGeoJSON(
   };
 }
 
+/**
+ * Generates a GeoJSON FeatureCollection containing a circular polygon representing
+ * the planned flight radius centered at [lng, lat].
+ */
+export function flightRadiusGeoJSON(
+  lat: number,
+  lng: number,
+  radiusKm: number,
+  points = 64
+): GeoJSON.FeatureCollection {
+  const coords: Array<[number, number]> = [];
+  const radiusM = radiusKm * 1000;
+  const dByR = radiusM / 6371000;
+  const latRad = (lat * Math.PI) / 180;
+  const lngRad = (lng * Math.PI) / 180;
+
+  for (let i = 0; i <= points; i++) {
+    const bearing = (i * 2 * Math.PI) / points;
+    const pLatRad = Math.asin(
+      Math.sin(latRad) * Math.cos(dByR) +
+      Math.cos(latRad) * Math.sin(dByR) * Math.cos(bearing)
+    );
+    const pLngRad =
+      lngRad +
+      Math.atan2(
+        Math.sin(bearing) * Math.sin(dByR) * Math.cos(latRad),
+        Math.cos(dByR) - Math.sin(latRad) * Math.sin(pLatRad)
+      );
+    coords.push([(pLngRad * 180) / Math.PI, (pLatRad * 180) / Math.PI]);
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        id: 'drone-flight-radius-circle',
+        properties: {
+          kind: 'planning-radius',
+          radiusKm,
+          radiusM,
+        },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [coords],
+        },
+      },
+    ],
+  };
+}
+
 export function airportsGeoJSON(airports: DroneAirportItem[]): {
   points: GeoJSON.FeatureCollection;
   controlled3nm: GeoJSON.FeatureCollection;
@@ -146,6 +199,8 @@ export function airportsGeoJSON(airports: DroneAirportItem[]): {
         name: apt.name,
         icaoCode: apt.icaoCode,
         controlled: isControlled,
+        outsidePlannedRadius: Boolean(apt.outsidePlannedRadius),
+        distanceM: apt.distanceM,
         typeName: apt.typeName || (isControlled ? 'Controlled Aerodrome' : 'Aerodrome'),
       },
       geometry: apt.geometry,
@@ -223,18 +278,22 @@ export function formatAirportDetail(props: Record<string, unknown>): string {
   const name = escapeHtml(String(props.name || 'Aerodrome'));
   const icao = props.icaoCode ? ` (${escapeHtml(String(props.icaoCode))})` : '';
   const isControlled = props.controlled === true;
+  const isOutside = props.outsidePlannedRadius === true;
+  const outsideNote = isOutside
+    ? '<span class="drone-popup-alert">Outside selected planned flight radius</span><br />'
+    : '';
 
   if (isControlled) {
     return `<div class="drone-popup">
       <strong>${name}${icao}</strong><br />
-      <span class="drone-popup-alert">Verified Controlled Aerodrome (CASR 101.238(d)(v))</span><br />
+      ${outsideNote}<span class="drone-popup-alert">Verified Controlled Aerodrome (CASR 101.238(d)(v))</span><br />
       <em>3 NM conditional planning buffer shown. Conditions depend on aircraft category/weight (including 250 g threshold) and permissions. Confirm applicable CASA conditions before flight.</em>
     </div>`;
   }
 
   return `<div class="drone-popup">
     <strong>${name}${icao}</strong><br />
-    <span>Aerodrome / landing area context</span><br />
+    ${outsideNote}<span>Aerodrome / landing area context</span><br />
     <em>Check for aircraft movements and approach/departure corridors before flight.</em>
   </div>`;
 }

@@ -67,6 +67,8 @@ export const CATEGORIES: Category[] = [
   { key: 'fires', label: 'Fires', group: 'Overlays', swatch: 'dot', color: 'conic-gradient(#ef4444 0 33%, #f97316 0 66%, #eab308 0)', defaultOn: false, match: ids('fires-pts', 'fires-polys-line', 'fires-polys-fill') },
   { key: 'drone', label: 'Drone planning', group: 'Overlays', swatch: 'line', color: '#ef4444', paintProp: 'line-color', defaultOn: false,
     match: ids(
+      'drone-flight-radius-fill',
+      'drone-flight-radius-line',
       'drone-airspace-prohibited-fill',
       'drone-airspace-prohibited-line',
       'drone-airspace-restricted-fill',

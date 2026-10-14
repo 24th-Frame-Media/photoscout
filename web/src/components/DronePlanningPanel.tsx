@@ -13,6 +13,8 @@ export interface DronePlanningPanelProps {
   error: string;
   planningPoint: { lat: number; lng: number } | null;
   centre?: { lat: number; lng: number };
+  radiusKm?: number;
+  onChangeRadius?: (radiusKm: number) => void;
   onSetPlanningPoint: (coord: { lat: number; lng: number } | null) => void;
   onClose: () => void;
   onRefresh?: () => void;
@@ -41,6 +43,8 @@ export function DronePlanningPanel({
   error,
   planningPoint,
   centre,
+  radiusKm,
+  onChangeRadius,
   onSetPlanningPoint,
   onClose,
   onRefresh,
@@ -54,6 +58,7 @@ export function DronePlanningPanel({
   const assessment = data?.assessment;
   const overallSeverity = assessment?.overallSeverity ?? (user ? 'not_checked' : 'info');
   const summaryText = assessment?.summary ?? (loading ? 'Loading planning context…' : 'Advisory drone planning guidance');
+  const activeRadiusKm = radiusKm ?? (data?.radiusM ? Math.round(data.radiusM / 1000) : 5);
 
   return (
     <aside className="panel drone-panel" role="region" aria-label="Drone Planning Assessment">
@@ -121,6 +126,30 @@ export function DronePlanningPanel({
             )}
           </div>
 
+          {/* Planned flight radius slider */}
+          <div className="drone-radius-control">
+            <div className="drone-radius-control__header">
+              <label htmlFor="drone-flight-radius-slider" className="drone-radius-control__label">
+                Planned flight radius: <strong>{activeRadiusKm} km</strong>
+              </label>
+            </div>
+            <input
+              id="drone-flight-radius-slider"
+              type="range"
+              min={1}
+              max={50}
+              step={1}
+              value={activeRadiusKm}
+              onChange={(e) => onChangeRadius?.(Number(e.target.value))}
+              aria-label="Planned flight radius"
+              aria-valuemin={1}
+              aria-valuemax={50}
+              aria-valuenow={activeRadiusKm}
+              aria-valuetext={`${activeRadiusKm} km`}
+              className="drone-radius-control__slider"
+            />
+          </div>
+
           {assessment?.evaluatedAt && (
             <div className="drone-summary__meta">
               Evaluated: {new Date(assessment.evaluatedAt).toLocaleTimeString()}
@@ -175,13 +204,24 @@ export function DronePlanningPanel({
                 <div className="drone-context-chip">
                   <span className="drone-context-chip__label">ADS-B Traffic</span>
                   <span className="drone-context-chip__value">
-                    ✈ {data.aircraft.count === 0 ? 'No broadcast aircraft in vicinity' : `${data.aircraft.count} aircraft nearby`}
+                    {data.aircraft.count === 0 ? (
+                      'No broadcast ADS-B aircraft detected in provider coverage'
+                    ) : data.aircraft.closest ? (
+                      <>
+                        ✈ Closest: <strong>{data.aircraft.closest.flight ? data.aircraft.closest.flight.trim() : data.aircraft.closest.hex}</strong>
+                        {data.aircraft.closest.distanceM != null ? ` · ${(data.aircraft.closest.distanceM / 1000).toFixed(1)} km away` : ''}
+                        {data.aircraft.closest.alt_baro != null ? ` (${data.aircraft.closest.alt_baro} ft)` : ''}
+                        {data.aircraft.count > 1 ? ` · ${data.aircraft.count} nearby` : ''}
+                      </>
+                    ) : (
+                      `✈ ${data.aircraft.count} aircraft nearby`
+                    )}
                   </span>
                 </div>
               )}
             </div>
             <p className="hint">
-              Awareness context only. Incomplete ADS-B coverage; remote pilot must maintain continuous visual and listening scan.
+              Awareness context only. Incomplete ADS-B coverage; remote pilot must maintain continuous visual and listening scan. Non-broadcast aircraft or aircraft below receiver line-of-sight are not detected.
             </p>
           </section>
         )}
@@ -191,32 +231,41 @@ export function DronePlanningPanel({
           <section className="drone-section">
             <h3 className="drone-section__title">Mapped Evidence & Cautions ({assessment.evidence.length})</h3>
             <div className="drone-evidence-list">
-              {assessment.evidence.map((item: DroneEvidence) => (
-                <div key={item.id} className={`drone-evidence-card drone-evidence-card--${item.severity}`}>
-                  <div className="drone-evidence-card__header">
-                    <span className={`drone-badge ${SEVERITY_LABELS[item.severity]?.badgeClass ?? ''}`}>
-                      {SEVERITY_LABELS[item.severity]?.label ?? item.severity}
-                    </span>
-                    {item.ruleId && (
-                      <span className="drone-badge drone-badge--rule">{item.ruleId.toUpperCase()}</span>
-                    )}
-                    <span className="drone-badge drone-badge--authority">
-                      {AUTHORITY_LABELS[item.authority] ?? item.authority}
-                    </span>
-                  </div>
-                  <h4 className="drone-evidence-card__title">{item.title}</h4>
-                  <p className="drone-evidence-card__desc">{item.explanation}</p>
-                  <div className="drone-evidence-card__action">
-                    <strong>Action required:</strong> {item.userAction}
-                  </div>
-                  {item.source && (
-                    <div className="drone-evidence-card__source">
-                      Source: {item.source.name}
-                      {item.source.fetchedAt && ` · ${new Date(item.source.fetchedAt).toLocaleTimeString()}`}
+              {assessment.evidence.map((item: DroneEvidence) => {
+                const isOutsideRadius =
+                  item.title.toLowerCase().includes('outside planned radius') ||
+                  item.explanation.toLowerCase().includes('outside planned');
+
+                return (
+                  <div key={item.id} className={`drone-evidence-card drone-evidence-card--${item.severity}`}>
+                    <div className="drone-evidence-card__header">
+                      <span className={`drone-badge ${SEVERITY_LABELS[item.severity]?.badgeClass ?? ''}`}>
+                        {SEVERITY_LABELS[item.severity]?.label ?? item.severity}
+                      </span>
+                      {isOutsideRadius && (
+                        <span className="drone-badge drone-badge--outside-radius">Outside planned radius</span>
+                      )}
+                      {item.ruleId && (
+                        <span className="drone-badge drone-badge--rule">{item.ruleId.toUpperCase()}</span>
+                      )}
+                      <span className="drone-badge drone-badge--authority">
+                        {AUTHORITY_LABELS[item.authority] ?? item.authority}
+                      </span>
                     </div>
-                  )}
-                </div>
-              ))}
+                    <h4 className="drone-evidence-card__title">{item.title}</h4>
+                    <p className="drone-evidence-card__desc">{item.explanation}</p>
+                    <div className="drone-evidence-card__action">
+                      <strong>Action required:</strong> {item.userAction}
+                    </div>
+                    {item.source && (
+                      <div className="drone-evidence-card__source">
+                        Source: {item.source.name}
+                        {item.source.fetchedAt && ` · ${new Date(item.source.fetchedAt).toLocaleTimeString()}`}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}

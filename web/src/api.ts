@@ -37,6 +37,7 @@ export interface DroneAssessmentResult {
 
 export interface DroneContextResponse {
   configured: boolean;
+  radiusM?: number;
   message?: string;
   airspaces: DroneAirspaceItem[];
   airports: DroneAirportItem[];
@@ -50,7 +51,8 @@ export interface DroneContextResponse {
   };
   aircraft?: {
     count: number;
-    nearby: Array<{ hex: string; flight?: string; alt_baro?: number | null }>;
+    closest?: { hex: string; flight?: string; alt_baro?: number | null; distanceM?: number } | null;
+    nearby: Array<{ hex: string; flight?: string; alt_baro?: number | null; distanceM?: number }>;
   };
   population?: {
     buildingCount: number;
@@ -638,7 +640,7 @@ export const api = {
   // --- fires (NSW RFS) ---
   fires: () => fetch('/api/fires').then((r) => json<FireIncident[]>(r)),
   // --- drone planning context ---
-  droneContext: (lat: number, lng: number, radiusM = 10000) =>
+  droneContext: (lat: number, lng: number, radiusM = 5000) =>
     fetch(`/api/drone/context?lat=${lat}&lng=${lng}&radiusM=${radiusM}`).then((r) => json<DroneContextResponse>(r)),
   // --- aurora (NOAA space weather) ---
   aurora: () => fetch('/api/aurora').then((r) => json<AuroraData>(r)),

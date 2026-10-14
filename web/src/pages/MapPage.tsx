@@ -14,12 +14,13 @@ import {
   updateMood, updatePlacesAndSpots, updatePlanes, updateRail, updateRays, setNearbyHighlight, updateShadows, updateTrains, updateWedges,
   TRAIN_LAYERS, setTrains3d, updatePlanePositions, hiddenLayers, setRadarFrame, FIRE_LAYERS, updateFires, updateCameras, EVENT_LAYERS, updateEvents,
   RADIO_LAYERS, updateRadioPlaces,
-  DRONE_LAYERS, updateDroneAirspaces, updateDroneAirports, updateDroneFireHazards,
+  DRONE_LAYERS, updateDroneFlightRadius, updateDroneAirspaces, updateDroneAirports, updateDroneFireHazards,
 } from '../map/layers.js';
 import {
   airspacesGeoJSON,
   airportsGeoJSON,
   droneFireHazardsGeoJSON,
+  flightRadiusGeoJSON,
   formatAirspaceDetail,
   formatAirportDetail,
   formatControlled3nmDetail,
@@ -187,6 +188,7 @@ export default function MapPage({ user }: { user: User | null }) {
   const [droneLoading, setDroneLoading] = useState(false);
   const [droneError, setDroneError] = useState('');
   const [dronePlanningPoint, setDronePlanningPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const [droneFlightRadiusKm, setDroneFlightRadiusKm] = useState(5);
   const droneMarker = useRef<Marker | null>(null);
 
   // Smooth movement between polls, and follow mode (camera on one vehicle).
@@ -439,7 +441,8 @@ export default function MapPage({ user }: { user: User | null }) {
   const refreshDroneContext = () => {
     if (!map || !droneOn) return;
     setDroneLoading(true);
-    api.droneContext(targetDroneLat, targetDroneLng)
+    updateDroneFlightRadius(map, flightRadiusGeoJSON(targetDroneLat, targetDroneLng, droneFlightRadiusKm));
+    api.droneContext(targetDroneLat, targetDroneLng, droneFlightRadiusKm * 1000)
       .then((res) => {
         setDroneData(res);
         setDroneLoading(false);
@@ -461,15 +464,17 @@ export default function MapPage({ user }: { user: User | null }) {
     if (!droneOn) {
       setDroneData(null);
       setDroneError('');
+      updateDroneFlightRadius(map, { type: 'FeatureCollection', features: [] });
       updateDroneAirspaces(map, { type: 'FeatureCollection', features: [] });
       updateDroneAirports(map, { type: 'FeatureCollection', features: [] }, { type: 'FeatureCollection', features: [] });
       updateDroneFireHazards(map, { type: 'FeatureCollection', features: [] });
       return;
     }
+    updateDroneFlightRadius(map, flightRadiusGeoJSON(targetDroneLat, targetDroneLng, droneFlightRadiusKm));
     let stop = false;
     setDroneLoading(true);
     const timer = setTimeout(() => {
-      api.droneContext(targetDroneLat, targetDroneLng)
+      api.droneContext(targetDroneLat, targetDroneLng, droneFlightRadiusKm * 1000)
         .then((res) => {
           if (stop) return;
           setDroneData(res);
@@ -491,7 +496,7 @@ export default function MapPage({ user }: { user: User | null }) {
       stop = true;
       clearTimeout(timer);
     };
-  }, [map, droneOn, targetDroneLat, targetDroneLng]);
+  }, [map, droneOn, targetDroneLat, targetDroneLng, droneFlightRadiusKm]);
 
   useEffect(() => {
     if (!map || !droneOn || !dronePlanningPoint) {
@@ -1477,6 +1482,8 @@ export default function MapPage({ user }: { user: User | null }) {
           error={droneError}
           planningPoint={dronePlanningPoint}
           centre={centre}
+          radiusKm={droneFlightRadiusKm}
+          onChangeRadius={setDroneFlightRadiusKm}
           onSetPlanningPoint={setDronePlanningPoint}
           onClose={() => toggle('drone', false)}
           onRefresh={refreshDroneContext}

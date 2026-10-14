@@ -254,3 +254,132 @@ test('drone planning panel: never claims safe, legal, approved, cleared, or auth
     assert.ok(!pat.test(contentWithoutDisclaimer), `Panel HTML contained banned pattern ${pat}`);
   }
 });
+
+test('drone planning panel: renders accessible labelled planned flight radius slider defaulting to 5 km', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(DronePlanningPanel, {
+      user: MOCK_USER,
+      data: MOCK_DATA,
+      loading: false,
+      error: '',
+      planningPoint: { lat: -33.42, lng: 149.58 },
+      radiusKm: 5,
+      onChangeRadius: () => {},
+      onSetPlanningPoint: () => {},
+      onClose: () => {},
+    })
+  );
+
+  // Accessible labelled slider for planned flight radius
+  assert.ok(html.includes('type="range"'), 'Must include range slider input');
+  assert.ok(html.includes('value="5"'), 'Slider must default to 5 km');
+  assert.ok(html.includes('5 km'), 'Must display exact selected value in km');
+  assert.ok(
+    html.toLowerCase().includes('planned flight radius') || html.toLowerCase().includes('flight radius'),
+    'Must include labelled flight radius title'
+  );
+  assert.ok(html.includes('min="1"'), 'Slider min bound must be 1 km');
+  assert.ok(html.includes('max="50"'), 'Slider max bound must be 50 km within OpenAIP constraints');
+});
+
+test('drone planning panel: clearly labels closest airport as outside planned radius when applicable', () => {
+  const outOfRadiusAirportData: DroneContextResponse = {
+    ...MOCK_DATA,
+    assessment: {
+      ...MOCK_DATA.assessment!,
+      evidence: [
+        {
+          id: 'airport-orange',
+          category: 'airport',
+          severity: 'caution',
+          authority: 'legislation',
+          ruleId: 'casr-101-075',
+          title: 'Controlled aerodrome proximity (outside planned radius): Orange Airport',
+          explanation: 'Closest mapped aerodrome in provider search area (8.4 km away, outside planned 5 km flight radius). Verified controlled aerodrome (YORG). 3 NM buffer does not intersect planned flight radius.',
+          source: { name: 'openAIP Core API' },
+          userAction: 'Advisory context: monitor for traffic if extending flight boundaries.',
+        },
+      ],
+    },
+  };
+
+  const html = renderToStaticMarkup(
+    React.createElement(DronePlanningPanel, {
+      user: MOCK_USER,
+      data: outOfRadiusAirportData,
+      loading: false,
+      error: '',
+      planningPoint: { lat: -33.42, lng: 149.58 },
+      radiusKm: 5,
+      onChangeRadius: () => {},
+      onSetPlanningPoint: () => {},
+      onClose: () => {},
+    })
+  );
+
+  assert.ok(html.includes('outside planned radius') || html.includes('Outside planned radius'), 'Must clearly label airport as outside planned radius');
+  assert.ok(html.includes('Orange Airport'));
+  assert.ok(html.includes('8.4 km'));
+});
+
+test('drone planning panel: shows closest ADS-B aircraft with incomplete coverage disclaimer, and handles zero aircraft visibility', () => {
+  // Case A: Aircraft detected with closest aircraft details
+  const aircraftData: DroneContextResponse = {
+    ...MOCK_DATA,
+    aircraft: {
+      count: 2,
+      closest: { hex: '7c1234', flight: 'QFA401', alt_baro: 3500, distanceM: 4200 },
+      nearby: [
+        { hex: '7c1234', flight: 'QFA401', alt_baro: 3500, distanceM: 4200 },
+        { hex: '7c5678', flight: 'JST502', alt_baro: 8000, distanceM: 12000 },
+      ],
+    },
+  };
+
+  const htmlWithPlanes = renderToStaticMarkup(
+    React.createElement(DronePlanningPanel, {
+      user: MOCK_USER,
+      data: aircraftData,
+      loading: false,
+      error: '',
+      planningPoint: { lat: -33.42, lng: 149.58 },
+      radiusKm: 5,
+      onChangeRadius: () => {},
+      onSetPlanningPoint: () => {},
+      onClose: () => {},
+    })
+  );
+
+  assert.ok(htmlWithPlanes.includes('QFA401') || htmlWithPlanes.includes('7c1234'), 'Must show closest aircraft');
+  assert.ok(htmlWithPlanes.includes('4.2 km') || htmlWithPlanes.includes('4 km'), 'Must show closest aircraft distance');
+  assert.ok(htmlWithPlanes.includes('Incomplete ADS-B coverage'), 'Must retain incomplete coverage disclaimer');
+
+  // Case B: Zero aircraft detected — must make that visible and never imply no aircraft exist
+  const zeroAircraftData: DroneContextResponse = {
+    ...MOCK_DATA,
+    aircraft: {
+      count: 0,
+      nearby: [],
+    },
+  };
+
+  const htmlZero = renderToStaticMarkup(
+    React.createElement(DronePlanningPanel, {
+      user: MOCK_USER,
+      data: zeroAircraftData,
+      loading: false,
+      error: '',
+      planningPoint: { lat: -33.42, lng: 149.58 },
+      radiusKm: 5,
+      onChangeRadius: () => {},
+      onSetPlanningPoint: () => {},
+      onClose: () => {},
+    })
+  );
+
+  assert.ok(
+    htmlZero.includes('No broadcast aircraft') || htmlZero.includes('No broadcast ADS-B aircraft'),
+    'Must make lack of broadcast aircraft visible'
+  );
+  assert.ok(htmlZero.includes('Incomplete ADS-B coverage') || htmlZero.includes('incomplete'), 'Must retain incomplete coverage disclaimer');
+});

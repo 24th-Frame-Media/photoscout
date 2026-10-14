@@ -614,7 +614,19 @@ function cameraIcon(): ImageData {
   g.fillStyle = '#0e1014'; disc(5.5, 23.5);
   g.fillStyle = '#38bdf8'; disc(3, 23.5);
   return g.getImageData(0, 0, 44, 44);
-  // Drone planning overlay: airspaces, controlled aerodrome buffers, airports, fire hazards
+  // Drone planning overlay: flight radius circle, airspaces, controlled aerodrome buffers, airports, fire hazards
+  map.addSource('drone-flight-radius', { type: 'geojson', data: empty() });
+  map.addLayer({
+    id: 'drone-flight-radius-fill', type: 'fill', source: 'drone-flight-radius',
+    layout: { visibility: 'none' },
+    paint: { 'fill-color': '#38bdf8', 'fill-opacity': 0.08 },
+  });
+  map.addLayer({
+    id: 'drone-flight-radius-line', type: 'line', source: 'drone-flight-radius',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': '#38bdf8', 'line-width': 2, 'line-dasharray': [3, 2] },
+  });
+
   map.addSource('drone-airspaces', { type: 'geojson', data: empty(), attribution: 'Airspace: openAIP (CC BY-NC-SA 4.0)' });
   map.addLayer({
     id: 'drone-airspace-prohibited-fill', type: 'fill', source: 'drone-airspaces',

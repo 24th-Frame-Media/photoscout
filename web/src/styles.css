@@ -2127,6 +2127,37 @@ a.button.primary:hover { background: #ffb83d; text-decoration: none; }
   color: #c4b5fd;
   text-transform: none;
 }
+.drone-badge--outside-radius {
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  color: #fbbf24;
+  text-transform: none;
+}
+
+/* Flight Radius Slider */
+.drone-radius-control {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.drone-radius-control__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.drone-radius-control__label {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+.drone-radius-control__slider {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 
 /* Alert banners */
 .drone-alert {
