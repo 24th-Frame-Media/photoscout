@@ -185,6 +185,15 @@ export function DronePlanningPanel({
           </div>
         )}
 
+        {/* OpenAIP airport context status banner */}
+        {data?.airports && data.airports.length > 0 && (
+          <div className="drone-alert drone-alert--info">
+            <p>
+              <strong>OpenAIP airport context:</strong> {data.airports.length} aerodrome location{data.airports.length > 1 ? 's' : ''} mapped from provider. Provider context only, may be incomplete, and does not replace pilot checks. {data.sources?.openaip?.attribution || 'Data provided by openAIP (CC BY-NC-SA 4.0)'}
+            </p>
+          </div>
+        )}
+
         {/* Dynamic provider user state banners */}
         {!user && (
           <div className="drone-alert drone-alert--info">
@@ -371,7 +380,7 @@ export function DronePlanningPanel({
             )}
             {data?.sources?.openaip && (
               <li>
-                <strong>openAIP Core API</strong>: Airspace boundaries & aerodromes. Fetched: {new Date(data.sources.openaip.fetchedAt).toLocaleString()}. {data.sources.openaip.attribution}
+                <strong>openAIP Core API</strong>: Airspace boundaries & OpenAIP airport context. Fetched: {new Date(data.sources.openaip.fetchedAt).toLocaleString()}. {data.sources.openaip.attribution}. Provider context only, may be incomplete, and does not replace pilot checks.
               </li>
             )}
             {data?.sources?.rfs && (

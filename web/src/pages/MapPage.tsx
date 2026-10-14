@@ -14,7 +14,7 @@ import {
   updateMood, updatePlacesAndSpots, updatePlanes, updateRail, updateRays, setNearbyHighlight, updateShadows, updateTrains, updateWedges,
   TRAIN_LAYERS, setTrains3d, updatePlanePositions, hiddenLayers, setRadarFrame, FIRE_LAYERS, updateFires, updateCameras, EVENT_LAYERS, updateEvents,
   RADIO_LAYERS, updateRadioPlaces,
-  DRONE_LAYERS, updateDroneFlightRadius, updateDroneAirspaces, updateDroneAirports, updateDroneFireHazards,
+  DRONE_LAYERS, updateDroneFlightRadius, updateDroneAirspaces, updateDroneAirports, updateDroneOpenAipAirports, updateDroneFireHazards,
 } from '../map/layers.js';
 import {
   airspacesGeoJSON,
@@ -23,10 +23,12 @@ import {
   flightRadiusGeoJSON,
   formatAirspaceDetail,
   formatAirportDetail,
+  formatOpenAipAirportDetail,
   formatApproachCoreDetail,
   formatApproachHeightBandDetail,
   formatControlled3nmDetail,
   formatFireHazardDetail,
+  openAipAirportsGeoJSON,
 } from '../map/drone.js';
 import DronePlanningPanel from '../components/DronePlanningPanel.js';
 import { due, MotionTracker, planePredict, trainPredict } from '../map/motion.js';
@@ -471,13 +473,18 @@ export default function MapPage({ user }: { user: User | null }) {
         setDroneLoading(false);
         setDroneError('');
         updateDroneAirspaces(map, airspacesGeoJSON(res.airspaces ?? []));
-        // NOTE: Deliberately do NOT render OpenAIP airport rows into airport-marking map layers
+        if (res.configured && res.airports && res.airports.length > 0) {
+          updateDroneOpenAipAirports(map, openAipAirportsGeoJSON(res.airports));
+        } else {
+          updateDroneOpenAipAirports(map, { type: 'FeatureCollection', features: [] });
+        }
         updateDroneFireHazards(map, droneFireHazardsGeoJSON(res.fireHazards ?? []));
       })
       .catch((err) => {
         setDroneLoading(false);
         setDroneError((err as Error).message);
-        // Dynamic failure does not clear or remove static airport markings
+        // Dynamic failure clears OpenAIP airport context, does not clear or remove static airport markings
+        updateDroneOpenAipAirports(map, { type: 'FeatureCollection', features: [] });
       });
   };
 
@@ -492,6 +499,7 @@ export default function MapPage({ user }: { user: User | null }) {
       updateDroneFlightRadius(map, { type: 'FeatureCollection', features: [] });
       updateDroneAirspaces(map, { type: 'FeatureCollection', features: [] });
       updateDroneAirports(map, { type: 'FeatureCollection', features: [] }, { type: 'FeatureCollection', features: [] });
+      updateDroneOpenAipAirports(map, { type: 'FeatureCollection', features: [] });
       updateDroneFireHazards(map, { type: 'FeatureCollection', features: [] });
       return;
     }
@@ -525,13 +533,18 @@ export default function MapPage({ user }: { user: User | null }) {
           setDroneLoading(false);
           setDroneError('');
           updateDroneAirspaces(map, airspacesGeoJSON(res.airspaces ?? []));
-          // NOTE: Deliberately do NOT render OpenAIP airport rows into airport-marking map layers
+          if (res.configured && res.airports && res.airports.length > 0) {
+            updateDroneOpenAipAirports(map, openAipAirportsGeoJSON(res.airports));
+          } else {
+            updateDroneOpenAipAirports(map, { type: 'FeatureCollection', features: [] });
+          }
           updateDroneFireHazards(map, droneFireHazardsGeoJSON(res.fireHazards ?? []));
         })
         .catch((err) => {
           if (stop) return;
           setDroneLoading(false);
           setDroneError((err as Error).message);
+          updateDroneOpenAipAirports(map, { type: 'FeatureCollection', features: [] });
         });
     }, dronePlanningPoint ? 0 : 500);
 
@@ -1217,6 +1230,10 @@ export default function MapPage({ user }: { user: User | null }) {
     }
     if (hit.layer.id === 'drone-airports-controlled' || hit.layer.id === 'drone-airports-caution') {
       openPopup(map, [lng, lat], formatAirportDetail(hit.properties ?? {}));
+      return;
+    }
+    if (hit.layer.id === 'drone-openaip-airports') {
+      openPopup(map, [lng, lat], formatOpenAipAirportDetail(hit.properties ?? {}));
       return;
     }
     if (hit.layer.id === 'drone-fire-hazard-buffer-fill' || hit.layer.id === 'drone-fire-hazard-buffer-line') {

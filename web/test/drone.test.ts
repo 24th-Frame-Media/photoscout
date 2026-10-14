@@ -6,15 +6,17 @@ import {
   droneFireHazardsGeoJSON,
   formatAirspaceDetail,
   formatAirportDetail,
+  formatOpenAipAirportDetail,
   formatControlled3nmDetail,
   formatFireHazardDetail,
   flightRadiusGeoJSON,
+  openAipAirportsGeoJSON,
   type DroneAirspaceItem,
   type DroneAirportItem,
   type DroneFireHazardItem,
 } from '../src/map/drone.js';
 import { categoryOf, CATEGORIES } from '../src/map/legend.js';
-import { DRONE_LAYERS } from '../src/map/layers.js';
+import { DRONE_LAYERS, CLICKABLE } from '../src/map/layers.js';
 
 const BANNED_WORDS = ['\\blegal\\b', '\\bsafe\\b', '\\bapproved\\b', '\\bcleared\\b', '\\bauthorised\\b'];
 
@@ -366,4 +368,175 @@ test('drone web: runway layers match legend category drone and are in DRONE_LAYE
       `Layer ${layerId} must match legend category 'drone'`
     );
   }
+});
+
+test('drone web: openAipAirportsGeoJSON emits point features only and preserves basic runway context', () => {
+  const airportsWithRunwayData: DroneAirportItem[] = [
+    {
+      id: 'apt-openaip-ybth',
+      name: 'Bathurst Aerodrome Context',
+      icaoCode: 'YBTH',
+      controlled: true,
+      geometry: { type: 'Point', coordinates: [149.6525, -33.4097] },
+      distanceM: 2300,
+      outsidePlannedRadius: false,
+      runways: [
+        {
+          id: 'rwy-17-35',
+          designator: '17/35',
+          lengthM: 1705,
+          thresholdEndpoints: [
+            [149.651, -33.401],
+            [149.655, -33.418],
+          ],
+        },
+      ],
+      controlledBuffer: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [149.60, -33.35],
+            [149.70, -33.35],
+            [149.70, -33.45],
+            [149.60, -33.45],
+            [149.60, -33.35],
+          ],
+        ],
+      },
+    },
+    {
+      id: 'apt-openaip-alais',
+      name: 'Uncontrolled Bush Strip',
+      controlled: false,
+      geometry: { type: 'Point', coordinates: [149.80, -33.50] },
+      distanceM: 8500,
+      outsidePlannedRadius: true,
+    },
+  ];
+
+  const fc = openAipAirportsGeoJSON(airportsWithRunwayData);
+  assert.equal(fc.type, 'FeatureCollection');
+  assert.equal(fc.features.length, 2);
+
+  // Every single feature emitted must be a Point feature
+  for (const f of fc.features) {
+    assert.equal(f.geometry.type, 'Point', 'OpenAIP airport context must emit point features only');
+    assert.equal((f.geometry as GeoJSON.Point).coordinates.length, 2);
+    assert.equal(typeof f.geometry.coordinates[0], 'number');
+    assert.equal(typeof f.geometry.coordinates[1], 'number');
+  }
+
+  const f1 = fc.features[0];
+  assert.equal(f1.id, 'apt-openaip-ybth');
+  assert.equal(f1.properties?.controlled, true);
+  assert.equal(f1.properties?.layerType, 'openaip-airport-context');
+  assert.ok(f1.properties?.runwaySummary.includes('17/35'));
+  assert.ok(f1.properties?.runwaySummary.includes('1705m'));
+  assert.ok(f1.properties?.attribution.includes('CC BY-NC-SA'));
+  assert.ok(f1.properties?.disclaimer.includes('Provider context only'));
+
+  const f2 = fc.features[1];
+  assert.equal(f2.properties?.controlled, false);
+  assert.equal(f2.properties?.outsidePlannedRadius, true);
+
+  assertNoBannedWords(JSON.stringify(fc));
+});
+
+test('drone web: openAipAirportsGeoJSON never infers threshold endpoints, 3 NM buffers, corridors, or height bands', () => {
+  const airportsWithGeometryMetadata: DroneAirportItem[] = [
+    {
+      id: 'apt-yssy',
+      name: 'Sydney Kingsford Smith',
+      icaoCode: 'YSSY',
+      controlled: true,
+      geometry: { type: 'Point', coordinates: [151.177, -33.946] },
+      runways: [
+        {
+          id: '16R-34L',
+          designator: '16R/34L',
+          lengthM: 3962,
+          thresholdEndpoints: [
+            [151.17, -33.93],
+            [151.18, -33.96],
+          ],
+        },
+      ],
+      controlledBuffer: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [151.1, -33.9],
+            [151.2, -33.9],
+            [151.2, -34.0],
+            [151.1, -34.0],
+            [151.1, -33.9],
+          ],
+        ],
+      },
+    },
+  ];
+
+  const fc = openAipAirportsGeoJSON(airportsWithGeometryMetadata);
+
+  // Must have exactly 1 Point feature and no non-point features
+  assert.equal(fc.features.length, 1);
+  assert.equal(fc.features[0].geometry.type, 'Point');
+
+  // Verify it contains no polygon or corridor properties
+  const rawJson = JSON.stringify(fc);
+  assert.ok(!rawJson.includes('"Polygon"'), 'Must not emit any Polygon geometry');
+  assert.ok(!rawJson.includes('"LineString"'), 'Must not emit any LineString geometry');
+  assert.ok(!rawJson.includes('controlled-3nm-measurement-buffer'));
+  assert.ok(!rawJson.includes('controlled-approach-core'));
+  assert.ok(!rawJson.includes('heightBand'));
+
+  assertNoBannedWords(rawJson);
+});
+
+test('drone web: formatOpenAipAirportDetail escapes provider strings, labels as OpenAIP airport context, attributes CC BY-NC-SA, and avoids banned clearance words', () => {
+  const popupHtml = formatOpenAipAirportDetail({
+    name: 'Bathurst <script>alert("xss")</script> Aerodrome',
+    icaoCode: 'YBTH',
+    controlled: true,
+    outsidePlannedRadius: false,
+    runwaySummary: '17/35 (1705m), 08/26 (1200m)',
+  });
+
+  // Escaping
+  assert.ok(!popupHtml.includes('<script>'), 'Must escape HTML injection in name');
+  assert.ok(popupHtml.includes('&lt;script&gt;'));
+
+  // Visibly labelled as OpenAIP airport context
+  assert.ok(popupHtml.includes('OpenAIP airport context'), 'Popup must visibly label OpenAIP airport context');
+
+  // Attribution
+  assert.ok(popupHtml.includes('openAIP (CC BY-NC-SA 4.0)'), 'Popup must include CC BY-NC-SA attribution');
+
+  // Short warning that it is provider context only, may be incomplete, does not replace pilot checks
+  assert.ok(
+    popupHtml.includes('Provider context only, may be incomplete, and does not replace pilot checks'),
+    'Popup must include provider context warning'
+  );
+
+  // Runway context
+  assert.ok(popupHtml.includes('Runway context: 17/35 (1705m)'), 'Popup must show basic runway context');
+
+  // Banned words check
+  assertNoBannedWords(popupHtml);
+});
+
+test('drone web: DRONE_LAYERS and legend include drone-openaip-airports with distinct visual treatment and CLICKABLE integration', () => {
+  assert.ok(
+    DRONE_LAYERS.includes('drone-openaip-airports'),
+    'DRONE_LAYERS must include drone-openaip-airports'
+  );
+  assert.ok(
+    CLICKABLE.includes('drone-openaip-airports'),
+    'CLICKABLE must include drone-openaip-airports for popup interaction'
+  );
+  assert.equal(
+    categoryOf({ id: 'drone-openaip-airports', type: 'circle' } as any),
+    'drone',
+    'drone-openaip-airports must match legend category drone'
+  );
 });

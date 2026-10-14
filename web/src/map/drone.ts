@@ -280,6 +280,62 @@ export function airportsGeoJSON(airports: DroneAirportItem[]): DroneAirportsGeoJ
   };
 }
 
+/**
+ * Generates point-only GeoJSON for dynamic OpenAIP airport context.
+ * NEVER infers threshold endpoints, approach corridors, 3 NM buffers,
+ * or any airport-area geometry from provider point or runway metadata.
+ */
+export function openAipAirportsGeoJSON(
+  airports: DroneAirportItem[]
+): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+
+  for (const apt of airports) {
+    if (!apt.geometry || apt.geometry.type !== 'Point') continue;
+
+    const isControlled = apt.controlled === true;
+
+    let runwaySummary = '';
+    if (apt.runways && Array.isArray(apt.runways) && apt.runways.length > 0) {
+      runwaySummary = apt.runways
+        .map((r) => {
+          const des = r.designator || 'RWY';
+          const len = r.lengthM ? ` (${r.lengthM}m)` : '';
+          return `${des}${len}`;
+        })
+        .join(', ');
+    }
+
+    features.push({
+      type: 'Feature',
+      id: apt.id,
+      properties: {
+        id: apt.id,
+        name: apt.name,
+        icaoCode: apt.icaoCode,
+        iataCode: apt.iataCode,
+        controlled: isControlled,
+        outsidePlannedRadius: Boolean(apt.outsidePlannedRadius),
+        distanceM: apt.distanceM,
+        typeName: apt.typeName || (isControlled ? 'Controlled Aerodrome' : 'Aerodrome'),
+        layerType: 'openaip-airport-context',
+        runwaySummary: runwaySummary || undefined,
+        disclaimer: 'Provider context only, may be incomplete, and does not replace pilot checks.',
+        attribution: 'openAIP (CC BY-NC-SA 4.0)',
+      },
+      geometry: {
+        type: 'Point',
+        coordinates: apt.geometry.coordinates,
+      },
+    });
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features,
+  };
+}
+
 export function droneFireHazardsGeoJSON(
   hazards: DroneFireHazardItem[]
 ): GeoJSON.FeatureCollection {
@@ -352,6 +408,28 @@ export function formatAirportDetail(props: Record<string, unknown>): string {
     <strong>${name}${icao}</strong><br />
     ${outsideNote}${unavailNote}<span>Aerodrome / landing area context</span><br />
     <em>Check for aircraft movements and approach/departure corridors before flight.</em>
+  </div>`;
+}
+
+export function formatOpenAipAirportDetail(props: Record<string, unknown>): string {
+  const name = escapeHtml(String(props.name || 'Aerodrome'));
+  const icao = props.icaoCode ? ` (${escapeHtml(String(props.icaoCode))})` : '';
+  const isControlled = props.controlled === true || props.controlled === 'true';
+  const isOutside = props.outsidePlannedRadius === true || props.outsidePlannedRadius === 'true';
+  const outsideNote = isOutside
+    ? '<span class="drone-popup-alert">Outside selected planned flight radius</span><br />'
+    : '';
+
+  const runwayText = props.runwaySummary
+    ? `<span>Runway context: ${escapeHtml(String(props.runwaySummary))}</span><br />`
+    : '';
+
+  return `<div class="drone-popup">
+    <strong>${name}${icao}</strong><br />
+    <span class="drone-popup-alert">OpenAIP airport context</span><br />
+    ${outsideNote}<span>${isControlled ? 'Controlled aerodrome point context' : 'Aerodrome point context'}</span><br />
+    ${runwayText}<em>Provider context only, may be incomplete, and does not replace pilot checks.</em><br />
+    <span class="drone-popup-attribution">Data provided by openAIP (CC BY-NC-SA 4.0)</span>
   </div>`;
 }
 

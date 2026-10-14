@@ -86,6 +86,7 @@ export const CATEGORIES: Category[] = [
       'drone-runway-height-band-hatch-line',
       'drone-airports-controlled',
       'drone-airports-caution',
+      'drone-openaip-airports',
       'drone-fire-hazard-buffer-fill',
       'drone-fire-hazard-buffer-line'
     ) },

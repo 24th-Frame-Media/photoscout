@@ -4,8 +4,8 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DronePlanningPanel } from '../src/components/DronePlanningPanel.js';
 import { api, type AerodromesContextResponse, type DroneContextResponse, type User } from '../src/api.js';
-import { DRONE_LAYERS, setLayerVisible } from '../src/map/layers.js';
-import { airportsGeoJSON, type DroneAirportItem } from '../src/map/drone.js';
+import { DRONE_LAYERS, setLayerVisible, updateDroneOpenAipAirports } from '../src/map/layers.js';
+import { airportsGeoJSON, openAipAirportsGeoJSON, type DroneAirportItem } from '../src/map/drone.js';
 
 const MOCK_USER: User = {
   id: 'usr-pilot-1',
@@ -231,4 +231,149 @@ test('drone web: static map layers survive dynamic drone context failure without
   assert.equal(mapSources['drone-airports'].features.length, 1);
   assert.equal(mapSources['drone-airports'].features[0].id, 'TEST-YRED');
   assert.ok(mapSources['drone-controlled-3nm'].features.length > 0);
+});
+
+test('drone web: dynamic provider failure cannot remove local static markings and clears OpenAIP airport context', () => {
+  const mapSources: Record<string, any> = {};
+  const mockMap: any = {
+    getSource: (id: string) => (mapSources[id] ? { setData: (data: any) => { mapSources[id] = data; } } : null),
+  };
+
+  // 1. Local aerodromes loaded
+  const { points, controlled3nm } = airportsGeoJSON(MOCK_LOCAL_AERODROMES.airports);
+  mapSources['drone-airports'] = points;
+  mapSources['drone-controlled-3nm'] = controlled3nm;
+
+  // 2. Previously had some OpenAIP airport markers
+  const openAipFc = openAipAirportsGeoJSON([
+    {
+      id: 'prev-apt-1',
+      name: 'Previous Provider Airport',
+      geometry: { type: 'Point', coordinates: [153.1, -27.2] },
+    },
+  ]);
+  mapSources['drone-openaip-airports'] = openAipFc;
+  assert.equal(mapSources['drone-openaip-airports'].features.length, 1);
+
+  // 3. Dynamic context fails
+  // On dynamic failure:
+  // updateDroneOpenAipAirports clears the provider points, while static markings stay intact
+  updateDroneOpenAipAirports(mockMap, { type: 'FeatureCollection', features: [] });
+
+  // OpenAIP context is cleared (no stale markers)
+  assert.equal(mapSources['drone-openaip-airports'].features.length, 0);
+
+  // Local static aerodromes are untouched and intact
+  assert.equal(mapSources['drone-airports'].features.length, 1);
+  assert.equal(mapSources['drone-airports'].features[0].id, 'TEST-YRED');
+  assert.ok(mapSources['drone-controlled-3nm'].features.length > 0);
+});
+
+test('drone web: absence of key or auth leaves no stale OpenAIP point context visible while local aerodromes remain active', () => {
+  const mapSources: Record<string, any> = {};
+  const mockMap: any = {
+    getSource: (id: string) => (mapSources[id] ? { setData: (data: any) => { mapSources[id] = data; } } : null),
+  };
+
+  // 1. Local aerodromes active
+  const { points, controlled3nm } = airportsGeoJSON(MOCK_LOCAL_AERODROMES.airports);
+  mapSources['drone-airports'] = points;
+  mapSources['drone-controlled-3nm'] = controlled3nm;
+  mapSources['drone-openaip-airports'] = { type: 'FeatureCollection', features: [] };
+
+  // 2. Unconfigured response (no key) or unauthenticated
+  const unconfiguredResponse: DroneContextResponse = {
+    configured: false,
+    airspaces: [],
+    airports: [],
+    fireHazards: [],
+    assessment: {
+      overallSeverity: 'info',
+      summary: 'Advisory guidance',
+      evaluatedAt: '2026-10-14T00:00:00Z',
+      evidence: [],
+      notChecked: [],
+      pilotChecklist: [],
+    },
+    sources: {},
+  };
+
+  // Handling unconfigured response:
+  if (!unconfiguredResponse.configured || !unconfiguredResponse.airports?.length) {
+    updateDroneOpenAipAirports(mockMap, { type: 'FeatureCollection', features: [] });
+  }
+
+  // OpenAIP airport context is empty
+  assert.equal(mapSources['drone-openaip-airports'].features.length, 0);
+
+  // Static aerodromes remain active
+  assert.equal(mapSources['drone-airports'].features.length, 1);
+});
+
+test('drone planning panel: visibly labels OpenAIP airport context, attributes CC BY-NC-SA, and includes warning without banned words', () => {
+  const dataWithAirports: DroneContextResponse = {
+    configured: true,
+    airspaces: [],
+    airports: [
+      {
+        id: 'openaip-apt-1',
+        name: 'Bathurst Aerodrome Context',
+        icaoCode: 'YBTH',
+        geometry: { type: 'Point', coordinates: [149.65, -33.41] },
+      },
+    ],
+    fireHazards: [],
+    assessment: {
+      overallSeverity: 'info',
+      summary: 'Advisory guidance',
+      evaluatedAt: '2026-10-14T00:00:00Z',
+      evidence: [],
+      notChecked: [],
+      pilotChecklist: [],
+    },
+    sources: {
+      openaip: {
+        provider: 'openAIP',
+        endpoint: '/api/airspaces',
+        fetchedAt: '2026-10-14T00:00:00Z',
+        expiresAt: '2026-10-14T06:00:00Z',
+        stale: false,
+        attribution: 'Data provided by openAIP (CC BY-NC-SA 4.0)',
+      },
+    },
+  };
+
+  const html = renderToStaticMarkup(
+    React.createElement(DronePlanningPanel, {
+      user: MOCK_USER,
+      data: dataWithAirports,
+      aerodromesData: MOCK_LOCAL_AERODROMES,
+      loading: false,
+      error: '',
+      planningPoint: { lat: -33.41, lng: 149.65 },
+      radiusKm: 5,
+      onChangeRadius: () => {},
+      onSetPlanningPoint: () => {},
+      onClose: () => {},
+    })
+  );
+
+  // Visibly labelled in panel data as OpenAIP airport context
+  assert.ok(html.includes('OpenAIP airport context'), 'Panel must visibly label OpenAIP airport context');
+
+  // Attributed under existing CC BY-NC-SA
+  assert.ok(html.includes('CC BY-NC-SA'), 'Panel must attribute CC BY-NC-SA');
+
+  // Short warning that it is provider context only, may be incomplete, and does not replace pilot checks
+  assert.ok(
+    html.includes('Provider context only') && html.includes('does not replace pilot checks'),
+    'Panel must include provider context warning'
+  );
+
+  // No banned words in the panel (outside of the statutory negative disclaimer)
+  const contentWithoutDisclaimer = html.replace(/<section class="drone-disclaimer">[\s\S]*?<\/section>/, '');
+  for (const word of ['safe', 'legal', 'approved', 'cleared', 'authorised']) {
+    const re = new RegExp(`\\b${word}\\b`, 'i');
+    assert.ok(!re.test(contentWithoutDisclaimer), `Panel content contained banned word ${word}`);
+  }
 });

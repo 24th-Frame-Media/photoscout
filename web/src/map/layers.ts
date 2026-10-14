@@ -724,6 +724,24 @@ function cameraIcon(): ImageData {
     paint: { 'circle-radius': 5, 'circle-color': '#f59e0b', 'circle-stroke-color': '#0e1014', 'circle-stroke-width': 1.5 },
   });
 
+  map.addSource('drone-openaip-airports', {
+    type: 'geojson',
+    data: empty(),
+    attribution: 'Airports: openAIP (CC BY-NC-SA 4.0)',
+  });
+  map.addLayer({
+    id: 'drone-openaip-airports',
+    type: 'circle',
+    source: 'drone-openaip-airports',
+    layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': ['case', ['==', ['get', 'controlled'], true], 6, 5],
+      'circle-color': ['case', ['==', ['get', 'controlled'], true], '#7c3aed', '#a855f7'],
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 1.5,
+    },
+  });
+
   map.addSource('drone-fire-hazards', { type: 'geojson', data: empty() });
   map.addLayer({
     id: 'drone-fire-hazard-buffer-fill', type: 'fill', source: 'drone-fire-hazards',
@@ -915,6 +933,7 @@ export const DRONE_LAYERS = [
   'drone-runway-height-band-hatch-line',
   'drone-airports-controlled',
   'drone-airports-caution',
+  'drone-openaip-airports',
   'drone-fire-hazard-buffer-fill',
   'drone-fire-hazard-buffer-line',
 ];
@@ -936,6 +955,10 @@ export function updateDroneAirports(
   setData(map, 'drone-runway-approach-core', approachCore ?? empty());
   setData(map, 'drone-runway-approach-height-band', approachHeightBand ?? empty());
   setData(map, 'drone-runway-height-band-hatch', heightBandHatch ?? empty());
+}
+
+export function updateDroneOpenAipAirports(map: MlMap, fc: GeoJSON.FeatureCollection) {
+  setData(map, 'drone-openaip-airports', fc);
 }
 
 export function updateDroneFireHazards(map: MlMap, fc: GeoJSON.FeatureCollection) {
@@ -1023,7 +1046,7 @@ export const CLICKABLE = [
   'spot-thumbs', 'place-spot-thumbs', 'spot-points', 'place-spots', 'clusters', 'place-points', 'place-fill', 'place-line', 'candidates',
   'fires-pts', 'fires-polys-fill', 'fires-polys-line', 'cameras', 'event-points', 'event-clusters', 'road-quality', 'route-lines', 'route-staging',
   'radio-points', 'radio-clusters',
-  'drone-airports-controlled', 'drone-airports-caution', 'drone-controlled-aerodrome-3nm-fill', 'drone-fire-hazard-buffer-fill',
+  'drone-airports-controlled', 'drone-airports-caution', 'drone-openaip-airports', 'drone-controlled-aerodrome-3nm-fill', 'drone-fire-hazard-buffer-fill',
   'drone-runway-approach-core-fill', 'drone-runway-approach-height-band-fill',
   'drone-airspace-prohibited-fill', 'drone-airspace-restricted-fill', 'drone-airspace-controlled-fill', 'drone-airspace-caution-fill',
 ];
