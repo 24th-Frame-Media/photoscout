@@ -1,3 +1,5 @@
+import { generateAirportRunwayMarkings, type RunwayThresholdPair } from './runwayGeometry.js';
+
 export interface DroneAirspaceItem {
   id: string;
   name: string;
@@ -31,15 +33,18 @@ export interface DroneAirportItem {
   distanceM?: number;
   outsidePlannedRadius?: boolean;
   runways?: Array<{
+    id?: string;
     designator?: string;
     surface?: string | number;
     lengthM?: number;
+    thresholdEndpoints?: [GeoJSON.Position, GeoJSON.Position];
   }>;
   frequencies?: Array<{
     type?: string;
     frequency?: string;
     name?: string;
   }>;
+  runwayGeometryUnavailable?: boolean;
 }
 
 export interface DroneFireHazardItem {
@@ -179,17 +184,51 @@ export function flightRadiusGeoJSON(
   };
 }
 
-export function airportsGeoJSON(airports: DroneAirportItem[]): {
+export interface DroneAirportsGeoJSONResult {
   points: GeoJSON.FeatureCollection;
   controlled3nm: GeoJSON.FeatureCollection;
-} {
+  approachCore: GeoJSON.FeatureCollection;
+  approachHeightBand: GeoJSON.FeatureCollection;
+  heightBandHatch: GeoJSON.FeatureCollection;
+}
+
+export function airportsGeoJSON(airports: DroneAirportItem[]): DroneAirportsGeoJSONResult {
   const pointFeatures: GeoJSON.Feature[] = [];
   const bufferFeatures: GeoJSON.Feature[] = [];
+  const approachCoreFeatures: GeoJSON.Feature[] = [];
+  const approachHeightBandFeatures: GeoJSON.Feature[] = [];
+  const heightBandHatchFeatures: GeoJSON.Feature[] = [];
 
   for (const apt of airports) {
     if (!apt.geometry) continue;
 
     const isControlled = apt.controlled === true;
+    const validRunways: RunwayThresholdPair[] = [];
+
+    if (apt.runways && apt.runways.length > 0) {
+      for (const rwy of apt.runways) {
+        if (
+          rwy.thresholdEndpoints &&
+          rwy.thresholdEndpoints.length === 2 &&
+          rwy.thresholdEndpoints[0] &&
+          rwy.thresholdEndpoints[1] &&
+          Number.isFinite(rwy.thresholdEndpoints[0][0]) &&
+          Number.isFinite(rwy.thresholdEndpoints[0][1]) &&
+          Number.isFinite(rwy.thresholdEndpoints[1][0]) &&
+          Number.isFinite(rwy.thresholdEndpoints[1][1])
+        ) {
+          validRunways.push({
+            runwayId: rwy.id,
+            designator: rwy.designator || 'RWY',
+            endpoints: rwy.thresholdEndpoints,
+          });
+        }
+      }
+    }
+
+    const hasExplicitUnavailable = apt.runwayGeometryUnavailable === true;
+    const hasValidRunways = validRunways.length > 0;
+    const runwayGeometryUnavailable = isControlled && (hasExplicitUnavailable || (!hasValidRunways && !apt.controlledBuffer));
 
     pointFeatures.push({
       type: 'Feature',
@@ -202,11 +241,24 @@ export function airportsGeoJSON(airports: DroneAirportItem[]): {
         outsidePlannedRadius: Boolean(apt.outsidePlannedRadius),
         distanceM: apt.distanceM,
         typeName: apt.typeName || (isControlled ? 'Controlled Aerodrome' : 'Aerodrome'),
+        runwayGeometryUnavailable: Boolean(runwayGeometryUnavailable),
       },
       geometry: apt.geometry,
     });
 
-    if (isControlled && apt.controlledBuffer) {
+    if (isControlled && hasValidRunways) {
+      const markings = generateAirportRunwayMarkings(validRunways, {
+        airportId: apt.id,
+        airportName: apt.name,
+        icaoCode: apt.icaoCode,
+        controlled: true,
+      });
+
+      bufferFeatures.push(...markings.buffer3nm.features);
+      approachCoreFeatures.push(...markings.approachCore.features);
+      approachHeightBandFeatures.push(...markings.approachHeightBand.features);
+      heightBandHatchFeatures.push(...markings.heightBandHatch.features);
+    } else if (isControlled && apt.controlledBuffer && !hasExplicitUnavailable) {
       bufferFeatures.push({
         type: 'Feature',
         id: `${apt.id}-3nm`,
@@ -227,6 +279,9 @@ export function airportsGeoJSON(airports: DroneAirportItem[]): {
   return {
     points: { type: 'FeatureCollection', features: pointFeatures },
     controlled3nm: { type: 'FeatureCollection', features: bufferFeatures },
+    approachCore: { type: 'FeatureCollection', features: approachCoreFeatures },
+    approachHeightBand: { type: 'FeatureCollection', features: approachHeightBandFeatures },
+    heightBandHatch: { type: 'FeatureCollection', features: heightBandHatchFeatures },
   };
 }
 
@@ -282,18 +337,25 @@ export function formatAirportDetail(props: Record<string, unknown>): string {
   const outsideNote = isOutside
     ? '<span class="drone-popup-alert">Outside selected planned flight radius</span><br />'
     : '';
+  const unavailNote = props.runwayGeometryUnavailable === true
+    ? '<span class="drone-popup-alert">Runway geometry unavailable — verify current aerodrome data</span><br />'
+    : '';
 
   if (isControlled) {
+    const explanation = props.runwayGeometryUnavailable === true
+      ? '<em>Controlled aerodrome without verified runway coordinates. 3 NM centreline buffer not rendered. Confirm applicable CASA conditions before flight.</em>'
+      : '<em>3 NM conditional planning buffer shown. Conditions depend on aircraft category/weight (including 250 g threshold) and permissions. Confirm applicable CASA conditions before flight.</em>';
+
     return `<div class="drone-popup">
       <strong>${name}${icao}</strong><br />
-      ${outsideNote}<span class="drone-popup-alert">Verified Controlled Aerodrome (CASR 101.238(d)(v))</span><br />
-      <em>3 NM conditional planning buffer shown. Conditions depend on aircraft category/weight (including 250 g threshold) and permissions. Confirm applicable CASA conditions before flight.</em>
+      ${outsideNote}${unavailNote}<span class="drone-popup-alert">Verified Controlled Aerodrome (CASR 101.238(d)(v))</span><br />
+      ${explanation}
     </div>`;
   }
 
   return `<div class="drone-popup">
     <strong>${name}${icao}</strong><br />
-    ${outsideNote}<span>Aerodrome / landing area context</span><br />
+    ${outsideNote}${unavailNote}<span>Aerodrome / landing area context</span><br />
     <em>Check for aircraft movements and approach/departure corridors before flight.</em>
   </div>`;
 }
@@ -326,5 +388,41 @@ export function formatFireHazardDetail(props: Record<string, unknown>): string {
     <span>Alert: ${category} | Status: ${status}</span><br />
     <span class="drone-popup-alert">${disclaimer}</span><br />
     <em>CASR 101.238(e) restricts flight over emergency operations without approval from the person in charge.</em>
+  </div>`;
+}
+
+export function formatApproachCoreDetail(props: Record<string, unknown>): string {
+  const name = escapeHtml(String(props.airportName || 'Controlled Aerodrome'));
+  const icao = props.icaoCode ? ` (${escapeHtml(String(props.icaoCode))})` : '';
+  const rwy = props.runwayDesignator ? ` RWY ${escapeHtml(String(props.runwayDesignator))}` : '';
+  const disclaimer = escapeHtml(
+    String(
+      props.disclaimer ||
+        'Advisory approach/departure corridor — not clearance. Ground upwards to 400 ft.'
+    )
+  );
+
+  return `<div class="drone-popup">
+    <strong>${name}${icao}${rwy} — Approach/Departure Path</strong><br />
+    <span class="drone-popup-alert">${disclaimer}</span><br />
+    <em>CASR Part 101 MOS s 4.05 core approach/departure path out to 7 km. Operations prohibited without ATC permission. Advisory context only.</em>
+  </div>`;
+}
+
+export function formatApproachHeightBandDetail(props: Record<string, unknown>): string {
+  const name = escapeHtml(String(props.airportName || 'Controlled Aerodrome'));
+  const icao = props.icaoCode ? ` (${escapeHtml(String(props.icaoCode))})` : '';
+  const rwy = props.runwayDesignator ? ` RWY ${escapeHtml(String(props.runwayDesignator))}` : '';
+  const disclaimer = escapeHtml(
+    String(
+      props.disclaimer ||
+        'Advisory height-aware band (7 km to 8.5 km from runway strip end).'
+    )
+  );
+
+  return `<div class="drone-popup">
+    <strong>${name}${icao}${rwy} — Height-Aware Band (90 m / 300 ft)</strong><br />
+    <span class="drone-popup-alert">${disclaimer}</span><br />
+    <em>CASR Part 101 MOS s 4.05(2)(b)(ii) 7 km to 8.5 km outer corridor. Restrictions apply above 90 m (300 ft) aerodrome elevation. Advisory context only.</em>
   </div>`;
 }

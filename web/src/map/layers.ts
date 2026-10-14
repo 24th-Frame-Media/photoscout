@@ -673,12 +673,43 @@ function cameraIcon(): ImageData {
   map.addLayer({
     id: 'drone-controlled-aerodrome-3nm-fill', type: 'fill', source: 'drone-controlled-3nm',
     layout: { visibility: 'none' },
-    paint: { 'fill-color': '#ef4444', 'fill-opacity': 0.15 },
+    paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.08 },
   });
   map.addLayer({
     id: 'drone-controlled-aerodrome-3nm-line', type: 'line', source: 'drone-controlled-3nm',
     layout: { visibility: 'none' },
-    paint: { 'line-color': '#ef4444', 'line-width': 2, 'line-dasharray': [4, 2] },
+    paint: { 'line-color': '#d97706', 'line-width': 1.5, 'line-dasharray': [4, 2] },
+  });
+
+  map.addSource('drone-runway-approach-core', { type: 'geojson', data: empty() });
+  map.addLayer({
+    id: 'drone-runway-approach-core-fill', type: 'fill', source: 'drone-runway-approach-core',
+    layout: { visibility: 'none' },
+    paint: { 'fill-color': '#0f172a', 'fill-opacity': 0.35 },
+  });
+  map.addLayer({
+    id: 'drone-runway-approach-core-line', type: 'line', source: 'drone-runway-approach-core',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': '#0f172a', 'line-width': 2 },
+  });
+
+  map.addSource('drone-runway-approach-height-band', { type: 'geojson', data: empty() });
+  map.addLayer({
+    id: 'drone-runway-approach-height-band-fill', type: 'fill', source: 'drone-runway-approach-height-band',
+    layout: { visibility: 'none' },
+    paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.08 },
+  });
+  map.addLayer({
+    id: 'drone-runway-approach-height-band-line', type: 'line', source: 'drone-runway-approach-height-band',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': '#f59e0b', 'line-width': 1.5, 'line-dasharray': [2, 2] },
+  });
+
+  map.addSource('drone-runway-height-band-hatch', { type: 'geojson', data: empty() });
+  map.addLayer({
+    id: 'drone-runway-height-band-hatch-line', type: 'line', source: 'drone-runway-height-band-hatch',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': '#b45309', 'line-width': 1.5 },
   });
 
   map.addSource('drone-airports', { type: 'geojson', data: empty() });
@@ -877,6 +908,11 @@ export const DRONE_LAYERS = [
   'drone-airspace-caution-line',
   'drone-controlled-aerodrome-3nm-fill',
   'drone-controlled-aerodrome-3nm-line',
+  'drone-runway-approach-core-fill',
+  'drone-runway-approach-core-line',
+  'drone-runway-approach-height-band-fill',
+  'drone-runway-approach-height-band-line',
+  'drone-runway-height-band-hatch-line',
   'drone-airports-controlled',
   'drone-airports-caution',
   'drone-fire-hazard-buffer-fill',
@@ -890,10 +926,16 @@ export function updateDroneAirspaces(map: MlMap, fc: GeoJSON.FeatureCollection) 
 export function updateDroneAirports(
   map: MlMap,
   points: GeoJSON.FeatureCollection,
-  buffers: GeoJSON.FeatureCollection
+  buffers: GeoJSON.FeatureCollection,
+  approachCore?: GeoJSON.FeatureCollection,
+  approachHeightBand?: GeoJSON.FeatureCollection,
+  heightBandHatch?: GeoJSON.FeatureCollection
 ) {
   setData(map, 'drone-airports', points);
   setData(map, 'drone-controlled-3nm', buffers);
+  setData(map, 'drone-runway-approach-core', approachCore ?? empty());
+  setData(map, 'drone-runway-approach-height-band', approachHeightBand ?? empty());
+  setData(map, 'drone-runway-height-band-hatch', heightBandHatch ?? empty());
 }
 
 export function updateDroneFireHazards(map: MlMap, fc: GeoJSON.FeatureCollection) {
@@ -982,6 +1024,7 @@ export const CLICKABLE = [
   'fires-pts', 'fires-polys-fill', 'fires-polys-line', 'cameras', 'event-points', 'event-clusters', 'road-quality', 'route-lines', 'route-staging',
   'radio-points', 'radio-clusters',
   'drone-airports-controlled', 'drone-airports-caution', 'drone-controlled-aerodrome-3nm-fill', 'drone-fire-hazard-buffer-fill',
+  'drone-runway-approach-core-fill', 'drone-runway-approach-height-band-fill',
   'drone-airspace-prohibited-fill', 'drone-airspace-restricted-fill', 'drone-airspace-controlled-fill', 'drone-airspace-caution-fill',
 ];
 

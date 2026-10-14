@@ -266,3 +266,108 @@ test('drone web: flightRadiusGeoJSON creates bounded circular polygon with defau
   assert.equal(feature.properties?.radiusM, 5000);
   assertNoBannedWords(JSON.stringify(fc));
 });
+
+test('drone web: airportsGeoJSON generates runway markings for all valid runways and preserves overlaps', () => {
+  const airportWithRunways: DroneAirportItem = {
+    id: 'apt-ybth',
+    name: 'Bathurst Aerodrome',
+    icaoCode: 'YBTH',
+    controlled: true,
+    geometry: { type: 'Point', coordinates: [149.6525, -33.4097] },
+    runways: [
+      {
+        id: 'rwy-17-35',
+        designator: '17/35',
+        thresholdEndpoints: [
+          [149.651, -33.401],
+          [149.655, -33.418],
+        ],
+      },
+      {
+        id: 'rwy-08-26',
+        designator: '08/26',
+        thresholdEndpoints: [
+          [149.643, -33.410],
+          [149.663, -33.410],
+        ],
+      },
+    ],
+  };
+
+  const result = airportsGeoJSON([airportWithRunways]);
+
+  // Points feature
+  assert.equal(result.points.features.length, 1);
+  assert.equal(result.points.features[0].properties?.runwayGeometryUnavailable, false);
+
+  // Both runways produce 3NM buffers
+  assert.equal(result.controlled3nm.features.length, 2, 'Must have 2 distinct 3 NM buffers');
+  assert.equal(result.controlled3nm.features[0].properties?.kind, 'controlled-3nm-measurement-buffer');
+  assert.equal(result.controlled3nm.features[0].properties?.authority, 'provider_context');
+
+  // Both runways produce approach cores out to 7 km
+  assert.equal(result.approachCore.features.length, 2, 'Must have 2 distinct approach cores');
+  assert.equal(result.approachCore.features[0].properties?.kind, 'controlled-approach-core');
+  assert.equal(result.approachCore.features[0].properties?.coreDistanceM, 7000);
+
+  // Both runways produce 2 height bands each (7-8.5km) -> 4 height band features total
+  assert.equal(result.approachHeightBand.features.length, 4, 'Must have 4 height band zones (2 per runway)');
+  assert.equal(result.approachHeightBand.features[0].properties?.heightBand, '90m/300ft height-aware band');
+
+  // Vector diagonal hatch lines generated
+  assert.ok(result.heightBandHatch.features.length > 0, 'Must have vector diagonal hatch lines');
+  assert.equal(result.heightBandHatch.features[0].geometry.type, 'LineString');
+
+  assertNoBannedWords(JSON.stringify(result));
+});
+
+test('drone web: airportsGeoJSON handles missing runway geometry with unavailable state and no point buffer', () => {
+  const airportNoRunways: DroneAirportItem = {
+    id: 'apt-no-rwy',
+    name: 'Controlled Field Without Runways',
+    icaoCode: 'YXYZ',
+    controlled: true,
+    runwayGeometryUnavailable: true,
+    geometry: { type: 'Point', coordinates: [149.65, -33.41] },
+  };
+
+  const result = airportsGeoJSON([airportNoRunways]);
+
+  // Point feature has runwayGeometryUnavailable: true
+  assert.equal(result.points.features.length, 1);
+  assert.equal(result.points.features[0].properties?.runwayGeometryUnavailable, true);
+
+  // MUST NOT render an airport-point 3NM circle as a legal substitute
+  assert.equal(result.controlled3nm.features.length, 0, 'No 3NM buffer when runway geometry unavailable');
+  assert.equal(result.approachCore.features.length, 0);
+  assert.equal(result.approachHeightBand.features.length, 0);
+  assert.equal(result.heightBandHatch.features.length, 0);
+
+  // Detail popup renders required visible warning
+  const html = formatAirportDetail(result.points.features[0].properties as any);
+  assert.ok(
+    html.includes('Runway geometry unavailable — verify current aerodrome data'),
+    'Popup must visibly show Runway geometry unavailable'
+  );
+  assertNoBannedWords(html);
+});
+
+test('drone web: runway layers match legend category drone and are in DRONE_LAYERS', () => {
+  const expectedLayers = [
+    'drone-controlled-aerodrome-3nm-fill',
+    'drone-controlled-aerodrome-3nm-line',
+    'drone-runway-approach-core-fill',
+    'drone-runway-approach-core-line',
+    'drone-runway-approach-height-band-fill',
+    'drone-runway-approach-height-band-line',
+    'drone-runway-height-band-hatch-line',
+  ];
+
+  for (const layerId of expectedLayers) {
+    assert.equal(
+      categoryOf({ id: layerId, type: 'fill' } as any),
+      'drone',
+      `Layer ${layerId} must match legend category 'drone'`
+    );
+  }
+});

@@ -383,3 +383,45 @@ test('drone planning panel: shows closest ADS-B aircraft with incomplete coverag
   );
   assert.ok(htmlZero.includes('Incomplete ADS-B coverage') || htmlZero.includes('incomplete'), 'Must retain incomplete coverage disclaimer');
 });
+
+test('drone planning panel: shows runway geometry unavailable warning when controlled aerodrome lacks runways', () => {
+  const missingRunwayData: DroneContextResponse = {
+    ...MOCK_DATA,
+    assessment: {
+      ...MOCK_DATA.assessment!,
+      evidence: [
+        {
+          id: 'airport-unavail',
+          category: 'airport',
+          severity: 'caution',
+          authority: 'legislation',
+          ruleId: 'casr-101-075',
+          title: 'Controlled aerodrome proximity: Field Without Runways',
+          explanation: 'Controlled aerodrome reported by provider within planned flight radius. Runway geometry unavailable — verify current aerodrome data; 3 NM centreline buffer not rendered. Under CASR 101.238(d)(v) and CASR 101 MOS Section 4.04/4.05, operations in controlled airspace or within 3 NM (5556 m) of a controlled aerodrome boundary have restricted flight permissions depending on aircraft weight (250 g threshold).',
+          source: { name: 'openAIP Core API' },
+          userAction: 'Verify aerodrome runway configuration and coordinates manually with official publications before flight.',
+        },
+      ],
+    },
+  };
+
+  const html = renderToStaticMarkup(
+    React.createElement(DronePlanningPanel, {
+      user: MOCK_USER,
+      data: missingRunwayData,
+      loading: false,
+      error: '',
+      planningPoint: { lat: -33.42, lng: 149.58 },
+      radiusKm: 5,
+      onChangeRadius: () => {},
+      onSetPlanningPoint: () => {},
+      onClose: () => {},
+    })
+  );
+
+  assert.ok(
+    html.includes('Runway geometry unavailable — verify current aerodrome data'),
+    'Must display runway geometry unavailable warning'
+  );
+  assert.ok(html.includes('3 NM centreline buffer not rendered'));
+});

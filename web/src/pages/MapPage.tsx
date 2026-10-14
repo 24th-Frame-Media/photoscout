@@ -23,6 +23,8 @@ import {
   flightRadiusGeoJSON,
   formatAirspaceDetail,
   formatAirportDetail,
+  formatApproachCoreDetail,
+  formatApproachHeightBandDetail,
   formatControlled3nmDetail,
   formatFireHazardDetail,
 } from '../map/drone.js';
@@ -448,8 +450,8 @@ export default function MapPage({ user }: { user: User | null }) {
         setDroneLoading(false);
         setDroneError('');
         updateDroneAirspaces(map, airspacesGeoJSON(res.airspaces ?? []));
-        const { points, controlled3nm } = airportsGeoJSON(res.airports ?? []);
-        updateDroneAirports(map, points, controlled3nm);
+        const { points, controlled3nm, approachCore, approachHeightBand, heightBandHatch } = airportsGeoJSON(res.airports ?? []);
+        updateDroneAirports(map, points, controlled3nm, approachCore, approachHeightBand, heightBandHatch);
         updateDroneFireHazards(map, droneFireHazardsGeoJSON(res.fireHazards ?? []));
       })
       .catch((err) => {
@@ -481,8 +483,8 @@ export default function MapPage({ user }: { user: User | null }) {
           setDroneLoading(false);
           setDroneError('');
           updateDroneAirspaces(map, airspacesGeoJSON(res.airspaces ?? []));
-          const { points, controlled3nm } = airportsGeoJSON(res.airports ?? []);
-          updateDroneAirports(map, points, controlled3nm);
+          const { points, controlled3nm, approachCore, approachHeightBand, heightBandHatch } = airportsGeoJSON(res.airports ?? []);
+          updateDroneAirports(map, points, controlled3nm, approachCore, approachHeightBand, heightBandHatch);
           updateDroneFireHazards(map, droneFireHazardsGeoJSON(res.fireHazards ?? []));
         })
         .catch((err) => {
@@ -1162,6 +1164,14 @@ export default function MapPage({ user }: { user: User | null }) {
     }
     if (hit.layer.id === 'drone-controlled-aerodrome-3nm-fill' || hit.layer.id === 'drone-controlled-aerodrome-3nm-line') {
       openPopup(map, [lng, lat], formatControlled3nmDetail(hit.properties ?? {}));
+      return;
+    }
+    if (hit.layer.id === 'drone-runway-approach-core-fill' || hit.layer.id === 'drone-runway-approach-core-line') {
+      openPopup(map, [lng, lat], formatApproachCoreDetail(hit.properties ?? {}));
+      return;
+    }
+    if (hit.layer.id === 'drone-runway-approach-height-band-fill' || hit.layer.id === 'drone-runway-approach-height-band-line') {
+      openPopup(map, [lng, lat], formatApproachHeightBandDetail(hit.properties ?? {}));
       return;
     }
     if (hit.layer.id === 'drone-airports-controlled' || hit.layer.id === 'drone-airports-caution') {
