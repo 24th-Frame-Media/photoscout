@@ -30,7 +30,6 @@ import { fetchWeather } from './feeds/weather.js';
 import { fetchMarine } from './feeds/marine.js';
 import { fetchFires, fetchFiresWithMeta } from './feeds/rfs.js';
 import { fetchAurora } from './feeds/spaceWeather.js';
-import buffer from '@turf/buffer';
 import { fetchOpenAipContext, MAX_RADIUS_M } from './providers/openaip.js';
 import { airspaceToEvidence, aerodromeToEvidence, evaluateDroneAssessment, weatherContextToEvidence, aircraftContextToEvidence } from './drone/assessment.js';
 import { filterAirspacesByRadius, filterFireHazardsByRadius, selectAirportsForPlanning, findClosestAircraft } from './drone/spatial.js';
@@ -1165,24 +1164,7 @@ app.get('/api/drone/context', async (req, res, next) => {
       radiusM
     );
 
-    const airportsWithBuffers = plannedAirports.map((apt) => {
-      if (apt.controlled === true) {
-        try {
-          const bufFeature = buffer(apt.geometry as any, 5556, { units: 'meters' });
-          const controlledBuffer = (
-            bufFeature && 'geometry' in bufFeature
-              ? bufFeature.geometry
-              : bufFeature && 'features' in bufFeature && bufFeature.features[0]
-                ? bufFeature.features[0].geometry
-                : undefined
-          ) as GeoJSON.Polygon | undefined;
-          return { ...apt, controlledBuffer };
-        } catch {
-          return apt;
-        }
-      }
-      return apt;
-    });
+    const airportsWithBuffers = plannedAirports;
 
     const airportEvidence = airportsWithBuffers.map((apt) =>
       aerodromeToEvidence(apt, openAipSource, { plannedRadiusM: radiusM })

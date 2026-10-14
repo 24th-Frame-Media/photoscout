@@ -151,6 +151,16 @@ test('drone http: generates 3 NM buffer ONLY for positively verified controlled 
                 icaoCode: 'YBTH',
                 controlled: true,
                 geometry: { type: 'Point', coordinates: [149.65, -33.41] },
+                runways: [
+                  {
+                    _id: 'rwy-17-35',
+                    designator: '17/35',
+                    thresholdEndpoints: [
+                      [149.651, -33.401],
+                      [149.655, -33.418],
+                    ],
+                  },
+                ],
               },
               {
                 _id: 'apt-uncontrolled',
@@ -413,6 +423,15 @@ test('drone http: filters airspaces and airports to planned radius, preserving 3
                 name: 'Bathurst Controlled 8km',
                 controlled: true,
                 geometry: { type: 'Point', coordinates: [149.55, -33.378] },
+                runways: [
+                  {
+                    designator: '18/36',
+                    thresholdEndpoints: [
+                      [149.55, -33.370],
+                      [149.55, -33.386],
+                    ],
+                  },
+                ],
               },
               // Uncontrolled airport at ~12 km: outside 5 km circle and does not intersect!
               {
@@ -526,6 +545,73 @@ test('drone http: always includes closest mapped airport when outside planned fl
         aptEvidence.explanation.toLowerCase().includes('outside planned'),
         'Evidence must clearly label airport as outside planned radius'
       );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  } finally {
+    await harness.close();
+  }
+});
+
+test('drone http: controlled airport without runway geometry shows unavailable state and no point buffer', async () => {
+  const harness = await startApp();
+  try {
+    const client = harness.client();
+    await harness.signIn(client, 'google', { id: 'u-test-no-geom', name: 'NoGeomPilot' });
+    const saveRes = await client('PUT', '/api/user/api-keys/openaip', { apiKey: 'test-key-no-geom' });
+    assert.equal(saveRes.status, 200);
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url.includes('api.core.openaip.net/api/airspaces')) {
+        return new Response(JSON.stringify({ items: [], totalPages: 1 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('api.core.openaip.net/api/airports')) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                _id: 'apt-ctrl-no-geom',
+                name: 'Controlled Field Without Thresholds',
+                icaoCode: 'YNOR',
+                controlled: true,
+                geometry: { type: 'Point', coordinates: [150.0, -34.0] },
+                runways: [
+                  {
+                    designator: '12/30',
+                    lengthM: 1500,
+                  },
+                ],
+              },
+            ],
+            totalPages: 1,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return realFetch(input, init);
+    };
+
+    try {
+      const res = await client('GET', '/api/drone/context?lat=-34.0&lng=150.0&radiusM=5000');
+      assert.equal(res.status, 200);
+
+      const apt = res.json.airports.find((a: any) => a.id === 'apt-ctrl-no-geom');
+      assert.ok(apt, 'Airport should be included within radius');
+      assert.equal(apt.runwayGeometryUnavailable, true, 'runwayGeometryUnavailable must be true');
+      assert.equal(apt.controlledBuffer, undefined, 'Must NOT synthesize airport-point 3NM buffer');
+
+      const evidence = res.json.assessment.evidence.find((e: any) => e.id === 'airport-apt-ctrl-no-geom');
+      assert.ok(evidence);
+      assert.ok(
+        evidence.explanation.includes('Runway geometry unavailable — verify current aerodrome data'),
+        'Evidence explanation must contain required unavailable note'
+      );
+      assertNoBannedWords(JSON.stringify(res.json));
     } finally {
       globalThis.fetch = realFetch;
     }

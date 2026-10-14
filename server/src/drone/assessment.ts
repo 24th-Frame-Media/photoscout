@@ -247,12 +247,24 @@ export function aerodromeToEvidence(
     const title = isOutside
       ? `Controlled aerodrome proximity (outside planned radius): ${airport.name}`
       : `Controlled aerodrome proximity: ${airport.name}`;
-    const explanation = isOutside
-      ? `Closest mapped aerodrome in provider search area (${distKm ?? '–'} km away, outside planned ${radiusKm ?? '–'} km flight radius). Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). 3 NM planning buffer does not intersect the planned flight radius. Do not operate towards this aerodrome without confirming CASA conditions.`
-      : `Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). A 3 NM planning buffer is shown because standard conditions can depend on aircraft category, including the 250 g threshold, and any applicable permission or exemption. Confirm the CASA condition that applies to this operation before flight.`;
-    const userAction = isOutside
-      ? 'Advisory context: monitor for traffic if extending flight boundaries and confirm controlled-aerodrome conditions before operating within 3 NM.'
-      : 'Confirm aircraft category/weight, approval status, and applicable controlled-aerodrome conditions before operating within 3 NM.';
+
+    let explanation: string;
+    let userAction: string;
+
+    if (airport.runwayGeometryUnavailable) {
+      explanation = isOutside
+        ? `Closest mapped aerodrome in provider search area (${distKm ?? '–'} km away, outside planned ${radiusKm ?? '–'} km flight radius). Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). Runway geometry unavailable — verify current aerodrome data. Do not operate towards this aerodrome without confirming CASA conditions.`
+        : `Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). Runway geometry unavailable — verify current aerodrome data. Runway threshold coordinates not supplied by provider; 3 NM centreline buffer and approach paths cannot be derived. Confirm applicable CASA conditions and verify current aerodrome data before flight.`;
+      userAction =
+        'Verify current aerodrome boundaries, movement areas, and approach/departure corridors in Airservices Australia publications before flight.';
+    } else {
+      explanation = isOutside
+        ? `Closest mapped aerodrome in provider search area (${distKm ?? '–'} km away, outside planned ${radiusKm ?? '–'} km flight radius). Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). 3 NM planning buffer does not intersect the planned flight radius. Do not operate towards this aerodrome without confirming CASA conditions.`
+        : `Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). A 3 NM planning buffer is shown because standard conditions can depend on aircraft category, including the 250 g threshold, and any applicable permission or exemption. Confirm the CASA condition that applies to this operation before flight.`;
+      userAction = isOutside
+        ? 'Advisory context: monitor for traffic if extending flight boundaries and confirm controlled-aerodrome conditions before operating within 3 NM.'
+        : 'Confirm aircraft category/weight, approval status, and applicable controlled-aerodrome conditions before operating within 3 NM.';
+    }
 
     return {
       id: `airport-${airport.id}`,

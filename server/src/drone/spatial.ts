@@ -1,9 +1,14 @@
 import { haversine, M_PER_DEG_LAT, mPerDegLon } from '../geo.js';
-import type { OpenAipAirspace, OpenAipAirport } from '../providers/openaip.js';
+import type { OpenAipAirspace, OpenAipAirport, OpenAipRunway } from '../providers/openaip.js';
 import type { DroneFireHazard } from './fireHazards.js';
 import type { Plane } from '../feeds/planes.js';
+import {
+  generateAirportRunwayMarkings,
+  CONTROLLED_3NM_BUFFER_METRES,
+  type RunwayThresholdPair,
+} from './runwayGeometry.js';
 
-export const CONTROLLED_3NM_BUFFER_METRES = 5556; // 3 nautical miles = 5556 m
+export { CONTROLLED_3NM_BUFFER_METRES };
 
 /**
  * Checks if a 2D point (0, 0) in projected metres is inside a polygon ring.
@@ -170,13 +175,16 @@ export type PlannedAirport = OpenAipAirport & {
   distanceM: number;
   outsidePlannedRadius?: boolean;
   controlledBuffer?: GeoJSON.Polygon;
+  runwayMarkings?: GeoJSON.FeatureCollection;
 };
 
 /**
  * Selects aerodromes for planning:
- * 1. Controlled airports whose 3 NM buffers intersect the planned radius (distance <= radiusM + 5556 m).
- * 2. Uncontrolled airports that fall within the planned radius (distance <= radiusM).
- * 3. If no airport intersects, always includes the single closest mapped airport labeled as outsidePlannedRadius: true.
+ * 1. Controlled airports whose runway-derived markings (3 NM centreline buffer or 7–8.5 km approach corridors)
+ *    intersect the planned flight radius.
+ * 2. If controlled runway geometry is unavailable, does NOT synthesize a 3 NM point circle. Only intersects if the airport point is inside the radius.
+ * 3. Uncontrolled airports that fall within the planned radius (distance <= radiusM).
+ * 4. If no airport intersects, always includes the single closest mapped airport labeled as outsidePlannedRadius: true.
  */
 export function selectAirportsForPlanning(
   airports: OpenAipAirport[],
@@ -191,14 +199,67 @@ export function selectAirportsForPlanning(
     return { airports: [], closestAirport: null };
   }
 
-  const withDist: PlannedAirport[] = airports
+  const withDist: Array<PlannedAirport & { intersects: boolean }> = airports
     .filter((a) => a.geometry && Array.isArray(a.geometry.coordinates))
     .map((a) => {
       const [lng, lat] = a.geometry.coordinates;
       const distanceM = Math.round(haversine(centerLat, centerLng, lat, lng));
+
+      // Extract valid runways with explicit threshold endpoints
+      const validRunways: RunwayThresholdPair[] = (a.runways || [])
+        .filter(
+          (r): r is OpenAipRunway & { thresholdEndpoints: [GeoJSON.Position, GeoJSON.Position] } =>
+            Array.isArray(r.thresholdEndpoints) && r.thresholdEndpoints.length === 2
+        )
+        .map((r) => ({
+          runwayId: r.id,
+          designator: r.designator || 'Runway',
+          endpoints: r.thresholdEndpoints,
+        }));
+
+      let controlledBuffer: GeoJSON.Polygon | undefined = undefined;
+      let runwayMarkings: GeoJSON.FeatureCollection | undefined = undefined;
+      let runwayGeometryUnavailable = a.runwayGeometryUnavailable;
+      let intersects = false;
+
+      if (a.controlled === true) {
+        if (validRunways.length > 0) {
+          runwayGeometryUnavailable = false;
+          const markings = generateAirportRunwayMarkings(validRunways, {
+            airportId: a.id,
+            airportName: a.name,
+            icaoCode: a.icaoCode,
+            controlled: true,
+          });
+          runwayMarkings = markings.allFeatures;
+          controlledBuffer = markings.buffer3nm.features[0]?.geometry;
+
+          // An airport intersects if:
+          // - airport point is within radius, OR
+          // - ANY marking feature (3NM buffer, approach core, or 7-8.5km height band) intersects circle!
+          intersects =
+            distanceM <= radiusM ||
+            markings.allFeatures.features.some((f) =>
+              intersectsCircle(f.geometry, centerLat, centerLng, radiusM)
+            );
+        } else {
+          // Controlled airport with missing runway geometry:
+          // Do NOT synthesize a 3NM circle from the airport point!
+          runwayGeometryUnavailable = true;
+          controlledBuffer = undefined;
+          intersects = distanceM <= radiusM;
+        }
+      } else {
+        intersects = distanceM <= radiusM;
+      }
+
       return {
         ...a,
         distanceM,
+        controlledBuffer,
+        runwayMarkings,
+        runwayGeometryUnavailable,
+        intersects,
       };
     });
 
@@ -210,19 +271,18 @@ export function selectAirportsForPlanning(
   withDist.sort((a, b) => a.distanceM - b.distanceM);
   const closest = withDist[0];
 
-  // An airport intersects if:
-  // - controlled === true: distance <= radiusM + 5556 (3 NM buffer intersects)
-  // - controlled !== true: distance <= radiusM
-  const inRadius = withDist.filter((a) => {
-    if (a.controlled === true) {
-      return a.distanceM <= radiusM + CONTROLLED_3NM_BUFFER_METRES;
-    }
-    return a.distanceM <= radiusM;
-  });
+  const inRadius = withDist.filter((a) => a.intersects);
 
   if (inRadius.length > 0) {
-    const mapped = inRadius.map((a) => ({ ...a, outsidePlannedRadius: false }));
-    const closestInRadius = mapped.find((a) => a.id === closest.id) ?? { ...closest, outsidePlannedRadius: closest.distanceM > radiusM };
+    const mapped: PlannedAirport[] = inRadius.map(({ intersects: _, ...rest }) => ({
+      ...rest,
+      outsidePlannedRadius: false,
+    }));
+    const closestInRadius =
+      mapped.find((a) => a.id === closest.id) ?? {
+        ...closest,
+        outsidePlannedRadius: !closest.intersects,
+      };
     return {
       airports: mapped,
       closestAirport: closestInRadius,
@@ -230,8 +290,9 @@ export function selectAirportsForPlanning(
   }
 
   // No airport intersects planned flight radius: include closest mapped airport labeled outsidePlannedRadius
+  const { intersects: _, ...closestRest } = closest;
   const closestOutside: PlannedAirport = {
-    ...closest,
+    ...closestRest,
     outsidePlannedRadius: true,
   };
 

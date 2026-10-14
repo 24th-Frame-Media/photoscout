@@ -432,3 +432,214 @@ test('openaip: malformed rows and items missing geometry are filtered safely', a
     assert.equal(result.data.airports[0].id, 'valid-airport');
   }
 });
+
+test('openaip: parses explicit runway threshold endpoints and never synthesizes from heading/point/length', async () => {
+  const db = createDb(':memory:');
+  const userId = 'u-runway-test';
+  db.handle.prepare("INSERT INTO users (id, username, provider, provider_id, created_at) VALUES (?, ?, 'google', ?, datetime('now'))")
+    .run(userId, 'runwaypilot', 'g-rwy');
+  setUserApiKey(db, userId, 'openaip', TEST_SECRET_KEY);
+
+  const mockFetch: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.includes('/airspaces')) {
+      return new Response(JSON.stringify({ items: [], totalPages: 1 }), { status: 200 });
+    }
+    return new Response(
+      JSON.stringify({
+        items: [
+          // 1. Airport with reciprocal runway items with explicit thresholdLocation coordinates
+          {
+            _id: 'apt-explicit-paired',
+            name: 'Bathurst Aerodrome',
+            icaoCode: 'YBTH',
+            controlled: true,
+            geometry: { type: 'Point', coordinates: [149.6525, -33.4097] },
+            runways: [
+              {
+                _id: 'rwy-17',
+                designator: '17',
+                trueHeading: 172,
+                thresholdLocation: {
+                  geometry: { type: 'Point', coordinates: [149.651, -33.401] },
+                },
+              },
+              {
+                _id: 'rwy-35',
+                designator: '35',
+                trueHeading: 352,
+                thresholdLocation: {
+                  geometry: { type: 'Point', coordinates: [149.655, -33.418] },
+                },
+              },
+            ],
+          },
+          // 2. Airport with single runway object having explicit paired endpoints
+          {
+            _id: 'apt-single-obj-paired',
+            name: 'Orange Airport',
+            icaoCode: 'YORG',
+            controlled: true,
+            geometry: { type: 'Point', coordinates: [149.133, -33.383] },
+            runways: [
+              {
+                _id: 'rwy-11-29',
+                designator: '11/29',
+                thresholdEndpoints: [
+                  [149.125, -33.379],
+                  [149.141, -33.387],
+                ],
+              },
+            ],
+          },
+          // 3. Multi-runway airport (two separate physical runways, each with explicit endpoints)
+          {
+            _id: 'apt-multi-runway',
+            name: 'Sydney Kingsford Smith',
+            icaoCode: 'YSSY',
+            controlled: true,
+            geometry: { type: 'Point', coordinates: [151.177, -33.946] },
+            runways: [
+              {
+                _id: 'rwy-16R',
+                designator: '16R',
+                thresholdLocation: { geometry: { type: 'Point', coordinates: [151.171, -33.931] } },
+              },
+              {
+                _id: 'rwy-34L',
+                designator: '34L',
+                thresholdLocation: { geometry: { type: 'Point', coordinates: [151.179, -33.966] } },
+              },
+              {
+                _id: 'rwy-07',
+                designator: '07',
+                thresholdLocation: { geometry: { type: 'Point', coordinates: [151.162, -33.941] } },
+              },
+              {
+                _id: 'rwy-25',
+                designator: '25',
+                thresholdLocation: { geometry: { type: 'Point', coordinates: [151.189, -33.948] } },
+              },
+            ],
+          },
+          // 4. Missing one threshold: only 17 has coordinates, 35 has NONE -> NO fallback synthesis
+          {
+            _id: 'apt-missing-one-end',
+            name: 'Partial Runway Airport',
+            icaoCode: 'YPAR',
+            controlled: true,
+            geometry: { type: 'Point', coordinates: [150.0, -34.0] },
+            runways: [
+              {
+                _id: 'rwy-17-only',
+                designator: '17',
+                trueHeading: 170,
+                dimension: { length: { value: 1800, unit: 0 } },
+                thresholdLocation: { geometry: { type: 'Point', coordinates: [150.01, -33.99] } },
+              },
+              {
+                _id: 'rwy-35-no-coord',
+                designator: '35',
+                trueHeading: 350,
+              },
+            ],
+          },
+          // 5. Missing all threshold coordinates (only designator/heading/length) -> NO fallback synthesis
+          {
+            _id: 'apt-no-coords',
+            name: 'No Coordinates Airport',
+            icaoCode: 'YNOC',
+            controlled: true,
+            geometry: { type: 'Point', coordinates: [150.5, -34.5] },
+            runways: [
+              {
+                designator: '12/30',
+                trueHeading: 120,
+                lengthM: 2000,
+              },
+            ],
+          },
+          // 6. Malformed coordinates (lat > 90, non-finite, corrupt) -> Discarded safely
+          {
+            _id: 'apt-malformed-coords',
+            name: 'Corrupt Coords Airport',
+            icaoCode: 'YBAD',
+            controlled: true,
+            geometry: { type: 'Point', coordinates: [150.8, -34.8] },
+            runways: [
+              {
+                designator: '01/19',
+                thresholdEndpoints: [
+                  [150.8, 999.0], // invalid lat
+                  [150.8, -34.8],
+                ],
+              },
+            ],
+          },
+        ],
+        totalPages: 1,
+      }),
+      { status: 200 }
+    );
+  };
+
+  const result = await fetchOpenAipContext({
+    db,
+    userId,
+    lat: -33.42,
+    lng: 149.57,
+    radiusM: 5000,
+    fetchFn: mockFetch,
+  });
+
+  assert.equal(result.status, 'ok');
+  if (result.status !== 'ok') return;
+
+  const apts = result.data.airports;
+  assert.equal(apts.length, 6);
+
+  // 1. Explicit paired reciprocal runways normalized with both threshold endpoints
+  const apt1 = apts.find((a) => a.id === 'apt-explicit-paired')!;
+  assert.ok(apt1.runways && apt1.runways.length > 0);
+  const rwy1 = apt1.runways[0];
+  assert.ok(rwy1.thresholdEndpoints, 'Must have thresholdEndpoints when both ends explicit');
+  assert.deepEqual(rwy1.thresholdEndpoints, [
+    [149.651, -33.401],
+    [149.655, -33.418],
+  ]);
+  assert.equal(apt1.runwayGeometryUnavailable, false);
+
+  // 2. Single runway object with explicit paired thresholdEndpoints
+  const apt2 = apts.find((a) => a.id === 'apt-single-obj-paired')!;
+  assert.ok(apt2.runways && apt2.runways.length > 0);
+  const rwy2 = apt2.runways[0];
+  assert.deepEqual(rwy2.thresholdEndpoints, [
+    [149.125, -33.379],
+    [149.141, -33.387],
+  ]);
+  assert.equal(apt2.runwayGeometryUnavailable, false);
+
+  // 3. Multi-runway airport preserves both valid runways
+  const apt3 = apts.find((a) => a.id === 'apt-multi-runway')!;
+  assert.equal(apt3.runways?.length, 2, 'Must preserve both distinct runways');
+  assert.ok(apt3.runways?.every((r) => r.thresholdEndpoints != null));
+  assert.equal(apt3.runwayGeometryUnavailable, false);
+
+  // 4. Missing one end: Must NOT synthesize from heading or length
+  const apt4 = apts.find((a) => a.id === 'apt-missing-one-end')!;
+  const rwy4WithGeom = apt4.runways?.filter((r) => r.thresholdEndpoints != null) ?? [];
+  assert.equal(rwy4WithGeom.length, 0, 'Must NOT synthesize second threshold from heading/length');
+  assert.equal(apt4.runwayGeometryUnavailable, true, 'Controlled airport with partial runway must flag unavailable');
+
+  // 5. Missing all coordinates: Must NOT synthesize from airport point
+  const apt5 = apts.find((a) => a.id === 'apt-no-coords')!;
+  const rwy5WithGeom = apt5.runways?.filter((r) => r.thresholdEndpoints != null) ?? [];
+  assert.equal(rwy5WithGeom.length, 0, 'Must NOT synthesize runway from airport point');
+  assert.equal(apt5.runwayGeometryUnavailable, true);
+
+  // 6. Malformed coords: filtered out
+  const apt6 = apts.find((a) => a.id === 'apt-malformed-coords')!;
+  const rwy6WithGeom = apt6.runways?.filter((r) => r.thresholdEndpoints != null) ?? [];
+  assert.equal(rwy6WithGeom.length, 0, 'Malformed coordinates must be discarded');
+  assert.equal(apt6.runwayGeometryUnavailable, true);
+});
