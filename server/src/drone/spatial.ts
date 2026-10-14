@@ -54,30 +54,33 @@ function projectToMetres(
 }
 
 /**
- * Checks if a GeoJSON polygon ring intersects a circle of radius radiusM centered at (0, 0).
+ * Checks whether the filled area of a GeoJSON polygon intersects a planning
+ * circle. Holes are respected: a circle entirely inside a hole is not an
+ * airspace intersection, but touching that hole's boundary is.
  */
-function polygonRingIntersectsCircle(
-  ring: number[][],
+function polygonIntersectsCircle(
+  rings: number[][][],
   centerLat: number,
   centerLng: number,
   radiusM: number
 ): boolean {
-  if (ring.length < 3) return false;
-  const projected = ring.map((pt) => projectToMetres([pt[0], pt[1]], centerLat, centerLng));
+  const projectedRings = rings
+    .filter((ring) => ring.length >= 3)
+    .map((ring) => ring.map((pt) => projectToMetres([pt[0], pt[1]], centerLat, centerLng)));
+  const outer = projectedRings[0];
+  if (!outer) return false;
 
-  // 1. Center inside ring
-  if (isProjectedPointInRing(projected)) {
-    return true;
-  }
+  const centerInFilledArea = isProjectedPointInRing(outer)
+    && !projectedRings.slice(1).some((hole) => isProjectedPointInRing(hole));
+  if (centerInFilledArea) return true;
 
-  // 2. Minimum distance from center (0, 0) to any segment <= radiusM
-  for (let i = 0, j = projected.length - 1; i < projected.length; j = i++) {
-    const dist = distanceToProjectedSegment(projected[j], projected[i]);
-    if (dist <= radiusM) {
-      return true;
+  // Any circle that reaches an outer or inner boundary intersects the filled
+  // polygon area on at least one side of that boundary.
+  for (const ring of projectedRings) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      if (distanceToProjectedSegment(ring[j], ring[i]) <= radiusM) return true;
     }
   }
-
   return false;
 }
 
@@ -124,13 +127,11 @@ export function intersectsCircle(
       return false;
     }
     case 'Polygon': {
-      const rings = (geometry as GeoJSON.Polygon).coordinates;
-      if (!rings.length) return false;
-      return polygonRingIntersectsCircle(rings[0], centerLat, centerLng, radiusM);
+      return polygonIntersectsCircle((geometry as GeoJSON.Polygon).coordinates, centerLat, centerLng, radiusM);
     }
     case 'MultiPolygon': {
       const polys = (geometry as GeoJSON.MultiPolygon).coordinates;
-      return polys.some((rings) => rings.length > 0 && polygonRingIntersectsCircle(rings[0], centerLat, centerLng, radiusM));
+      return polys.some((rings) => polygonIntersectsCircle(rings, centerLat, centerLng, radiusM));
     }
     case 'GeometryCollection': {
       const geoms = (geometry as GeoJSON.GeometryCollection).geometries;

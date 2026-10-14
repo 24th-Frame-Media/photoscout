@@ -84,6 +84,25 @@ test('drone spatial: polygon containing the center point intersects circle', () 
   assert.equal(intersectsCircle(enclosingPoly, centerLat, centerLng, 1000), true);
 });
 
+test('drone spatial: does not treat a planning circle fully inside a polygon hole as intersecting', () => {
+  const centerLat = -33.42;
+  const centerLng = 149.58;
+  const donut: GeoJSON.Polygon = {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [149.50, -33.50], [149.66, -33.50], [149.66, -33.34], [149.50, -33.34], [149.50, -33.50],
+      ],
+      [
+        [149.56, -33.44], [149.60, -33.44], [149.60, -33.40], [149.56, -33.40], [149.56, -33.44],
+      ],
+    ],
+  };
+
+  // The 500 m planning circle is completely within the no-airspace hole.
+  assert.equal(intersectsCircle(donut, centerLat, centerLng, 500), false);
+});
+
 test('drone spatial: controlled airport 3 NM buffer intersects flight radius even when airport point is outside', () => {
   const centerLat = -33.42;
   const centerLng = 149.58;

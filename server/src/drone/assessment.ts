@@ -390,7 +390,7 @@ export function aircraftContextToEvidence(details: {
       authority: 'provider_context',
       ruleId: 'casr-101-055',
       title: 'Nearby aircraft activity context',
-      explanation: `${count} broadcast aircraft detected via ADS-B. Closest: ${ident} at ${distText}, ${altText}. Awareness context only: pilot must maintain continuous visual and listening watch. Incomplete ADS-B coverage: non-broadcast aircraft or aircraft below receiver line-of-sight are not detected.`,
+      explanation: `${count} aircraft broadcasting ADS-B detected. Closest: ${ident} at ${distText}, ${altText}. Awareness context only: pilot must maintain continuous visual and listening watch. Incomplete coverage: non-broadcast aircraft or aircraft below receiver line-of-sight are not detected.`,
       source: { name: 'ADS-B Aircraft Feed' },
       userAction: 'Maintain continuous visual and listening watch; give way to all manned aircraft.',
     };
@@ -402,7 +402,7 @@ export function aircraftContextToEvidence(details: {
       authority: 'provider_context',
       ruleId: 'casr-101-055',
       title: 'Nearby aircraft activity context',
-      explanation: `${count} broadcast aircraft detected in vicinity via ADS-B. Awareness context only: pilot must maintain continuous visual scan. Incomplete ADS-B coverage: non-broadcast aircraft or aircraft below receiver coverage are not detected.`,
+      explanation: `${count} aircraft broadcasting ADS-B detected in vicinity. Awareness context only: pilot must maintain continuous visual scan. Incomplete coverage: non-broadcast aircraft or aircraft below receiver coverage are not detected.`,
       source: { name: 'ADS-B Aircraft Feed' },
       userAction: 'Maintain continuous visual and listening watch; give way to all manned aircraft.',
     };
