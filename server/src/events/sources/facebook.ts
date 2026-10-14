@@ -6,7 +6,7 @@ import { readCappedText } from '../nethost.js';
 // @ts-ignore - internal subpath, typed via the package's own .d.ts
 import * as fbParser from 'facebook-event-scraper/dist/utils/htmlParser.js';
 import { EventSourceAdapter, Location, RawEvent, Settings } from './types.js';
-import { expandTopics, fbQuery, rotateQueries } from './topics.js';
+import { expandTopics, fbQuery, rotateQueries, topicsFor } from './topics.js';
 import { BROWSER_HEADERS, HONEST_HEADERS } from '../useragent.js';
 import { monthIndex } from '../shared/textWhen.js';
 import { parseWhen } from '../shared/when.js';
@@ -225,7 +225,7 @@ export const facebook: EventSourceAdapter = {
 
     // Build discovery URLs. Search terms default to "<city> events" — bare city
     // names return nothing from Facebook's search.
-    const chosen = [...expandTopics(settings.eventTopics, loc.city, fbQuery), ...settings.fbSearchTerms];
+    const chosen = [...expandTopics(topicsFor(settings, loc.city), loc.city, fbQuery), ...settings.fbSearchTerms];
     // Each search is a full page fetch through Facebook, so the budget is
     // tighter here than for the search engines.
     const terms = rotateQueries(

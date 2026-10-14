@@ -13,6 +13,10 @@ export interface Area {
   radiusKm: number;
   events: boolean;
   busy: boolean;
+  /** Topic keys to search this area for. Empty or missing: the engine's global topics. */
+  topics?: string[];
+  /** Categories hidden for events in this area, on top of the engine's global list. */
+  hiddenCategories?: string[];
 }
 
 /** Settings kept in kv, plus what an operator may override from the environment. */
@@ -99,6 +103,13 @@ export function memberSettings(settings: Settings) {
   };
 }
 
+/** A list of short trimmed strings, empties and repeats dropped; undefined when it is not a list or ends up empty. */
+const cleanList = (v: unknown): string[] | undefined => {
+  if (!Array.isArray(v)) return undefined;
+  const out = [...new Set(v.filter((s): s is string => typeof s === 'string').map((s) => s.trim().slice(0, 60)).filter(Boolean))].slice(0, 100);
+  return out.length ? out : undefined;
+};
+
 const isArea = (v: unknown): v is Area => {
   const a = v as Area;
   return Boolean(a) && typeof a === 'object' && typeof a.name === 'string' && a.name.length <= 100 &&
@@ -112,7 +123,14 @@ const isArea = (v: unknown): v is Area => {
  */
 export function cleanSettingsBody(body: Record<string, unknown>): Partial<Settings> {
   const out: Partial<Settings> = {};
-  const clean = (a: Area): Area => withSwitches({ name: a.name, lat: a.lat, lng: a.lng, radiusKm: a.radiusKm, events: a.events, busy: a.busy });
+  const clean = (a: Area): Area => {
+    const topics = cleanList(a.topics);
+    const hiddenCategories = cleanList(a.hiddenCategories);
+    return withSwitches({
+      name: a.name, lat: a.lat, lng: a.lng, radiusKm: a.radiusKm, events: a.events, busy: a.busy,
+      ...(topics ? { topics } : {}), ...(hiddenCategories ? { hiddenCategories } : {}),
+    });
+  };
   if (isArea(body.home)) out.home = clean(body.home);
   if (Array.isArray(body.areas) && body.areas.length <= 50 && body.areas.every(isArea)) out.areas = body.areas.map(clean);
   if (typeof body.allowPrivateRemotes === 'boolean') out.allowPrivateRemotes = body.allowPrivateRemotes;

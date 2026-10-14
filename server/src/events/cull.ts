@@ -1,5 +1,5 @@
 import { AREA_SLACK, haversineKm } from './shared/geo.js';
-import { regionName, regionOf } from './regions.js';
+import { regionName, regionOf, stripRegionAndPostcode } from './regions.js';
 import { localDay } from './day.js';
 import { dateFromTitle } from './shared/textWhen.js';
 
@@ -228,6 +228,8 @@ export interface CullHub {
 export interface CullRules {
   cullOutsideAreas?: boolean;
   excludedCategories?: string[];
+  /** Categories hidden only for events filed under an area, keyed by area name (any case). */
+  areaHiddenCategories?: Record<string, string[]>;
   /** The regions the searched areas are in. Empty switches the region rule off. */
   areaRegions?: string[];
 }
@@ -253,6 +255,16 @@ export function cullReason(
   const excluded = new Set((rules.excludedCategories ?? []).map((c) => c.trim().toLowerCase()).filter(Boolean));
   if (excluded.has(ev.category.trim().toLowerCase()) && !ev.edited.includes('category')) {
     return `Excluded category: ${ev.category}`;
+  }
+  if (ev.area && !ev.edited.includes('category')) {
+    const areaKey = (s: string): string => (stripRegionAndPostcode(s.trim()) || s.trim()).toLowerCase();
+    const here = areaKey(ev.area);
+    const category = ev.category.trim().toLowerCase();
+    for (const [name, cats] of Object.entries(rules.areaHiddenCategories ?? {})) {
+      if (areaKey(name) === here && cats.some((c) => c.trim().toLowerCase() === category)) {
+        return `Excluded category in ${ev.area}: ${ev.category}`;
+      }
+    }
   }
 
   if (!rules.cullOutsideAreas) return null;

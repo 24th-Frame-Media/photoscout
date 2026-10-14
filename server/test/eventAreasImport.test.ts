@@ -111,3 +111,19 @@ test('engineAreaFields: no events area leaves the engine with no city, and busy 
   const some = engineAreaFields({ home: { ...home, busy: true }, areas: [] }, DEFAULT_SETTINGS);
   assert.equal(some.densityAreas[0].radiusKm, 10);
 });
+
+test('engineAreaFields carries per-area topics and hidden categories, keyed by lowercase name', () => {
+  const f = engineAreaFields({
+    home: { ...home, topics: ['car'] },
+    areas: [{ name: 'Penrith', lat: -33.75, lng: 150.69, radiusKm: 25, events: true, busy: false, hiddenCategories: ['Music'] },
+      { name: 'Off', lat: 0, lng: 0, radiusKm: 5, events: false, busy: false, topics: ['x'] }],
+  }, DEFAULT_SETTINGS);
+  assert.deepEqual(f.areaTopics, { bathurst: ['car'] });
+  assert.deepEqual(f.areaHiddenCategories, { penrith: ['Music'] });
+});
+
+test('syncEngineAreas writes the per-area fields into the engine settings', () => {
+  const db = fresh([{ name: 'Penrith', lat: -33.75, lng: 150.69, radiusKm: 25, events: true, busy: false, hiddenCategories: ['Music'] }]);
+  syncEngineAreas(appSettings(db));
+  assert.deepEqual(getSettings().areaHiddenCategories, { penrith: ['Music'] });
+});

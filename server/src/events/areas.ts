@@ -33,12 +33,15 @@ const SAME_PLACE_KM = 3;
 
 const norm = (name: string): string => name.trim().toLowerCase();
 
-type AreaFields = Pick<Settings, 'city' | 'lat' | 'lng' | 'radiusKm' | 'eventAreas' | 'densityAreas' | 'areasManaged'>;
+type AreaFields = Pick<Settings, 'city' | 'lat' | 'lng' | 'radiusKm' | 'eventAreas' | 'densityAreas' | 'areasManaged' | 'areaTopics' | 'areaHiddenCategories'>;
 
 /** The engine's area fields for a list of areas. Pure. `current` supplies per-area grid tuning to keep. */
 export function engineAreaFields(app: Pick<AppSettings, 'home' | 'areas'>, current: Pick<Settings, 'densityAreas' | 'radiusKm'>): AreaFields {
   const all = [app.home, ...app.areas].map(withSwitches).map((a) => ({ ...a, name: a.name.trim() || 'Area' }));
   const [primary, ...rest] = all.filter((a) => a.events);
+  // Per-area overrides for every area with events on, the first included.
+  const byName = (field: 'topics' | 'hiddenCategories'): Record<string, string[]> =>
+    Object.fromEntries(all.filter((a) => a.events && a[field]?.length).map((a) => [norm(a.name), a[field] as string[]]));
   // A cell or kernel size set for a density area by hand survives the rewrite.
   const tuned = new Map((current.densityAreas ?? []).map((d) => [norm(d.name), d]));
   return {
@@ -56,12 +59,15 @@ export function engineAreaFields(app: Pick<AppSettings, 'home' | 'areas'>, curre
       };
     }),
     areasManaged: true,
+    areaTopics: byName('topics'),
+    areaHiddenCategories: byName('hiddenCategories'),
   };
 }
 
 const pick = (s: Settings): AreaFields => ({
   city: s.city, lat: s.lat, lng: s.lng, radiusKm: s.radiusKm,
   eventAreas: s.eventAreas, densityAreas: s.densityAreas, areasManaged: s.areasManaged,
+  areaTopics: s.areaTopics ?? {}, areaHiddenCategories: s.areaHiddenCategories ?? {},
 });
 
 /**

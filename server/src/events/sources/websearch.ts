@@ -1,7 +1,7 @@
 import { BLOCKING_HOSTS } from '../shared/skipHosts.js';
 import { extractEventsFromHtml } from './jsonld.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
-import { expandTopics, rotateQueries, webQuery } from './topics.js';
+import { expandTopics, rotateQueries, topicsFor, webQuery } from './topics.js';
 import { BROWSER_HEADERS } from '../useragent.js';
 import { assertPublicUrl, publicFetch, readCappedText } from '../nethost.js';
 
@@ -136,7 +136,7 @@ export const websearch: EventSourceAdapter = {
 
   async fetchEvents(loc: Location, settings: Settings): Promise<RawEvent[]> {
     const terms =
-      [...expandTopics(settings.eventTopics, loc.city, webQuery), ...settings.webSearchTerms];
+      [...expandTopics(topicsFor(settings, loc.city), loc.city, webQuery), ...settings.webSearchTerms];
     const usable = rotateQueries(
       (terms.length > 0
         ? terms

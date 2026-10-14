@@ -329,3 +329,13 @@ test('pages of an event site that are not events are caught: sections, ticket ty
   ];
   for (const [title, url] of real) assert.equal(detectNotAnEvent(title, '', url), null, `should keep: ${title}`);
 });
+
+test('a category hidden for one area is hidden only for events filed under it', () => {
+  const rules = { areaHiddenCategories: { penrith: ['Motorsport'] } };
+  assert.equal(cullReason(ev({ area: 'Penrith' }), hubs, rules), 'Excluded category in Penrith: Motorsport');
+  assert.equal(cullReason(ev({ area: 'penrith' }), hubs, rules), 'Excluded category in penrith: Motorsport', 'any case');
+  assert.equal(cullReason(ev({ area: 'Bathurst' }), hubs, rules), null);
+  assert.equal(cullReason(ev({ area: '' }), hubs, rules), null);
+  assert.equal(cullReason(ev({ area: 'Penrith', edited: ['category'] }), hubs, rules), null, 'a category set by hand stays');
+  assert.equal(cullReason(ev({ area: 'Penrith', category: 'Music' }), hubs, { ...rules, excludedCategories: ['Music'] }), 'Excluded category: Music', 'the global list still applies');
+});

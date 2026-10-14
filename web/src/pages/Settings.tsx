@@ -13,6 +13,7 @@ import EventsNotify from '../settings/events/Notify.js';
 import EventTasks from '../settings/events/EventTasks.js';
 import { GROUPS, Tab, tabFromHash } from '../settings/tabs.js';
 import SignInSetup from '../settings/SignInSetup.js';
+import AreaCategories from '../settings/AreaCategories.js';
 
 export default function Settings({ user, account, onChange }: { user: User | null; account: string | null; onChange: () => void }) {
   const isAdmin = user?.role === 'admin';
@@ -154,6 +155,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
                   <label className="toggle"><input type="checkbox" checked={a.events} onChange={(e) => setArea(i, { events: e.target.checked })} /> Events</label>
                   <label className="toggle"><input type="checkbox" checked={a.busy} onChange={(e) => setArea(i, { busy: e.target.checked })} /> Busy places</label>
                 </div>
+                {a.events && <AreaCategories area={a} onChange={(patch) => setArea(i, patch)} />}
                 <p className="hint">{a.lat.toFixed(3)}, {a.lng.toFixed(3)} · {areaUses(a, i === 0)}</p>
               </li>
             ))}

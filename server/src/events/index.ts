@@ -54,7 +54,7 @@ app.put('/api/settings', (req, res) => {
   // in from there (areas.ts), so a copy sent from this side is dropped rather
   // than left to disagree with the list.
   const body = { ...(req.body as Partial<Settings>) };
-  for (const key of ['city', 'lat', 'lng', 'radiusKm', 'eventAreas', 'densityAreas', 'areasManaged'] as const) delete body[key];
+  for (const key of ['city', 'lat', 'lng', 'radiusKm', 'eventAreas', 'densityAreas', 'areasManaged', 'areaTopics', 'areaHiddenCategories'] as const) delete body[key];
   const next: Settings = {
     ...current,
     ...body,

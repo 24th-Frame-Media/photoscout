@@ -43,3 +43,15 @@ test('settings: env TFNSW_API_KEY wins and is reported as such, still never retu
     delete process.env.TFNSW_API_KEY;
   }
 });
+
+test('settings: per-area topics and hidden categories are trimmed, deduped and dropped when empty', () => {
+  const db = createDb(':memory:');
+  const a = { name: 'Penrith', lat: -33.75, lng: 150.69, radiusKm: 25, events: true, busy: false };
+  const { settings } = applySettingsUpdate(db, {
+    areas: [{ ...a, topics: [' car ', 'car', '', 5], hiddenCategories: ['Music'] }, { ...a, name: 'B', topics: [], hiddenCategories: 'x' }],
+  });
+  assert.deepEqual(settings.areas[0].topics, ['car']);
+  assert.deepEqual(settings.areas[0].hiddenCategories, ['Music']);
+  assert.equal('topics' in settings.areas[1], false);
+  assert.equal('hiddenCategories' in settings.areas[1], false);
+});

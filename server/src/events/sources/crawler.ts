@@ -1,7 +1,7 @@
 import { db } from '../db.js';
 import { bumpEventsVersion, getMergedEvents, MergedEvent } from '../events.js';
 import { fetchFb, parseEvent } from './facebook.js';
-import { expandTopics, rotateQueries } from './topics.js';
+import { expandTopics, rotateQueries, topicsFor } from './topics.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
 import { ollamaUrl } from '../enrich/pipeline.js';
 
@@ -77,7 +77,7 @@ export function crawlerConfigFrom(settings: Settings): CrawlerConfig {
     seen.add(city.toLowerCase());
     // The format ignores the place: the crawler appends whichever area it is
     // searching, so a term goes over bare.
-    const topics = expandTopics(settings.eventTopics ?? [], city, (term) => term);
+    const topics = expandTopics(topicsFor(settings, city), city, (term) => term);
     interests.push({ city, terms: [...new Set([...topics, ...extra])] });
   }
   const seeds = [

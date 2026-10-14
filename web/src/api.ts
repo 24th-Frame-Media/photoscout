@@ -101,7 +101,7 @@ export interface Photo {
 }
 
 /** A place the app looks around: the map and feeds always; events and busy venues when switched on. */
-export interface Area { name: string; lat: number; lng: number; radiusKm: number; events: boolean; busy: boolean }
+export interface Area { name: string; lat: number; lng: number; radiusKm: number; events: boolean; busy: boolean; topics?: string[]; hiddenCategories?: string[] }
 
 export interface Settings {
   /** The first area: where the map opens. */

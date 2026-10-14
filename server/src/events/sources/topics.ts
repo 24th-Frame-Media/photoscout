@@ -174,6 +174,14 @@ export function expandTopics(
   return out;
 }
 
+/** The topics to search `place` for: its own when it has any, else the global ones. */
+export function topicsFor(
+  settings: { eventTopics?: string[]; areaTopics?: Record<string, string[]> }, place: string
+): string[] {
+  const own = settings.areaTopics?.[place.trim().toLowerCase()];
+  return own?.length ? own : settings.eventTopics ?? [];
+}
+
 export const webQuery = (term: string, place: string): string => `${term} in ${place}`;
 export const fbQuery = (term: string, place: string): string => `${place} ${term}`;
 

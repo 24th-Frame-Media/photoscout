@@ -57,6 +57,14 @@ export interface Settings {
   cullOutsideAreas: boolean;
   /** Categories to keep out of sight, by name. Same rules as the above. */
   excludedCategories: string[];
+  /**
+   * Per-area overrides, keyed by lowercase area name and written from the
+   * areas list like the fields above. Topics replace `eventTopics` for that
+   * area's searches; hidden categories add to `excludedCategories` for events
+   * filed under it. A missing or empty entry means no override.
+   */
+  areaTopics: Record<string, string[]>;
+  areaHiddenCategories: Record<string, string[]>;
   icalFeeds: { name: string; url: string }[];
   /**
    * States to read from the MIDNIGHT_SPEC car-meet feed, lowercase and
@@ -308,6 +316,8 @@ export const DEFAULT_SETTINGS: Settings = {
   eventAreas: [],
   cullOutsideAreas: true,
   excludedCategories: [],
+  areaTopics: {},
+  areaHiddenCategories: {},
   icalFeeds: [],
   midnightspecStates: [],
   tasksDisabled: [],

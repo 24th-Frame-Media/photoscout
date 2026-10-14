@@ -167,3 +167,12 @@ test('classifyEvent ignores useless sourceCategory and falls back to GENERAL_CAT
   const fbCat = classifyEvent('Unknown Event with No Keyword Matches', '', 'Facebook');
   assert.equal(fbCat, GENERAL_CATEGORY);
 });
+
+test('topicsFor uses an area\'s own topics, else the global ones', async () => {
+  const { topicsFor } = await import('../../src/events/sources/topics.js');
+  const s = { eventTopics: ['a'], areaTopics: { penrith: ['b'], orange: [] } };
+  assert.deepEqual(topicsFor(s, 'Penrith'), ['b']);
+  assert.deepEqual(topicsFor(s, 'Orange'), ['a'], 'empty falls back');
+  assert.deepEqual(topicsFor(s, 'Bathurst'), ['a']);
+  assert.deepEqual(topicsFor({}, 'Bathurst'), []);
+});
