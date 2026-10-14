@@ -97,7 +97,7 @@ test('runwayGeometry: generates controlled-approach-core covering runway strip a
     if (d1 > maxDistT1) maxDistT1 = d1;
     if (d2 > maxDistT2) maxDistT2 = d2;
   }
-  // The corridor extends ~7 km (+60m strip end) past each threshold
+  // Threshold-derived geometry must not invent a runway-strip extension.
   assert.ok(maxDistT1 > 8500, 'End 2 far cap should be > 8.5 km from End 1 threshold');
   assert.ok(maxDistT2 > 8500, 'End 1 far cap should be > 8.5 km from End 2 threshold');
 });

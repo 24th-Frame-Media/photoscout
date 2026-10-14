@@ -35,7 +35,10 @@ export const CONTROLLED_3NM_BUFFER_METRES = 5556; // 3 NM = 3 * 1852 m
 
 // CASA Part 101 MOS Section 4.05 parameters
 const STRIP_HALF_WIDTH_M = 50; // Nominal 100 m wide runway strip
-const STRIP_END_EXTENSION_M = 60; // Standard runway strip end extension beyond threshold
+// OpenAIP provides runway threshold centres, not surveyed runway-strip ends. Do
+// not invent an extension: this is explicitly threshold-derived planning
+// geometry until an authoritative runway-strip dataset is licensed.
+const STRIP_END_EXTENSION_M = 0;
 const RECTANGLE_HALF_WIDTH_M = 500; // 500 m either side of runway centreline (1 km total)
 const SPLAY_ANGLE_DEG = 15;
 const TAN_15_DEG = Math.tan((SPLAY_ANGLE_DEG * Math.PI) / 180); // ~0.26794919
@@ -168,7 +171,7 @@ export function generateRunwayApproachCore(
   const bearing = initialBearing(t1, t2);
   const revBearing = (bearing + 180) % 360;
 
-  // Strip ends extended nominal 60 m beyond thresholds
+  // Threshold-derived strip endpoints. See STRIP_END_EXTENSION_M above.
   const s1 = destinationPoint(t1, STRIP_END_EXTENSION_M, revBearing);
   const s2 = destinationPoint(t2, STRIP_END_EXTENSION_M, bearing);
 
@@ -306,10 +309,10 @@ export function generateRunwayPlanningMarkings(
       ...baseProps,
       kind: 'controlled-3nm-measurement-buffer',
       bufferRadiusM: CONTROLLED_3NM_BUFFER_METRES,
-      geometryDerivation: 'CASA Part 101 MOS Section 4.04 / CASR 101.238(d)(v) 3 NM runway measurement point buffer',
+      geometryDerivation: 'Threshold-centreline approximation of CASR 101.238(d)(v) 3 NM runway measurement-point buffer',
       geometryVersion: '2020-08-rectified-mos-4.05',
       lawReference: 'CASR 101.238(d)(v)',
-      disclaimer: 'Advisory planning buffer — not clearance. 3 NM measured from runway centreline / measurement points. Conditions depend on aircraft weight/category and permissions.',
+      disclaimer: 'Advisory threshold-derived planning buffer — not clearance. Conditions depend on aircraft weight/category, height and permissions; verify current authoritative aerodrome data.',
     },
     geometry: {
       type: 'Polygon',
@@ -328,10 +331,10 @@ export function generateRunwayPlanningMarkings(
       coreDistanceM: CORE_DISTANCE_M,
       maxSplayWidthM: Math.round(CORE_FAR_HALF_WIDTH_M * 2),
       rectangleHalfWidthM: RECTANGLE_HALF_WIDTH_M,
-      geometryDerivation: 'CASA Part 101 MOS Section 4.05(2)(b)(i) & 4.05(3) controlled-aerodrome approach/departure core',
+      geometryDerivation: 'Threshold-derived approximation of CASA Part 101 MOS s 4.05 controlled-aerodrome approach/departure core',
       geometryVersion: '2020-08-rectified-mos-4.05',
       lawReference: 'CASR Part 101 MOS s 4.05',
-      disclaimer: 'Advisory approach/departure corridor — not clearance. Ground upwards to 400 ft. Operations prohibited without ATC approval.',
+      disclaimer: 'Advisory threshold-derived approach/departure corridor — not clearance. Applicability depends on aircraft category, height and permissions; verify current authoritative aerodrome data.',
     },
     geometry: {
       type: 'Polygon',
@@ -344,7 +347,7 @@ export function generateRunwayPlanningMarkings(
   const hbRing2 = generateRunwayHeightBandTrapezoid(s2, bearing);
   const hbRing1 = generateRunwayHeightBandTrapezoid(s1, revBearing);
 
-  const hbDisclaimer = 'Advisory height-aware band (7 km to 8.5 km from runway strip end). Restrictions apply from 90 m (300 ft) above aerodrome elevation.';
+  const hbDisclaimer = 'Advisory threshold-derived height-aware band (7 km to 8.5 km from threshold). Rules may apply from 90 m (300 ft) above aerodrome elevation; verify current authoritative aerodrome data.';
 
   hbFeatures.push({
     type: 'Feature',
