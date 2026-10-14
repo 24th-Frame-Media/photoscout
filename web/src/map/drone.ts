@@ -45,6 +45,15 @@ export interface DroneAirportItem {
     name?: string;
   }>;
   runwayGeometryUnavailable?: boolean;
+  provenance?: {
+    source: string;
+    licence: string;
+    authority: string;
+    effectiveDate: string;
+    sourceDate?: string;
+    verifiedThresholds?: boolean;
+    notes?: string;
+  };
 }
 
 export interface DroneFireHazardItem {

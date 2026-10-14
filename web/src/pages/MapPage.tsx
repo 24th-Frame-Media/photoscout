@@ -6,7 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { locateControl } from '../map/locateControl.js';
 import SuggestSpot from '../components/SuggestSpot.js';
-import { api, Candidate, type DroneContextResponse, type EventItem, FireIncident, Place, Plane, type PlaneInfo, type RadioPlace, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast } from '../api.js';
+import { api, Candidate, type AerodromesContextResponse, type DroneContextResponse, type EventItem, FireIncident, Place, Plane, type PlaneInfo, type RadioPlace, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast } from '../api.js';
 import { sunLook } from '../map/sunLook.js';
 import { hourAt, pickRadarFrame, RAINVIEWER_INDEX, radarTileUrl, weatherIcon, type RadarIndex } from '../map/weather.js';
 import {
@@ -189,6 +189,9 @@ export default function MapPage({ user }: { user: User | null }) {
   const [droneData, setDroneData] = useState<DroneContextResponse | null>(null);
   const [droneLoading, setDroneLoading] = useState(false);
   const [droneError, setDroneError] = useState('');
+  const [aerodromesData, setAerodromesData] = useState<AerodromesContextResponse | null>(null);
+  const [aerodromesLoading, setAerodromesLoading] = useState(false);
+  const [aerodromesError, setAerodromesError] = useState('');
   const [dronePlanningPoint, setDronePlanningPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [droneFlightRadiusKm, setDroneFlightRadiusKm] = useState(5);
   const droneMarker = useRef<Marker | null>(null);
@@ -437,26 +440,44 @@ export default function MapPage({ user }: { user: User | null }) {
     return () => { stop = true; };
   }, [map, radioOn, radioPlaces]);
   // Drone planning overlay: airspaces, aerodromes, modelled fire hazard buffers, and CASR 101 assessment
+  // Drone planning overlay: local aerodromes, airspaces, modelled fire hazard buffers, and CASR 101 assessment
   const targetDroneLat = dronePlanningPoint ? dronePlanningPoint.lat : centre.lat;
   const targetDroneLng = dronePlanningPoint ? dronePlanningPoint.lng : centre.lng;
 
   const refreshDroneContext = () => {
     if (!map || !droneOn) return;
     setDroneLoading(true);
+    setAerodromesLoading(true);
     updateDroneFlightRadius(map, flightRadiusGeoJSON(targetDroneLat, targetDroneLng, droneFlightRadiusKm));
+
+    // 1. Static local aerodromes: public, requires no login or key, populates runway & airport layers
+    api.aerodromesContext(targetDroneLat, targetDroneLng, droneFlightRadiusKm * 1000)
+      .then((res) => {
+        setAerodromesData(res);
+        setAerodromesLoading(false);
+        setAerodromesError('');
+        const { points, controlled3nm, approachCore, approachHeightBand, heightBandHatch } = airportsGeoJSON(res.airports ?? res.aerodromes ?? []);
+        updateDroneAirports(map, points, controlled3nm, approachCore, approachHeightBand, heightBandHatch);
+      })
+      .catch((err) => {
+        setAerodromesLoading(false);
+        setAerodromesError((err as Error).message);
+      });
+
+    // 2. Dynamic context: user-authenticated OpenAIP airspaces, fire hazards, weather, aircraft
     api.droneContext(targetDroneLat, targetDroneLng, droneFlightRadiusKm * 1000)
       .then((res) => {
         setDroneData(res);
         setDroneLoading(false);
         setDroneError('');
         updateDroneAirspaces(map, airspacesGeoJSON(res.airspaces ?? []));
-        const { points, controlled3nm, approachCore, approachHeightBand, heightBandHatch } = airportsGeoJSON(res.airports ?? []);
-        updateDroneAirports(map, points, controlled3nm, approachCore, approachHeightBand, heightBandHatch);
+        // NOTE: Deliberately do NOT render OpenAIP airport rows into airport-marking map layers
         updateDroneFireHazards(map, droneFireHazardsGeoJSON(res.fireHazards ?? []));
       })
       .catch((err) => {
         setDroneLoading(false);
         setDroneError((err as Error).message);
+        // Dynamic failure does not clear or remove static airport markings
       });
   };
 
@@ -465,7 +486,9 @@ export default function MapPage({ user }: { user: User | null }) {
     setLayerVisible(map, DRONE_LAYERS, !!droneOn);
     if (!droneOn) {
       setDroneData(null);
+      setAerodromesData(null);
       setDroneError('');
+      setAerodromesError('');
       updateDroneFlightRadius(map, { type: 'FeatureCollection', features: [] });
       updateDroneAirspaces(map, { type: 'FeatureCollection', features: [] });
       updateDroneAirports(map, { type: 'FeatureCollection', features: [] }, { type: 'FeatureCollection', features: [] });
@@ -475,7 +498,26 @@ export default function MapPage({ user }: { user: User | null }) {
     updateDroneFlightRadius(map, flightRadiusGeoJSON(targetDroneLat, targetDroneLng, droneFlightRadiusKm));
     let stop = false;
     setDroneLoading(true);
+    setAerodromesLoading(true);
+
+    // Static local aerodromes fetch
+    api.aerodromesContext(targetDroneLat, targetDroneLng, droneFlightRadiusKm * 1000)
+      .then((res) => {
+        if (stop) return;
+        setAerodromesData(res);
+        setAerodromesLoading(false);
+        setAerodromesError('');
+        const { points, controlled3nm, approachCore, approachHeightBand, heightBandHatch } = airportsGeoJSON(res.airports ?? res.aerodromes ?? []);
+        updateDroneAirports(map, points, controlled3nm, approachCore, approachHeightBand, heightBandHatch);
+      })
+      .catch((err) => {
+        if (stop) return;
+        setAerodromesLoading(false);
+        setAerodromesError((err as Error).message);
+      });
+
     const timer = setTimeout(() => {
+      // Dynamic drone context fetch (debounced on map drag)
       api.droneContext(targetDroneLat, targetDroneLng, droneFlightRadiusKm * 1000)
         .then((res) => {
           if (stop) return;
@@ -483,8 +525,7 @@ export default function MapPage({ user }: { user: User | null }) {
           setDroneLoading(false);
           setDroneError('');
           updateDroneAirspaces(map, airspacesGeoJSON(res.airspaces ?? []));
-          const { points, controlled3nm, approachCore, approachHeightBand, heightBandHatch } = airportsGeoJSON(res.airports ?? []);
-          updateDroneAirports(map, points, controlled3nm, approachCore, approachHeightBand, heightBandHatch);
+          // NOTE: Deliberately do NOT render OpenAIP airport rows into airport-marking map layers
           updateDroneFireHazards(map, droneFireHazardsGeoJSON(res.fireHazards ?? []));
         })
         .catch((err) => {
@@ -1488,8 +1529,11 @@ export default function MapPage({ user }: { user: User | null }) {
         <DronePlanningPanel
           user={user}
           data={droneData}
+          aerodromesData={aerodromesData}
           loading={droneLoading}
+          aerodromesLoading={aerodromesLoading}
           error={droneError}
+          aerodromesError={aerodromesError}
           planningPoint={dronePlanningPoint}
           centre={centre}
           radiusKm={droneFlightRadiusKm}

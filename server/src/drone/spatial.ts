@@ -277,12 +277,12 @@ export function selectAirportsForPlanning<T extends OpenAipAirport = OpenAipAirp
     const mapped: PlannedAirport<T>[] = inRadius.map(({ intersects: _, ...rest }) => ({
       ...rest,
       outsidePlannedRadius: false,
-    }));
-    const closestInRadius =
-      mapped.find((a) => a.id === closest.id) ?? {
+    } as PlannedAirport<T>));
+    const closestInRadius: PlannedAirport<T> =
+      mapped.find((a) => a.id === closest.id) ?? ({
         ...closest,
         outsidePlannedRadius: !closest.intersects,
-      };
+      } as PlannedAirport<T>);
     return {
       airports: mapped,
       closestAirport: closestInRadius,
@@ -294,7 +294,7 @@ export function selectAirportsForPlanning<T extends OpenAipAirport = OpenAipAirp
   const closestOutside: PlannedAirport<T> = {
     ...closestRest,
     outsidePlannedRadius: true,
-  };
+  } as PlannedAirport<T>;
 
   return {
     airports: [closestOutside],

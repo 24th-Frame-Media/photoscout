@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type {
+  AerodromesContextResponse,
   DroneContextResponse,
   DroneEvidence,
   DroneSeverity,
@@ -9,8 +10,11 @@ import type {
 export interface DronePlanningPanelProps {
   user: User | null;
   data: DroneContextResponse | null;
+  aerodromesData?: AerodromesContextResponse | null;
   loading: boolean;
+  aerodromesLoading?: boolean;
   error: string;
+  aerodromesError?: string;
   planningPoint: { lat: number; lng: number } | null;
   centre?: { lat: number; lng: number };
   radiusKm?: number;
@@ -39,8 +43,11 @@ const AUTHORITY_LABELS: Record<string, string> = {
 export function DronePlanningPanel({
   user,
   data,
+  aerodromesData,
   loading,
+  aerodromesLoading,
   error,
+  aerodromesError,
   planningPoint,
   centre,
   radiusKm,
@@ -57,7 +64,7 @@ export function DronePlanningPanel({
 
   const assessment = data?.assessment;
   const overallSeverity = assessment?.overallSeverity ?? (user ? 'not_checked' : 'info');
-  const summaryText = assessment?.summary ?? (loading ? 'Loading planning context…' : 'Advisory drone planning guidance');
+  const summaryText = assessment?.summary ?? (loading || aerodromesLoading ? 'Loading planning context…' : 'Advisory drone planning guidance');
   const activeRadiusKm = radiusKm ?? (data?.radiusM ? Math.round(data.radiusM / 1000) : 5);
 
   return (
@@ -119,9 +126,9 @@ export function DronePlanningPanel({
                 type="button"
                 className="drone-btn-small"
                 onClick={onRefresh}
-                disabled={loading}
+                disabled={loading || aerodromesLoading}
               >
-                {loading ? 'Refreshing…' : 'Refresh'}
+                {loading || aerodromesLoading ? 'Refreshing…' : 'Refresh'}
               </button>
             )}
           </div>
@@ -157,13 +164,34 @@ export function DronePlanningPanel({
           )}
         </section>
 
-        {/* User state banners */}
+        {/* Local aerodrome dataset status banner */}
+        {aerodromesData?.available && aerodromesData.status === 'ok' && (
+          <div className="drone-alert drone-alert--success">
+            <p>
+              <strong>Local aerodrome data active:</strong> {aerodromesData.source?.name || 'Local aerodrome registry'}
+              {aerodromesData.source?.effectiveDate ? ` (effective ${aerodromesData.source.effectiveDate})` : ''}
+              {' · '}{(aerodromesData.aerodromes?.length ?? aerodromesData.airports?.length ?? 0)} aerodromes mapped locally.
+              {aerodromesData.source?.authority ? ` Authority: ${aerodromesData.source.authority}.` : ''}
+            </p>
+          </div>
+        )}
+
+        {aerodromesData && (!aerodromesData.available || aerodromesData.status === 'unavailable' || aerodromesData.status === 'empty') && (
+          <div className="drone-alert drone-alert--info">
+            <p>
+              <strong>Local aerodrome dataset absent/unavailable.</strong>{' '}
+              {aerodromesData.message || 'No local Australian aerodrome registry installed. Aerodrome points and runway threshold geometry require an installed authoritative dataset.'}
+            </p>
+          </div>
+        )}
+
+        {/* Dynamic provider user state banners */}
         {!user && (
           <div className="drone-alert drone-alert--info">
             <p>
-              <strong>Sign in required for airspace context.</strong>{' '}
+              <strong>Sign in required for dynamic airspace context.</strong>{' '}
               <a href="/settings#account">Sign in</a> and add your user-owned openAIP API key in{' '}
-              <a href="/settings#apikeys">Settings → API Keys</a> to display controlled airspace and aerodromes.
+              <a href="/settings#apikeys">Settings → API Keys</a> to display dynamic airspace polygons. Static local aerodrome overlay operates independently.
             </p>
           </div>
         )}
@@ -172,15 +200,16 @@ export function DronePlanningPanel({
           <div className="drone-alert drone-alert--warning">
             <p>
               <strong>OpenAIP API key not configured.</strong>{' '}
-              To load Australian airspace polygons and aerodrome context, configure your personal openAIP key in{' '}
-              <a href="/settings#apikeys">Settings → API Keys</a>. Keys are stored server-side and never exposed.
+              To load dynamic Australian airspace polygons, configure your personal openAIP key in{' '}
+              <a href="/settings#apikeys">Settings → API Keys</a>. Local aerodrome markings remain active independently.
             </p>
           </div>
         )}
 
-        {error && (
+        {(error || aerodromesError) && (
           <div className="drone-alert drone-alert--error" role="alert">
-            <p><strong>Context error:</strong> {error}</p>
+            {error && <p><strong>Dynamic airspace error:</strong> {error}. Local aerodrome markings remain active.</p>}
+            {aerodromesError && <p><strong>Aerodrome data error:</strong> {aerodromesError}</p>}
           </div>
         )}
 
@@ -335,6 +364,11 @@ export function DronePlanningPanel({
             <li>
               <strong>Civil Aviation Safety Regulations 1998 (CASR) Part 101</strong>: Statutory authority baseline.
             </li>
+            {aerodromesData?.source && (
+              <li>
+                <strong>Local Aerodrome Registry</strong>: {aerodromesData.source.name} ({aerodromesData.source.authority}, {aerodromesData.source.licence}). Effective: {aerodromesData.source.effectiveDate || 'N/A'}. Loaded locally from disk, no upstream API dependency.
+              </li>
+            )}
             {data?.sources?.openaip && (
               <li>
                 <strong>openAIP Core API</strong>: Airspace boundaries & aerodromes. Fetched: {new Date(data.sources.openaip.fetchedAt).toLocaleString()}. {data.sources.openaip.attribution}

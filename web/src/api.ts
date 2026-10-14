@@ -35,6 +35,28 @@ export interface DroneAssessmentResult {
   evaluatedAt: string;
 }
 
+export interface AerodromesContextResponse {
+  available: boolean;
+  status: 'ok' | 'unavailable' | 'empty';
+  message?: string;
+  radiusM: number;
+  airports: DroneAirportItem[];
+  aerodromes: DroneAirportItem[];
+  closestAirport: DroneAirportItem | null;
+  closestAerodrome: DroneAirportItem | null;
+  source?: {
+    datasetId: string;
+    name: string;
+    schemaVersion: string;
+    publishedAt?: string;
+    effectiveDate?: string;
+    licence?: string;
+    authority?: string;
+    recordCount?: number;
+    loadedAt?: string;
+  } | null;
+}
+
 export interface DroneContextResponse {
   configured: boolean;
   radiusM?: number;
@@ -639,6 +661,9 @@ export const api = {
   marine: (lat: number, lng: number) => fetch(`/api/marine?lat=${lat}&lng=${lng}`).then((r) => json<MarineData>(r)),
   // --- fires (NSW RFS) ---
   fires: () => fetch('/api/fires').then((r) => json<FireIncident[]>(r)),
+  // --- local aerodromes context (public / anonymous) ---
+  aerodromesContext: (lat: number, lng: number, radiusM = 5000) =>
+    fetch(`/api/aerodromes/context?lat=${lat}&lng=${lng}&radiusM=${radiusM}`).then((r) => json<AerodromesContextResponse>(r)),
   // --- drone planning context ---
   droneContext: (lat: number, lng: number, radiusM = 5000) =>
     fetch(`/api/drone/context?lat=${lat}&lng=${lng}&radiusM=${radiusM}`).then((r) => json<DroneContextResponse>(r)),
