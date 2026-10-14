@@ -171,7 +171,7 @@ export function filterFireHazardsByRadius(
   return hazards.filter((h) => intersectsCircle(h.bufferGeometry, centerLat, centerLng, radiusM));
 }
 
-export type PlannedAirport = OpenAipAirport & {
+export type PlannedAirport<T extends OpenAipAirport = OpenAipAirport> = T & {
   distanceM: number;
   outsidePlannedRadius?: boolean;
   controlledBuffer?: GeoJSON.Polygon;
@@ -186,20 +186,20 @@ export type PlannedAirport = OpenAipAirport & {
  * 3. Uncontrolled airports that fall within the planned radius (distance <= radiusM).
  * 4. If no airport intersects, always includes the single closest mapped airport labeled as outsidePlannedRadius: true.
  */
-export function selectAirportsForPlanning(
-  airports: OpenAipAirport[],
+export function selectAirportsForPlanning<T extends OpenAipAirport = OpenAipAirport>(
+  airports: T[],
   centerLat: number,
   centerLng: number,
   radiusM: number
 ): {
-  airports: PlannedAirport[];
-  closestAirport: PlannedAirport | null;
+  airports: PlannedAirport<T>[];
+  closestAirport: PlannedAirport<T> | null;
 } {
   if (!airports.length) {
     return { airports: [], closestAirport: null };
   }
 
-  const withDist: Array<PlannedAirport & { intersects: boolean }> = airports
+  const withDist: Array<PlannedAirport<T> & { intersects: boolean }> = airports
     .filter((a) => a.geometry && Array.isArray(a.geometry.coordinates))
     .map((a) => {
       const [lng, lat] = a.geometry.coordinates;
@@ -274,7 +274,7 @@ export function selectAirportsForPlanning(
   const inRadius = withDist.filter((a) => a.intersects);
 
   if (inRadius.length > 0) {
-    const mapped: PlannedAirport[] = inRadius.map(({ intersects: _, ...rest }) => ({
+    const mapped: PlannedAirport<T>[] = inRadius.map(({ intersects: _, ...rest }) => ({
       ...rest,
       outsidePlannedRadius: false,
     }));
@@ -291,7 +291,7 @@ export function selectAirportsForPlanning(
 
   // No airport intersects planned flight radius: include closest mapped airport labeled outsidePlannedRadius
   const { intersects: _, ...closestRest } = closest;
-  const closestOutside: PlannedAirport = {
+  const closestOutside: PlannedAirport<T> = {
     ...closestRest,
     outsidePlannedRadius: true,
   };

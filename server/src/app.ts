@@ -33,6 +33,7 @@ import { fetchAurora } from './feeds/spaceWeather.js';
 import { fetchOpenAipContext, MAX_RADIUS_M } from './providers/openaip.js';
 import { airspaceToEvidence, aerodromeToEvidence, evaluateDroneAssessment, weatherContextToEvidence, aircraftContextToEvidence } from './drone/assessment.js';
 import { filterAirspacesByRadius, filterFireHazardsByRadius, selectAirportsForPlanning, findClosestAircraft } from './drone/spatial.js';
+import { queryLocalAerodromes } from './drone/aerodromes.js';
 import { evaluatePopulationContext } from './drone/population.js';
 import { createDroneFireHazards, fireHazardToEvidence, createFireNotCheckedGate, type DroneFireHazard } from './drone/fireHazards.js';
 import type { DroneEvidence, DroneEvidenceSource } from './drone/types.js';
@@ -932,6 +933,40 @@ app.get('/api/fires', async (_req, res, next) => {
   try {
     res.json(await fetchFires());
   } catch (err) { next(err); }
+});
+
+// --- local aerodromes context (public / anonymous) --------------------------
+
+app.get('/api/aerodromes/context', (req, res, next) => {
+  const rawLat = req.query.lat;
+  const rawLng = req.query.lng;
+  const rawRadius = req.query.radiusM;
+
+  if (rawLat == null || rawLng == null) {
+    return res.status(400).json({ error: 'lat and lng query parameters are required' });
+  }
+
+  const lat = Number(rawLat);
+  const lng = Number(rawLng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return res.status(400).json({ error: 'lat must be between -90 and 90, lng between -180 and 180' });
+  }
+
+  let radiusM = 5000;
+  if (rawRadius != null) {
+    radiusM = Number(rawRadius);
+    if (!Number.isFinite(radiusM) || radiusM <= 0 || radiusM > MAX_RADIUS_M) {
+      return res.status(400).json({ error: `radiusM must be a positive number up to ${MAX_RADIUS_M}` });
+    }
+  }
+
+  try {
+    const result = queryLocalAerodromes({ lat, lng, radiusM });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // --- drone planning context -------------------------------------------------
