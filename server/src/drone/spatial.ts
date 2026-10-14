@@ -1,5 +1,5 @@
 import { haversine, M_PER_DEG_LAT, mPerDegLon } from '../geo.js';
-import type { OpenAipAirspace, OpenAipAirport, OpenAipRunway } from '../providers/openaip.js';
+import type { OpenAipAirspace } from '../providers/openaip.js';
 import type { DroneFireHazard } from './fireHazards.js';
 import type { Plane } from '../feeds/planes.js';
 import {
@@ -171,7 +171,24 @@ export function filterFireHazardsByRadius(
   return hazards.filter((h) => intersectsCircle(h.bufferGeometry, centerLat, centerLng, radiusM));
 }
 
-export type PlannedAirport<T extends OpenAipAirport = OpenAipAirport> = T & {
+/** Minimum airport/runway shape needed by local or provider planning sources. */
+export interface PlanningRunway {
+  id?: string;
+  designator?: string;
+  thresholdEndpoints?: [GeoJSON.Position, GeoJSON.Position];
+}
+
+export interface PlanningAerodrome {
+  id: string;
+  name: string;
+  icaoCode?: string;
+  controlled?: boolean;
+  geometry: GeoJSON.Point;
+  runways?: PlanningRunway[];
+  runwayGeometryUnavailable?: boolean;
+}
+
+export type PlannedAirport<T extends PlanningAerodrome = PlanningAerodrome> = T & {
   distanceM: number;
   outsidePlannedRadius?: boolean;
   controlledBuffer?: GeoJSON.Polygon;
@@ -186,7 +203,7 @@ export type PlannedAirport<T extends OpenAipAirport = OpenAipAirport> = T & {
  * 3. Uncontrolled airports that fall within the planned radius (distance <= radiusM).
  * 4. If no airport intersects, always includes the single closest mapped airport labeled as outsidePlannedRadius: true.
  */
-export function selectAirportsForPlanning<T extends OpenAipAirport = OpenAipAirport>(
+export function selectAirportsForPlanning<T extends PlanningAerodrome = PlanningAerodrome>(
   airports: T[],
   centerLat: number,
   centerLng: number,
@@ -208,7 +225,7 @@ export function selectAirportsForPlanning<T extends OpenAipAirport = OpenAipAirp
       // Extract valid runways with explicit threshold endpoints
       const validRunways: RunwayThresholdPair[] = (a.runways || [])
         .filter(
-          (r): r is OpenAipRunway & { thresholdEndpoints: [GeoJSON.Position, GeoJSON.Position] } =>
+          (r): r is PlanningRunway & { thresholdEndpoints: [GeoJSON.Position, GeoJSON.Position] } =>
             Array.isArray(r.thresholdEndpoints) && r.thresholdEndpoints.length === 2
         )
         .map((r) => ({

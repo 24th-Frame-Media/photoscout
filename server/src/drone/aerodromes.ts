@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { dataDir } from '../db.js';
-import { selectAirportsForPlanning, type PlannedAirport } from './spatial.js';
-import type { OpenAipAirport } from '../providers/openaip.js';
+import { selectAirportsForPlanning, type PlannedAirport, type PlanningAerodrome } from './spatial.js';
 
 export interface LocalAerodromeProvenance {
   source: string;
@@ -23,7 +22,7 @@ export interface LocalRunwayThreshold {
   thresholdEndpoints?: [GeoJSON.Position, GeoJSON.Position];
 }
 
-export interface LocalAerodromeRecord extends OpenAipAirport {
+export interface LocalAerodromeRecord extends PlanningAerodrome {
   id: string;
   name: string;
   icaoCode?: string;
