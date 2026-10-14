@@ -226,9 +226,10 @@ export function airportsGeoJSON(airports: DroneAirportItem[]): DroneAirportsGeoJ
       }
     }
 
-    const hasExplicitUnavailable = apt.runwayGeometryUnavailable === true;
     const hasValidRunways = validRunways.length > 0;
-    const runwayGeometryUnavailable = isControlled && (hasExplicitUnavailable || (!hasValidRunways && !apt.controlledBuffer));
+    // Never fall back to an airport-point buffer: absent explicit threshold pairs
+    // means the legal-shaped runway geometry is unavailable.
+    const runwayGeometryUnavailable = isControlled && !hasValidRunways;
 
     pointFeatures.push({
       type: 'Feature',
@@ -258,21 +259,6 @@ export function airportsGeoJSON(airports: DroneAirportItem[]): DroneAirportsGeoJ
       approachCoreFeatures.push(...markings.approachCore.features);
       approachHeightBandFeatures.push(...markings.approachHeightBand.features);
       heightBandHatchFeatures.push(...markings.heightBandHatch.features);
-    } else if (isControlled && apt.controlledBuffer && !hasExplicitUnavailable) {
-      bufferFeatures.push({
-        type: 'Feature',
-        id: `${apt.id}-3nm`,
-        properties: {
-          airportId: apt.id,
-          airportName: apt.name,
-          icaoCode: apt.icaoCode,
-          rule: 'CASR 101.238(d)(v)',
-          sourceClassificationVerified: true,
-          disclaimer:
-            'Controlled aerodrome 3 NM conditional planning buffer (CASR 101.238(d)(v)). Conditions depend on aircraft category, weight (including 250 g threshold), and applicable permissions.',
-        },
-        geometry: apt.controlledBuffer,
-      });
     }
   }
 

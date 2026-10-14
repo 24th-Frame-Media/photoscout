@@ -100,7 +100,7 @@ test('drone web: airspacesGeoJSON converts OpenAIP airspaces and preserves [lng,
   assertNoBannedWords(JSON.stringify(fc));
 });
 
-test('drone web: airportsGeoJSON emits 3 NM buffers ONLY where controlled === true', () => {
+test('drone web: airportsGeoJSON never renders airport-point 3 NM buffers without runway thresholds', () => {
   const airports: DroneAirportItem[] = [
     {
       id: 'apt-controlled',
@@ -137,12 +137,8 @@ test('drone web: airportsGeoJSON emits 3 NM buffers ONLY where controlled === tr
 
   const { points, controlled3nm } = airportsGeoJSON(airports);
   assert.equal(points.features.length, 3);
-  assert.equal(controlled3nm.features.length, 1, 'Only positively controlled airport receives 3 NM buffer');
-
-  const bufFeature = controlled3nm.features[0];
-  assert.equal(bufFeature.properties?.airportId, 'apt-controlled');
-  assert.equal(bufFeature.properties?.rule, 'CASR 101.238(d)(v)');
-  assert.equal(bufFeature.properties?.sourceClassificationVerified, true);
+  assert.equal(controlled3nm.features.length, 0, 'A controlled airport without explicit threshold pairs must not receive an airport-point buffer');
+  assert.equal(points.features[0].properties?.runwayGeometryUnavailable, true);
 
   assertNoBannedWords(JSON.stringify(points));
   assertNoBannedWords(JSON.stringify(controlled3nm));
