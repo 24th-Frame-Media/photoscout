@@ -229,23 +229,54 @@ export function populousCautionToEvidence(details: {
 }
 
 export function aerodromeToEvidence(
-  airport: OpenAipAirport & { controlledBuffer?: GeoJSON.Geometry },
-  source: DroneEvidenceSource
+  airport: OpenAipAirport & {
+    controlledBuffer?: GeoJSON.Geometry;
+    outsidePlannedRadius?: boolean;
+    distanceM?: number;
+  },
+  source: DroneEvidenceSource,
+  options?: {
+    plannedRadiusM?: number;
+  }
 ): DroneEvidence {
+  const isOutside = airport.outsidePlannedRadius === true;
+  const distKm = airport.distanceM != null ? (airport.distanceM / 1000).toFixed(1) : undefined;
+  const radiusKm = options?.plannedRadiusM != null ? Math.round(options.plannedRadiusM / 1000) : undefined;
+
   if (airport.controlled === true) {
+    const title = isOutside
+      ? `Controlled aerodrome proximity (outside planned radius): ${airport.name}`
+      : `Controlled aerodrome proximity: ${airport.name}`;
+    const explanation = isOutside
+      ? `Closest mapped aerodrome in provider search area (${distKm ?? '–'} km away, outside planned ${radiusKm ?? '–'} km flight radius). Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). 3 NM planning buffer does not intersect the planned flight radius. Do not operate towards this aerodrome without confirming CASA conditions.`
+      : `Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). A 3 NM planning buffer is shown because standard conditions can depend on aircraft category, including the 250 g threshold, and any applicable permission or exemption. Confirm the CASA condition that applies to this operation before flight.`;
+    const userAction = isOutside
+      ? 'Advisory context: monitor for traffic if extending flight boundaries and confirm controlled-aerodrome conditions before operating within 3 NM.'
+      : 'Confirm aircraft category/weight, approval status, and applicable controlled-aerodrome conditions before operating within 3 NM.';
+
     return {
       id: `airport-${airport.id}`,
       category: 'airport',
       severity: 'caution',
       authority: 'legislation',
       ruleId: 'casr-101-075',
-      title: `Controlled aerodrome proximity: ${airport.name}`,
-      explanation: `Verified controlled aerodrome (${airport.icaoCode || 'ICAO'}). A 3 NM planning buffer is shown because standard conditions can depend on aircraft category, including the 250 g threshold, and any applicable permission or exemption. Confirm the CASA condition that applies to this operation before flight.`,
+      title,
+      explanation,
       geometry: airport.geometry,
       source,
-      userAction: 'Confirm aircraft category/weight, approval status, and applicable controlled-aerodrome conditions before operating within 3 NM.',
+      userAction,
     };
   }
+
+  const title = isOutside
+    ? `Aerodrome proximity (outside planned radius): ${airport.name}`
+    : `Aerodrome proximity: ${airport.name}`;
+  const explanation = isOutside
+    ? `Closest mapped aerodrome in provider search area (${distKm ?? '–'} km away, outside planned ${radiusKm ?? '–'} km flight radius; openAIP provider bounds, not a globally exhaustive search). Pilot must check for aircraft movements and approach/departure corridors.`
+    : `Aerodrome or landing site nearby (${airport.icaoCode || 'advisory context'}). Pilot must check for aircraft movement and approach/departure paths.`;
+  const userAction = isOutside
+    ? 'Advisory context: monitor for aircraft traffic if operating towards this aerodrome.'
+    : 'Check for aerodrome traffic and avoid approach and departure paths.';
 
   return {
     id: `airport-${airport.id}`,
@@ -253,11 +284,11 @@ export function aerodromeToEvidence(
     severity: 'caution',
     authority: 'provider_context',
     ruleId: 'casr-101-075',
-    title: `Aerodrome proximity: ${airport.name}`,
-    explanation: `Aerodrome or landing site nearby (${airport.icaoCode || 'advisory context'}). Pilot must check for aircraft movement and approach/departure paths.`,
+    title,
+    explanation,
     geometry: airport.geometry,
     source,
-    userAction: 'Check for aerodrome traffic and avoid approach and departure paths.',
+    userAction,
   };
 }
 
@@ -324,7 +355,8 @@ export function weatherContextToEvidence(details: {
 
 export function aircraftContextToEvidence(details: {
   count?: number;
-  nearby?: Array<{ hex: string; flight?: string; alt_baro?: number | null }>;
+  closest?: { hex: string; flight?: string; alt_baro?: number | null; distanceM?: number } | null;
+  nearby?: Array<{ hex: string; flight?: string; alt_baro?: number | null; distanceM?: number }>;
   failed?: boolean;
 }): DroneEvidence {
   if (details.failed) {
@@ -343,7 +375,14 @@ export function aircraftContextToEvidence(details: {
   }
 
   const count = details.count ?? 0;
-  if (count > 0) {
+  const closest = details.closest;
+
+  if (count > 0 && closest) {
+    const distKm = closest.distanceM != null ? (closest.distanceM / 1000).toFixed(1) : undefined;
+    const distText = distKm != null ? `${distKm} km away` : '';
+    const altText = closest.alt_baro != null ? `${closest.alt_baro} ft` : 'altitude unknown';
+    const ident = closest.flight ? `${closest.flight.trim()} (${closest.hex})` : closest.hex;
+
     return {
       id: 'caution-aircraft',
       category: 'aircraft',
@@ -351,7 +390,19 @@ export function aircraftContextToEvidence(details: {
       authority: 'provider_context',
       ruleId: 'casr-101-055',
       title: 'Nearby aircraft activity context',
-      explanation: `${count} aircraft detected in vicinity via ADS-B. Incomplete coverage: aircraft without broadcast ADS-B Out or operating below receiver coverage are not detected. Pilot must maintain continuous visual scan for traffic.`,
+      explanation: `${count} broadcast aircraft detected via ADS-B. Closest: ${ident} at ${distText}, ${altText}. Awareness context only: pilot must maintain continuous visual and listening watch. Incomplete ADS-B coverage: non-broadcast aircraft or aircraft below receiver line-of-sight are not detected.`,
+      source: { name: 'ADS-B Aircraft Feed' },
+      userAction: 'Maintain continuous visual and listening watch; give way to all manned aircraft.',
+    };
+  } else if (count > 0) {
+    return {
+      id: 'caution-aircraft',
+      category: 'aircraft',
+      severity: 'caution',
+      authority: 'provider_context',
+      ruleId: 'casr-101-055',
+      title: 'Nearby aircraft activity context',
+      explanation: `${count} broadcast aircraft detected in vicinity via ADS-B. Awareness context only: pilot must maintain continuous visual scan. Incomplete ADS-B coverage: non-broadcast aircraft or aircraft below receiver coverage are not detected.`,
       source: { name: 'ADS-B Aircraft Feed' },
       userAction: 'Maintain continuous visual and listening watch; give way to all manned aircraft.',
     };
@@ -365,7 +416,7 @@ export function aircraftContextToEvidence(details: {
     ruleId: 'casr-101-055',
     title: 'Aircraft activity context',
     explanation:
-      'No broadcast ADS-B aircraft detected in vicinity. Incomplete coverage: aircraft without ADS-B Out or below receiver coverage are not detected.',
+      'No broadcast ADS-B aircraft detected in provider coverage. Incomplete coverage: aircraft without broadcast ADS-B Out or operating below receiver line-of-sight are not detected; pilot must maintain continuous visual and listening scan.',
     source: { name: 'ADS-B Aircraft Feed' },
     userAction: 'Maintain continuous visual and listening scan for non-broadcast aircraft.',
   };

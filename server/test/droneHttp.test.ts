@@ -173,7 +173,7 @@ test('drone http: generates 3 NM buffer ONLY for positively verified controlled 
     };
 
     try {
-      const res = await client('GET', '/api/drone/context?lat=-33.41&lng=149.65');
+      const res = await client('GET', '/api/drone/context?lat=-33.41&lng=149.65&radiusM=20000');
       assert.equal(res.status, 200);
       assert.equal(res.json.configured, true);
 
@@ -330,3 +330,206 @@ test('drone http: includes population, weather, and aircraft context, preserving
   }
 });
 
+test('drone http: defaults planned flight radius to 5 km (5000 m)', async () => {
+  const harness = await startApp();
+  try {
+    const client = harness.client();
+    await harness.signIn(client, 'google', { id: 'user-def-rad', name: 'DefRadiusTester' });
+
+    const res = await client('GET', '/api/drone/context?lat=-33.42&lng=149.58');
+    assert.equal(res.status, 200);
+    assert.equal(res.json.radiusM, 5000, 'Must default planned flight radius to 5000 m (5 km)');
+  } finally {
+    await harness.close();
+  }
+});
+
+test('drone http: filters airspaces and airports to planned radius, preserving 3 NM controlled buffer intersections', async () => {
+  const harness = await startApp();
+  try {
+    const client = harness.client();
+    await harness.signIn(client, 'google', { id: 'user-rad-scope', name: 'RadScopeTester' });
+    await client('PUT', '/api/user/api-keys/openaip', { apiKey: 'test-scope-key' });
+
+    const centerLat = -33.45;
+    const centerLng = 149.55;
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url.includes('api.core.openaip.net/api/airspaces')) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              // Airspace 1: inside 5 km circle (at ~1 km)
+              {
+                _id: 'as-inside',
+                name: 'Inside Airspace',
+                type: 1, // RESTRICTED
+                geometry: {
+                  type: 'Polygon',
+                  coordinates: [
+                    [
+                      [149.55, -33.44],
+                      [149.57, -33.44],
+                      [149.57, -33.46],
+                      [149.55, -33.46],
+                      [149.55, -33.44],
+                    ],
+                  ],
+                },
+              },
+              // Airspace 2: outside 5 km circle (at ~11 km)
+              {
+                _id: 'as-outside',
+                name: 'Outside Airspace',
+                type: 1, // RESTRICTED
+                geometry: {
+                  type: 'Polygon',
+                  coordinates: [
+                    [
+                      [149.55, -33.34],
+                      [149.57, -33.34],
+                      [149.57, -33.36],
+                      [149.55, -33.36],
+                      [149.55, -33.34],
+                    ],
+                  ],
+                },
+              },
+            ],
+            totalPages: 1,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.includes('api.core.openaip.net/api/airports')) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              // Controlled airport at ~8 km: 3 NM (5556 m) buffer intersects 5 km circle!
+              {
+                _id: 'apt-ctrl-8km',
+                name: 'Bathurst Controlled 8km',
+                controlled: true,
+                geometry: { type: 'Point', coordinates: [149.55, -33.378] },
+              },
+              // Uncontrolled airport at ~12 km: outside 5 km circle and does not intersect!
+              {
+                _id: 'apt-unctrl-12km',
+                name: 'Far Glider Strip 12km',
+                controlled: false,
+                geometry: { type: 'Point', coordinates: [149.55, -33.342] },
+              },
+            ],
+            totalPages: 1,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return realFetch(input, init);
+    };
+
+    try {
+      const res = await client('GET', `/api/drone/context?lat=${centerLat}&lng=${centerLng}&radiusM=5000`);
+      assert.equal(res.status, 200);
+
+      // Airspaces: only 'as-inside' should be present
+      assert.equal(res.json.airspaces.length, 1);
+      assert.equal(res.json.airspaces[0].id, 'as-inside');
+
+      // Airports: controlled at 8 km must be present due to 3 NM buffer intersection
+      const airports = res.json.airports;
+      const ctrl = airports.find((a: any) => a.id === 'apt-ctrl-8km');
+      assert.ok(ctrl, 'Controlled airport with intersecting 3 NM buffer must be included');
+      assert.ok(ctrl.controlledBuffer, 'Controlled airport must have controlledBuffer geometry');
+
+      // Uncontrolled airport at 12 km should not be present
+      const unctrl = airports.find((a: any) => a.id === 'apt-unctrl-12km');
+      assert.equal(unctrl, undefined, 'Far uncontrolled airport outside radius must be excluded');
+
+      // Evidence check: only planned area items
+      const evidence = res.json.assessment.evidence;
+      assert.ok(evidence.some((e: any) => e.id === 'airspace-as-inside'));
+      assert.ok(!evidence.some((e: any) => e.id === 'airspace-as-outside'));
+      assert.ok(evidence.some((e: any) => e.id === 'airport-apt-ctrl-8km'));
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  } finally {
+    await harness.close();
+  }
+});
+
+test('drone http: always includes closest mapped airport when outside planned flight radius', async () => {
+  const harness = await startApp();
+  try {
+    const client = harness.client();
+    await harness.signIn(client, 'google', { id: 'user-closest-apt', name: 'ClosestAptTester' });
+    await client('PUT', '/api/user/api-keys/openaip', { apiKey: 'test-closest-key' });
+
+    const centerLat = -33.52;
+    const centerLng = 149.48;
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url.includes('api.core.openaip.net/api/airspaces')) {
+        return new Response(JSON.stringify({ items: [], totalPages: 1 }), { status: 200 });
+      }
+      if (url.includes('api.core.openaip.net/api/airports')) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              // Closest airport at ~8 km (outside 2 km radius)
+              {
+                _id: 'apt-orange-8km',
+                name: 'Orange Airport',
+                icaoCode: 'YORG',
+                controlled: false,
+                geometry: { type: 'Point', coordinates: [149.48, -33.448] },
+              },
+              // Farther airport at ~18 km
+              {
+                _id: 'apt-cowra-18km',
+                name: 'Cowra Airport',
+                icaoCode: 'YCWR',
+                controlled: false,
+                geometry: { type: 'Point', coordinates: [149.48, -33.358] },
+              },
+            ],
+            totalPages: 1,
+          }),
+          { status: 200 }
+        );
+      }
+      return realFetch(input, init);
+    };
+
+    try {
+      // 2 km radius: all airports are outside!
+      const res = await client('GET', `/api/drone/context?lat=${centerLat}&lng=${centerLng}&radiusM=2000`);
+      assert.equal(res.status, 200);
+
+      // Closest airport must be included and flagged outside planned radius
+      const airports = res.json.airports;
+      assert.equal(airports.length, 1);
+      assert.equal(airports[0].id, 'apt-orange-8km');
+      assert.equal(airports[0].outsidePlannedRadius, true);
+
+      // In assessment evidence, it must be present and labeled as outside planned radius
+      const evidence = res.json.assessment.evidence;
+      const aptEvidence = evidence.find((e: any) => e.id === 'airport-apt-orange-8km');
+      assert.ok(aptEvidence, 'Closest airport caution must be present in evidence');
+      assert.ok(
+        aptEvidence.title.toLowerCase().includes('outside planned radius') ||
+        aptEvidence.explanation.toLowerCase().includes('outside planned'),
+        'Evidence must clearly label airport as outside planned radius'
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  } finally {
+    await harness.close();
+  }
+});

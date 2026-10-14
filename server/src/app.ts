@@ -33,6 +33,7 @@ import { fetchAurora } from './feeds/spaceWeather.js';
 import buffer from '@turf/buffer';
 import { fetchOpenAipContext, MAX_RADIUS_M } from './providers/openaip.js';
 import { airspaceToEvidence, aerodromeToEvidence, evaluateDroneAssessment, weatherContextToEvidence, aircraftContextToEvidence } from './drone/assessment.js';
+import { filterAirspacesByRadius, filterFireHazardsByRadius, selectAirportsForPlanning, findClosestAircraft } from './drone/spatial.js';
 import { evaluatePopulationContext } from './drone/population.js';
 import { createDroneFireHazards, fireHazardToEvidence, createFireNotCheckedGate, type DroneFireHazard } from './drone/fireHazards.js';
 import type { DroneEvidence, DroneEvidenceSource } from './drone/types.js';
@@ -954,7 +955,7 @@ app.get('/api/drone/context', async (req, res, next) => {
     return res.status(400).json({ error: 'lat must be between -90 and 90, lng between -180 and 180' });
   }
 
-  let radiusM = 10_000;
+  let radiusM = 5000;
   if (rawRadius != null) {
     radiusM = Number(rawRadius);
     if (!Number.isFinite(radiusM) || radiusM <= 0 || radiusM > MAX_RADIUS_M) {
@@ -970,7 +971,8 @@ app.get('/api/drone/context', async (req, res, next) => {
 
     try {
       const rfsResult = await fetchFiresWithMeta();
-      fireHazards = createDroneFireHazards(rfsResult.incidents);
+      const rawHazards = createDroneFireHazards(rfsResult.incidents);
+      fireHazards = filterFireHazardsByRadius(rawHazards, lat, lng, radiusM);
       const fireSource: DroneEvidenceSource = {
         name: 'NSW Rural Fire Service',
         fetchedAt: rfsResult.fetchedAt,
@@ -1046,18 +1048,27 @@ app.get('/api/drone/context', async (req, res, next) => {
 
     // 4. Aircraft awareness context (ADS-B)
     let aircraftEvidence: DroneEvidence;
-    let aircraftSummary: { count: number; nearby: Array<{ hex: string; flight?: string; alt_baro?: number | null }> } | undefined;
+    let aircraftSummary: {
+      count: number;
+      closest?: { hex: string; flight?: string; alt_baro?: number | null; distanceM?: number } | null;
+      nearby: Array<{ hex: string; flight?: string; alt_baro?: number | null; distanceM?: number }>;
+    } | undefined;
     let aircraftMeta: { fetchedAt: string; attribution: string } | undefined;
     try {
       const baseUrl = process.env.ADSB_URL ?? 'https://api.adsb.lol';
       const planes = await fetchPlanes(baseUrl, lat, lng, 15);
+      const { closest, sorted } = findClosestAircraft(planes, lat, lng);
       aircraftEvidence = aircraftContextToEvidence({
         count: planes.length,
-        nearby: planes.map((p) => ({ hex: p.hex, flight: p.flight, alt_baro: p.alt_baro })),
+        closest,
+        nearby: sorted.map((p) => ({ hex: p.hex, flight: p.flight, alt_baro: p.alt_baro, distanceM: p.distanceM })),
       });
       aircraftSummary = {
         count: planes.length,
-        nearby: planes.slice(0, 5).map((p) => ({ hex: p.hex, flight: p.flight, alt_baro: p.alt_baro })),
+        closest: closest
+          ? { hex: closest.hex, flight: closest.flight, alt_baro: closest.alt_baro, distanceM: closest.distanceM }
+          : null,
+        nearby: sorted.slice(0, 5).map((p) => ({ hex: p.hex, flight: p.flight, alt_baro: p.alt_baro, distanceM: p.distanceM })),
       };
       aircraftMeta = {
         fetchedAt: new Date().toISOString(),
@@ -1069,13 +1080,14 @@ app.get('/api/drone/context', async (req, res, next) => {
 
     const contextEvidence = [popEvidence, weatherEvidence, aircraftEvidence];
 
-    // 5. OpenAIP context with requesting user's key
+    // 5. OpenAIP context with requesting user's key and bounded provider search radius
+    const providerRadiusM = Math.min(MAX_RADIUS_M, Math.max(radiusM, 20_000));
     const openAipResult = await fetchOpenAipContext({
       db,
       userId: req.user.id,
       lat,
       lng,
-      radiusM,
+      radiusM: providerRadiusM,
     });
 
     if (openAipResult.status === 'not_configured') {
@@ -1085,6 +1097,7 @@ app.get('/api/drone/context', async (req, res, next) => {
 
       return res.json({
         configured: false,
+        radiusM,
         message: openAipResult.message,
         airspaces: [],
         airports: [],
@@ -1109,6 +1122,7 @@ app.get('/api/drone/context', async (req, res, next) => {
 
       return res.json({
         configured: true,
+        radiusM,
         message: openAipResult.error,
         airspaces: [],
         airports: [],
@@ -1133,11 +1147,25 @@ app.get('/api/drone/context', async (req, res, next) => {
       stale: openAipResult.source.stale,
     };
 
-    const airspaceEvidence = openAipResult.data.airspaces.map((as) =>
+    const filteredAirspaces = filterAirspacesByRadius(
+      openAipResult.data.airspaces,
+      lat,
+      lng,
+      radiusM
+    );
+
+    const airspaceEvidence = filteredAirspaces.map((as) =>
       airspaceToEvidence(as, openAipSource)
     );
 
-    const airportsWithBuffers = openAipResult.data.airports.map((apt) => {
+    const { airports: plannedAirports } = selectAirportsForPlanning(
+      openAipResult.data.airports,
+      lat,
+      lng,
+      radiusM
+    );
+
+    const airportsWithBuffers = plannedAirports.map((apt) => {
       if (apt.controlled === true) {
         try {
           const bufFeature = buffer(apt.geometry as any, 5556, { units: 'meters' });
@@ -1157,7 +1185,7 @@ app.get('/api/drone/context', async (req, res, next) => {
     });
 
     const airportEvidence = airportsWithBuffers.map((apt) =>
-      aerodromeToEvidence(apt, openAipSource)
+      aerodromeToEvidence(apt, openAipSource, { plannedRadiusM: radiusM })
     );
 
     const allEvidence = [...airspaceEvidence, ...airportEvidence, ...fireEvidenceList, ...contextEvidence];
@@ -1168,7 +1196,8 @@ app.get('/api/drone/context', async (req, res, next) => {
 
     return res.json({
       configured: true,
-      airspaces: openAipResult.data.airspaces,
+      radiusM,
+      airspaces: filteredAirspaces,
       airports: airportsWithBuffers,
       fireHazards,
       weather: weatherSummary,
