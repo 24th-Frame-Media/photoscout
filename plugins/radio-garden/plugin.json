@@ -1,0 +1,13 @@
+{
+  "id": "media.24thframe.radio-garden",
+  "name": "Radio Garden",
+  "version": "1.0.0",
+  "description": "Radio stations from radio.garden, placed on the map and playable from the Radio panel.",
+  "author": "PhotoScout",
+  "homepage": "https://radio.garden",
+  "category": "map",
+  "photoscout": "^1.0",
+  "server": "server.js",
+  "public": ["/places", "/places/*", "/stations/*"],
+  "permissions": [{ "kind": "network", "detail": "radio.garden" }]
+}

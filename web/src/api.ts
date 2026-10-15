@@ -1,4 +1,5 @@
 /** Typed client for every server/src/index.ts endpoint. */
+import { activityFetch as fetch } from './activity.js';
 
 export type Role = 'admin' | 'moderator' | 'contributor';
 export type Visibility = 'private' | 'unlisted' | 'public';
@@ -237,6 +238,41 @@ export interface CamerasResponse {
   configured: boolean;
   cameras: TrafficCamera[];
 }
+
+export interface WazeStatus {
+  setup: { state: string; message: string; updatedAt: number | null };
+  checked: boolean;
+  alertCount: number | null;
+  coverage: 'route' | 'bbox' | 'viewport' | null;
+  observedAt: number | null;
+  configured: boolean;
+  liveMapStatus: {
+    endpoint: string;
+    accessible: boolean;
+    status: number | null;
+    message: string;
+  };
+  canDisplayOnMap: boolean;
+  attribution: string;
+}
+
+export interface WazeAlert {
+  id: string;
+  uuid?: string;
+  type: string;
+  subType?: string;
+  reportTime: number | null;
+  point: [number, number];
+  street?: string;
+  city?: string;
+  reliability?: number;
+  confidence?: number;
+  thumbsUp?: number;
+  description?: string;
+}
+
+/** Where the Radio Garden plugin's routes live. Station listen links come from the server and already point here. */
+const RADIO_BASE = '/api/plugins/media.24thframe.radio-garden';
 
 export interface RadioPlace {
   id: string;
@@ -568,10 +604,15 @@ export const api = {
   spotTrains: (spotId: string, hours = 6) => fetch(`/api/spots/${spotId}/trains?hours=${hours}`).then((r) => json<{ configured: boolean; passes: TrainPass[] }>(r)),
   // --- traffic cameras (TfNSW) ---
   cameras: () => fetch('/api/cameras').then((r) => json<CamerasResponse>(r)),
-  // --- Radio Garden layer ---
-  radioPlaces: () => fetch('/api/radio/places').then((r) => json<RadioPlacesResponse>(r)),
-  radioStations: (placeId: string) => fetch(`/api/radio/places/${encodeURIComponent(placeId)}/stations`).then((r) => json<RadioStationsResponse>(r)),
-  radioListenUrl: (channelId: string) => `/api/radio/stations/${encodeURIComponent(channelId)}/listen`,
+  // --- Waze feed ---
+  wazeStatus: (check?: boolean) => fetch(`/api/waze/status${check ? '?check=1' : ''}`).then((r) => json<WazeStatus>(r)),
+  wazeSetup: () => fetch('/api/waze/setup', { method: 'POST', headers: jsonHeaders, body: '{}' }).then(r => json<WazeStatus['setup']>(r)),
+  wazeAlerts: (bbox: { minLng: number; minLat: number; maxLng: number; maxLat: number }, signal?: AbortSignal, priority: 'map' | 'navigation' = 'map') =>
+    fetch(`/api/waze/alerts?minLng=${bbox.minLng}&minLat=${bbox.minLat}&maxLng=${bbox.maxLng}&maxLat=${bbox.maxLat}&priority=${priority}`, { signal }).then((r) => json<{ configured: boolean; alerts: WazeAlert[]; coverage: 'route' | 'viewport' | 'bbox'; observedAt: number | null; state: 'fresh' | 'queued' | 'scanning' | 'stale'; retryAfterMs: number }>(r)),
+  // --- Radio Garden layer (the media.24thframe.radio-garden plugin) ---
+  radioPlaces: () => fetch(`${RADIO_BASE}/places`).then((r) => json<RadioPlacesResponse>(r)),
+  radioStations: (placeId: string) => fetch(`${RADIO_BASE}/places/${encodeURIComponent(placeId)}/stations`).then((r) => json<RadioStationsResponse>(r)),
+  radioListenUrl: (channelId: string) => `${RADIO_BASE}/stations/${encodeURIComponent(channelId)}/listen`,
 
   // --- Event Scout ---
   spotNearby: (spotId: string) => fetch(`/api/spots/${spotId}/nearby`).then((r) => json<NearbyResult>(r)),

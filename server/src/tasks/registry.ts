@@ -103,6 +103,11 @@ export function createRegistry(store: KvStore) {
     defs.set(def.name, def);
   }
 
+  /** Forget a task: it no longer runs or shows. A run already under way finishes. */
+  function unregister(name: string): void {
+    defs.delete(name);
+  }
+
   function list(): TaskDef[] {
     return [...defs.values()];
   }
@@ -202,7 +207,7 @@ export function createRegistry(store: KvStore) {
     return { ok: true, message: `${def.label} ${on ? 'enabled' : 'disabled'}` };
   }
 
-  return { register, list, run, runIfDue, isRunning, status, statuses, setEnabled, since };
+  return { register, unregister, list, run, runIfDue, isRunning, status, statuses, setEnabled, since };
 }
 
 export type TaskRegistry = ReturnType<typeof createRegistry>;

@@ -1,0 +1,142 @@
+/* The Plugins tab in Settings. Colours and radii come from the app's tokens in styles.css, so light and dark follow. */
+
+.plugins__banner { margin: 0 0 12px; }
+
+.plugins__upload { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 0 0 6px; }
+.plugins__file { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; max-width: 100%; }
+.plugins__file input[type="file"] { max-width: 100%; }
+
+.plugins__list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+
+.plugins__card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.plugins__head { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+.plugins__head-text { min-width: 0; flex: 1 1 auto; }
+.plugins__icon {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  overflow: hidden;
+}
+.plugins__icon img { width: 100%; height: 100%; object-fit: contain; }
+.plugins__title { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; min-width: 0; }
+.plugins__name { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+.plugins__version { color: var(--muted); font-size: 12.5px; }
+.plugins__meta { color: var(--muted); font-size: 12.5px; margin: 2px 0 0; overflow-wrap: anywhere; }
+.plugins__badges { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; justify-content: flex-end; }
+.plugins__badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--pill);
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.plugins__badge--ok { color: var(--green); border-color: var(--green); }
+.plugins__badge--error { color: var(--red); border-color: var(--red); }
+.plugins__badge--off { color: var(--muted); }
+.plugins__badge--muted { color: var(--muted); }
+.plugins__badge--tag { font-weight: 500; }
+
+.plugins__desc { margin: 0; font-size: 13.5px; color: var(--text); overflow-wrap: anywhere; }
+.plugins__label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.plugins__perms { margin: 4px 0 0; padding-left: 18px; font-size: 13px; color: var(--text); display: flex; flex-direction: column; gap: 2px; }
+.plugins__note { font-size: 12.5px; color: var(--muted); margin: 0; overflow-wrap: anywhere; }
+
+.plugins__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.plugins__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.plugins__check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); cursor: pointer; }
+
+/* The enable switch: a real checkbox, drawn as a track and a knob. */
+.plugins__switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; position: relative; }
+.plugins__switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.plugins__switch-track {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  position: relative;
+  flex: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.plugins__switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s, background 0.15s;
+}
+.plugins__switch input:checked + .plugins__switch-track { background: var(--accent); border-color: var(--accent); }
+.plugins__switch input:checked + .plugins__switch-track::after { transform: translateX(16px); background: var(--on-accent); }
+.plugins__switch input:focus-visible + .plugins__switch-track { outline: 2px solid var(--ring); outline-offset: 2px; }
+.plugins__switch input:disabled + .plugins__switch-track { opacity: 0.5; }
+.plugins__switch-text { color: var(--text); }
+
+.plugins__details { border-top: 1px solid var(--border); padding-top: 8px; }
+.plugins__details > summary { cursor: pointer; font-size: 13px; color: var(--text); padding: 4px 0; }
+.plugins__details > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.plugins__fields { display: flex; flex-direction: column; gap: 12px; margin: 10px 0 0; }
+.plugins__field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; min-width: 0; }
+.plugins__field > label { color: var(--muted); }
+.plugins__field input:not([type="checkbox"]), .plugins__field select { max-width: 100%; }
+.plugins__field-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.plugins__field-row input { flex: 1 1 200px; min-width: 0; }
+
+.plugins__log-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow: auto;
+}
+.plugins__log { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.plugins__log-time { color: var(--muted); flex: none; }
+.plugins__log-msg { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.plugins__log--info { color: var(--text); }
+.plugins__log--warn { color: var(--accent); }
+.plugins__log--error { color: var(--red); }
+
+@media (max-width: 600px) {
+  .plugins__badges { margin-left: 0; justify-content: flex-start; }
+  .plugins__card { padding: 12px; }
+}

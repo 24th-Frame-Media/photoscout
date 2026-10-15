@@ -65,11 +65,17 @@ const ANONYMOUS_READS = [
   // The feed (scope=following is refused to a visitor by the handler: the query is not seen here) and a post's comments.
   /^\/api\/feed$/,
   /^\/api\/posts\/[^/]+\/comments$/,
-  // Radio Garden layer: cached places, on-demand station lists, and direct redirects.
-  /^\/api\/radio\/places$/,
-  /^\/api\/radio\/places\/[^/]+\/stations$/,
-  /^\/api\/radio\/stations\/[^/]+\/listen$/,
+  // Waze status and alerts
+  /^\/api\/waze\/(status|alerts)$/,
+  // The web bundles of the active plugins: the map loads them before anyone signs in.
+  /^\/api\/plugins-web$/,
 ];
+
+/**
+ * A plugin's own route, /api/plugins/<id>/<rest>. Whether a visitor may read it
+ * is for the plugin to declare (`public` in its plugin.json), not for this list.
+ */
+const PLUGIN_ROUTE = /^\/api\/plugins\/([^/]+)(\/.*)?$/;
 
 export function normalizePath(p: string): string {
   const withoutQuery = p.split('?')[0].toLowerCase();
@@ -77,10 +83,20 @@ export function normalizePath(p: string): string {
   return trimmed === '' ? '/' : trimmed;
 }
 
-/** Whether a request needs a signed-in session at all. */
-export function needsAuth(method: string, path: string): boolean {
+/**
+ * Whether a request needs a signed-in session at all. `pluginRoutePublic` says
+ * whether a running plugin has declared the route public; without it, every
+ * plugin route needs a session.
+ */
+export function needsAuth(
+  method: string,
+  path: string,
+  pluginRoutePublic: (id: string, method: string, rest: string) => boolean = () => false,
+): boolean {
   const normalized = normalizePath(path);
   if (OPEN_ROUTES.some((re) => re.test(normalized))) return false;
+  const plugin = PLUGIN_ROUTE.exec(normalized);
+  if (plugin) return !pluginRoutePublic(plugin[1], method, plugin[2] ?? '/');
   if (method === 'GET' || method === 'HEAD') return !ANONYMOUS_READS.some((re) => re.test(normalized));
   return true;
 }
@@ -166,6 +182,28 @@ export function handleFrom(name: string, taken: (handle: string) => boolean, ran
     const candidate = `${stem}_${random()}`;
     if (!taken(candidate)) return candidate;
   }
+}
+
+/** The request and reply, as far as the gates below need them. Structural, so this file stays free of express. */
+interface GatedRequest {
+  user?: SessionUser | null;
+}
+interface Reply {
+  status(code: number): { json(body: unknown): unknown };
+}
+
+/** Answer 401 and return false unless a session is signed in. The `/api` gate in app.ts applies the same rule to routes it can see. */
+export function requireUser(req: GatedRequest, res: Reply): boolean {
+  if (req.user) return true;
+  res.status(401).json({ error: 'Sign in required' });
+  return false;
+}
+
+/** Answer 403 and return false unless the signed-in account is an admin. */
+export function requireAdmin(req: GatedRequest, res: Reply): boolean {
+  if (req.user?.role === 'admin') return true;
+  res.status(403).json({ error: 'Admins only' });
+  return false;
 }
 
 /** `ADMIN_IDS=google:1234,discord:5678` — the accounts that are admins, by who the provider says they are. */

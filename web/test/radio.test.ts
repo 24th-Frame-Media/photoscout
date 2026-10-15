@@ -108,13 +108,13 @@ test('Player lifecycle: no autoplay, cleans up previous stream, and handles erro
     id: 'st-1',
     title: 'Station 1',
     placeId: 'pl-1',
-    listenUrl: '/api/radio/stations/st-1/listen',
+    listenUrl: '/api/plugins/media.24thframe.radio-garden/stations/st-1/listen',
   };
   const s2: RadioStation = {
     id: 'st-2',
     title: 'Station 2',
     placeId: 'pl-1',
-    listenUrl: '/api/radio/stations/st-2/listen',
+    listenUrl: '/api/plugins/media.24thframe.radio-garden/stations/st-2/listen',
   };
 
   // State tracker
@@ -150,7 +150,7 @@ test('Player lifecycle: no autoplay, cleans up previous stream, and handles erro
   playStation(s1);
   assert.equal(activeStationId, 'st-1');
   assert.equal(playbackState, 'playing');
-  assert.equal(activeAudio!.src, '/api/radio/stations/st-1/listen');
+  assert.equal(activeAudio!.src, '/api/plugins/media.24thframe.radio-garden/stations/st-1/listen');
   assert.equal(activeAudio!.paused, false);
 
   const prevAudio = activeAudio!;
@@ -160,7 +160,7 @@ test('Player lifecycle: no autoplay, cleans up previous stream, and handles erro
   assert.equal(prevAudio.paused, true, 'previous audio was paused');
   assert.equal(prevAudio.src, '', 'previous audio src was cleared');
   assert.equal(activeStationId, 'st-2');
-  assert.equal(activeAudio!.src, '/api/radio/stations/st-2/listen');
+  assert.equal(activeAudio!.src, '/api/plugins/media.24thframe.radio-garden/stations/st-2/listen');
 
   // 4. Cleanup on close or unmount
   cleanupAudio();
@@ -213,7 +213,7 @@ test('RadioAudioController: connection timeout triggers terminal unavailable sta
     title: '2MCE FM 92.3 Charles Sturt University',
     placeId: 'DdiFsWw5',
     streamDomain: '2mce.org',
-    listenUrl: '/api/radio/stations/7gjakH-C/listen',
+    listenUrl: '/api/plugins/media.24thframe.radio-garden/stations/7gjakH-C/listen',
   };
 
   // 1. User selects 2MCE FM 92.3
@@ -224,7 +224,7 @@ test('RadioAudioController: connection timeout triggers terminal unavailable sta
   assert.equal(controller.hasPendingTimeout(), true, 'connection timeout is armed');
   assert.ok(createdAudio, 'audio element created');
   const targetAudio = createdAudio as TestAudio;
-  assert.equal(targetAudio.src, '/api/radio/stations/7gjakH-C/listen');
+  assert.equal(targetAudio.src, '/api/plugins/media.24thframe.radio-garden/stations/7gjakH-C/listen');
 
   // 2. Audio stalls in loading and does not reach playing within timeout
   await new Promise((resolve) => setTimeout(resolve, timeoutMs + 15));
@@ -507,7 +507,7 @@ test('Panel close persistence: closing station panel preserves playback, widget 
     id: 'st-syd',
     title: 'FBi Radio 94.5 FM',
     placeId: 'pl-syd',
-    listenUrl: '/api/radio/stations/st-syd/listen',
+    listenUrl: '/api/plugins/media.24thframe.radio-garden/stations/st-syd/listen',
   };
 
   // Simulating MapPage state
@@ -595,7 +595,7 @@ test('Toggle-off persistence: turning Radio legend toggle off hides map markers 
     id: 'st-melb',
     title: 'Triple R 102.7 FM',
     placeId: 'pl-melb',
-    listenUrl: '/api/radio/stations/st-melb/listen',
+    listenUrl: '/api/plugins/media.24thframe.radio-garden/stations/st-melb/listen',
   };
 
   // Simulating MapPage layer & legend state

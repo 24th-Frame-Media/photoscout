@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDb } from '../src/db.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   isValidRadioId,
   getProviderListenUrl,
@@ -10,7 +12,30 @@ import {
   fetchRadioStations,
   RadioProviderError,
   RADIO_PLACES_KEY,
-} from '../src/sources/radioGarden.js';
+  RADIO_PLUGIN_ID,
+  type RadioKv,
+} from '../src/radio.js';
+
+/** An in-memory key-value store, as the plugin's cache sees it. */
+function memoryKv(): RadioKv {
+  const values = new Map<string, string>();
+  return {
+    get: (key) => values.get(key) ?? null,
+    set: (key, value) => {
+      values.set(key, value);
+    },
+  };
+}
+
+const neverFetch: typeof fetch = async () => {
+  throw new Error('no network in this test');
+};
+
+test('the id the listen links are built from is the one in plugin.json', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const manifest = JSON.parse(fs.readFileSync(path.join(here, '..', 'plugin.json'), 'utf8')) as { id: string };
+  assert.equal(RADIO_PLUGIN_ID, manifest.id);
+});
 
 test('isValidRadioId: accepts safe tokens, rejects traversal/injection/arbitrary URLs', () => {
   assert.equal(isValidRadioId('9Yi25umJ'), true);
@@ -219,26 +244,26 @@ test('parseRadioStations: parses nested stations, deduplicates channels, and ass
     title: 'Code Radio',
     placeId: '9Yi25umJ',
     streamDomain: 'freecodecamp.org',
-    listenUrl: '/api/radio/stations/LWYfKJRw/listen',
+    listenUrl: '/api/plugins/media.24thframe.radio-garden/stations/LWYfKJRw/listen',
   });
   assert.deepEqual(result.stations[1], {
     id: '5AJGqjWN',
     title: 'Hot 97.1',
     placeId: '9Yi25umJ',
     streamDomain: 'streamtheworld.com',
-    listenUrl: '/api/radio/stations/5AJGqjWN/listen',
+    listenUrl: '/api/plugins/media.24thframe.radio-garden/stations/5AJGqjWN/listen',
   });
   assert.deepEqual(result.stations[2], {
     id: '38SmGFvr',
     title: 'WNYC 93.9 FM',
     placeId: '9Yi25umJ',
     streamDomain: 'wnyc.org',
-    listenUrl: '/api/radio/stations/38SmGFvr/listen',
+    listenUrl: '/api/plugins/media.24thframe.radio-garden/stations/38SmGFvr/listen',
   });
 });
 
 test('fetchRadioPlaces: caches for 24h and serves stale cache when refresh fails', async () => {
-  const db = createDb(':memory:');
+  const kv = memoryKv();
 
   const fixture = {
     data: {
@@ -258,13 +283,13 @@ test('fetchRadioPlaces: caches for 24h and serves stale cache when refresh fails
   };
 
   // 1. First call fetches fresh and caches
-  const first = await fetchRadioPlaces(db, { fetchFn: mockFetch });
+  const first = await fetchRadioPlaces(kv, { fetchFn: mockFetch });
   assert.equal(first.length, 1);
   assert.equal(first[0].title, 'Sydney');
   assert.equal(callCount, 1);
 
   // 2. Second call within TTL hits cache (mockFetch not called)
-  const second = await fetchRadioPlaces(db, { fetchFn: mockFetch });
+  const second = await fetchRadioPlaces(kv, { fetchFn: mockFetch });
   assert.equal(second.length, 1);
   assert.equal(second[0].title, 'Sydney');
   assert.equal(callCount, 1);
@@ -275,13 +300,13 @@ test('fetchRadioPlaces: caches for 24h and serves stale cache when refresh fails
     throw new Error('Network outage');
   };
 
-  const staleResult = await fetchRadioPlaces(db, { forceRefresh: true, fetchFn: failingFetch });
+  const staleResult = await fetchRadioPlaces(kv, { forceRefresh: true, fetchFn: failingFetch });
   assert.equal(staleResult.length, 1);
   assert.equal(staleResult[0].title, 'Sydney');
   assert.equal(callCount, 2);
 
   // 4. In a clean DB with no cache, an outage throws RadioProviderError(503)
-  const cleanDb = createDb(':memory:');
+  const cleanDb = memoryKv();
   await assert.rejects(
     () => fetchRadioPlaces(cleanDb, { fetchFn: failingFetch }),
     (err: any) => err instanceof RadioProviderError && err.status === 503
@@ -289,11 +314,11 @@ test('fetchRadioPlaces: caches for 24h and serves stale cache when refresh fails
 });
 
 test('fetchRadioStations: caches stations, validates IDs, and handles errors', async () => {
-  const db = createDb(':memory:');
+  const kv = memoryKv();
 
   // Invalid ID format rejected before any network request
   await assert.rejects(
-    () => fetchRadioStations(db, '../evil'),
+    () => fetchRadioStations(kv, '../evil', { fetchFn: neverFetch }),
     (err: any) => err instanceof RadioProviderError && err.status === 400
   );
 
@@ -329,13 +354,13 @@ test('fetchRadioStations: caches stations, validates IDs, and handles errors', a
   };
 
   // Fresh fetch and cache
-  const stations = await fetchRadioStations(db, 'syd123', { fetchFn: mockFetch });
+  const stations = await fetchRadioStations(kv, 'syd123', { fetchFn: mockFetch });
   assert.equal(stations.stations.length, 1);
   assert.equal(stations.stations[0].title, 'FBi Radio');
   assert.equal(callCount, 1);
 
   // Cached hit
-  const cached = await fetchRadioStations(db, 'syd123', { fetchFn: mockFetch });
+  const cached = await fetchRadioStations(kv, 'syd123', { fetchFn: mockFetch });
   assert.equal(cached.stations.length, 1);
   assert.equal(callCount, 1);
 
@@ -344,7 +369,36 @@ test('fetchRadioStations: caches stations, validates IDs, and handles errors', a
     return new Response('Not found', { status: 404 });
   };
   await assert.rejects(
-    () => fetchRadioStations(db, 'unknown_place', { fetchFn: notFoundFetch }),
+    () => fetchRadioStations(kv, 'unknown_place', { fetchFn: notFoundFetch }),
     (err: any) => err instanceof RadioProviderError && err.status === 404
+  );
+});
+
+test('an answer with no length header is cut off at its byte limit, and the rest of it is never read', async () => {
+  let pulls = 0;
+  // Ten chunks of 1 MB: the station page allows 3 MB, so the read should stop after about four.
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulls += 1;
+      if (pulls > 10) controller.close();
+      else controller.enqueue(new Uint8Array(1024 * 1024));
+    },
+  });
+  const fetchFn: typeof fetch = async () => new Response(body, { status: 200 });
+
+  await assert.rejects(
+    () => fetchRadioStations(memoryKv(), 'syd123', { fetchFn }),
+    (err: any) => err instanceof RadioProviderError && err.status === 502 && /exceeded allowed size/.test(err.message),
+  );
+  assert.ok(pulls < 10, `read ${pulls} of 10 chunks`);
+});
+
+test('a network failure is answered with a fixed line, not with the text of the error', async () => {
+  const fetchFn: typeof fetch = async () => {
+    throw new Error('connect ECONNREFUSED 10.0.0.7:443');
+  };
+  await assert.rejects(
+    () => fetchRadioPlaces(memoryKv(), { fetchFn }),
+    (err: any) => err instanceof RadioProviderError && err.status === 503 && err.message === 'Radio Garden could not be reached',
   );
 });

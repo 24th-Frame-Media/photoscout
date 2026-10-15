@@ -1,4 +1,11 @@
-import type { Db } from '../db.js';
+/**
+ * Radio Garden, as the plugin serves it: the places feed, the stations of one
+ * place, and the redirect to a station's stream. Moved from the server's
+ * sources/radioGarden.ts. The cache lives in the plugin's own database (see
+ * RadioKv), and every upstream call goes through the fetch the host gives us.
+ */
+
+export const RADIO_PLUGIN_ID = 'media.24thframe.radio-garden';
 
 export interface RadioPlace {
   id: string;
@@ -33,6 +40,14 @@ export class RadioProviderError extends Error {
   }
 }
 
+/** A string key-value store for the cache. */
+export interface RadioKv {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+}
+
+export type RadioFetch = (url: string, init?: RequestInit) => Promise<Response>;
+
 /** Strict validation for Radio Garden place and channel IDs. Prevents path traversal and arbitrary proxying. */
 export const ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
 
@@ -46,7 +61,8 @@ export const STATIONS_CACHE_TTL_MS = 10 * 60_000; // 10 minutes
 
 export const RADIO_PLACES_URL = 'https://radio.garden/api/ara/content/places';
 export const radioPlaceUrl = (placeId: string) => `https://radio.garden/api/ara/content/page/${encodeURIComponent(placeId)}`;
-export const radioListenUrl = (channelId: string) => `/api/radio/stations/${encodeURIComponent(channelId)}/listen`;
+/** Where a station's audio is asked for, as the browser sees it: this plugin's own route, same origin. */
+export const radioListenPath = (channelId: string) => `/api/plugins/${RADIO_PLUGIN_ID}/stations/${encodeURIComponent(channelId)}/listen`;
 
 export const PROVIDER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -105,7 +121,7 @@ export function parseRadioPlaces(raw: unknown): RadioPlace[] {
 /**
  * Parses station items from a place page payload.
  * Extracts channel ID from nested item.page, deduplicates channels,
- * and builds PhotoScout listen URLs.
+ * and builds the listen URLs this plugin serves.
  */
 export function parseRadioStations(raw: unknown, placeId: string): RadioPlaceDetails {
   if (!raw || typeof raw !== 'object') {
@@ -147,7 +163,7 @@ export function parseRadioStations(raw: unknown, placeId: string): RadioPlaceDet
           title: stationTitle,
           placeId: stationPlaceId,
           streamDomain,
-          listenUrl: radioListenUrl(channelId),
+          listenUrl: radioListenPath(channelId),
         });
       }
     }
@@ -161,7 +177,29 @@ export function parseRadioStations(raw: unknown, placeId: string): RadioPlaceDet
   };
 }
 
-async function fetchWithGuards(url: string, maxBytes: number, fetchFn: typeof fetch = fetch): Promise<unknown> {
+/**
+ * The body as text, read as it arrives. Once more than maxBytes have come, the
+ * read stops and the connection is let go, so a huge answer is never held in memory.
+ */
+async function readCapped(res: Response, maxBytes: number): Promise<string> {
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new RadioProviderError('Radio Garden response exceeded allowed size', 502);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function fetchWithGuards(url: string, maxBytes: number, fetchFn: RadioFetch): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -183,10 +221,7 @@ async function fetchWithGuards(url: string, maxBytes: number, fetchFn: typeof fe
       throw new RadioProviderError('Radio Garden response exceeded allowed size', 502);
     }
 
-    const text = await res.text();
-    if (text.length > maxBytes) {
-      throw new RadioProviderError('Radio Garden response exceeded allowed size', 502);
-    }
+    const text = await readCapped(res, maxBytes);
 
     try {
       return JSON.parse(text);
@@ -198,9 +233,21 @@ async function fetchWithGuards(url: string, maxBytes: number, fetchFn: typeof fe
     if ((err as Error).name === 'AbortError') {
       throw new RadioProviderError('Radio Garden request timed out', 503);
     }
-    throw new RadioProviderError(`Radio Garden fetch failed: ${(err as Error).message}`, 503);
+    // The network error's own text can name hosts and addresses; the client gets a fixed line instead.
+    throw new RadioProviderError('Radio Garden could not be reached', 503);
   } finally {
     clearTimeout(timer);
+  }
+}
+
+function readCached<T>(kv: RadioKv, key: string): { cachedAt: number; value: T } | null {
+  const raw = kv.get(key);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' ? (parsed as { cachedAt: number; value: T }) : null;
+  } catch {
+    return null; // ignore corrupt cache
   }
 }
 
@@ -209,43 +256,33 @@ async function fetchWithGuards(url: string, maxBytes: number, fetchFn: typeof fe
  * Caches in KV for 24 hours. Serves stale cached data if provider refresh fails.
  */
 export async function fetchRadioPlaces(
-  db: Db,
-  options?: { forceRefresh?: boolean; fetchFn?: typeof fetch }
+  kv: RadioKv,
+  options: { fetchFn: RadioFetch; forceRefresh?: boolean },
 ): Promise<RadioPlace[]> {
-  const fetchFn = options?.fetchFn ?? fetch;
-
-  const rawCached = db.getKv(RADIO_PLACES_KEY);
-  let parsedCached: { cachedAt: number; places: RadioPlace[] } | null = null;
-  if (rawCached) {
-    try {
-      parsedCached = JSON.parse(rawCached);
-    } catch {
-      // ignore corrupt cache
-    }
-  }
+  const cached = readCached<RadioPlace[]>(kv, RADIO_PLACES_KEY);
+  const parsedCached = cached && Array.isArray(cached.value) ? { cachedAt: cached.cachedAt, places: cached.value } : null;
 
   const isFresh =
-    !options?.forceRefresh &&
+    !options.forceRefresh &&
     parsedCached &&
     typeof parsedCached.cachedAt === 'number' &&
-    Date.now() - parsedCached.cachedAt < PLACES_CACHE_TTL_MS &&
-    Array.isArray(parsedCached.places);
+    Date.now() - parsedCached.cachedAt < PLACES_CACHE_TTL_MS;
 
   if (isFresh && parsedCached) {
     return parsedCached.places;
   }
 
   try {
-    const json = await fetchWithGuards(RADIO_PLACES_URL, MAX_PLACES_BYTES, fetchFn);
+    const json = await fetchWithGuards(RADIO_PLACES_URL, MAX_PLACES_BYTES, options.fetchFn);
     const places = parseRadioPlaces(json);
     if (!places.length) {
       throw new RadioProviderError('Malformed provider data: empty places list', 502);
     }
 
-    db.setKv(RADIO_PLACES_KEY, JSON.stringify({ cachedAt: Date.now(), places }));
+    kv.set(RADIO_PLACES_KEY, JSON.stringify({ cachedAt: Date.now(), value: places }));
     return places;
   } catch (err) {
-    if (parsedCached && Array.isArray(parsedCached.places) && parsedCached.places.length > 0) {
+    if (parsedCached && parsedCached.places.length > 0) {
       return parsedCached.places; // Stale beats nothing
     }
     throw err;
@@ -259,32 +296,23 @@ const stationsCacheKey = (placeId: string) => `radio:stations:v1:${placeId}`;
  * Caches in KV for 10 minutes. Serves stale cached data if provider refresh fails.
  */
 export async function fetchRadioStations(
-  db: Db,
+  kv: RadioKv,
   placeId: string,
-  options?: { forceRefresh?: boolean; fetchFn?: typeof fetch }
+  options: { fetchFn: RadioFetch; forceRefresh?: boolean },
 ): Promise<RadioPlaceDetails> {
   if (!isValidRadioId(placeId)) {
     throw new RadioProviderError('Invalid place ID', 400);
   }
 
-  const fetchFn = options?.fetchFn ?? fetch;
   const key = stationsCacheKey(placeId);
-  const rawCached = db.getKv(key);
-  let parsedCached: { cachedAt: number; details: RadioPlaceDetails } | null = null;
-  if (rawCached) {
-    try {
-      parsedCached = JSON.parse(rawCached);
-    } catch {
-      // ignore corrupt cache
-    }
-  }
+  const cached = readCached<RadioPlaceDetails>(kv, key);
+  const parsedCached = cached && cached.value ? { cachedAt: cached.cachedAt, details: cached.value } : null;
 
   const isFresh =
-    !options?.forceRefresh &&
+    !options.forceRefresh &&
     parsedCached &&
     typeof parsedCached.cachedAt === 'number' &&
-    Date.now() - parsedCached.cachedAt < STATIONS_CACHE_TTL_MS &&
-    parsedCached.details;
+    Date.now() - parsedCached.cachedAt < STATIONS_CACHE_TTL_MS;
 
   if (isFresh && parsedCached) {
     return parsedCached.details;
@@ -292,13 +320,13 @@ export async function fetchRadioStations(
 
   try {
     const url = radioPlaceUrl(placeId);
-    const json = await fetchWithGuards(url, MAX_PAGE_BYTES, fetchFn);
+    const json = await fetchWithGuards(url, MAX_PAGE_BYTES, options.fetchFn);
     const details = parseRadioStations(json, placeId);
 
-    db.setKv(key, JSON.stringify({ cachedAt: Date.now(), details }));
+    kv.set(key, JSON.stringify({ cachedAt: Date.now(), value: details }));
     return details;
   } catch (err) {
-    if (parsedCached && parsedCached.details) {
+    if (parsedCached) {
       return parsedCached.details; // Stale beats nothing
     }
     throw err;

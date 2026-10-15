@@ -7,7 +7,7 @@ import helmet from 'helmet';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import {
   SessionUser, Visibility,
-  canEdit, canRead, isStaff, needsAuth, originAllowed, readCookie, secureEqual, HANDLE, OAUTH_COOKIE, SESSION_COOKIE,
+  canEdit, canRead, isStaff, needsAuth, originAllowed, readCookie, requireAdmin, secureEqual, HANDLE, OAUTH_COOKIE, SESSION_COOKIE,
 } from './auth.js';
 import {
   accountIdOf, createSession, deleteSession, deleteUser, findUserById, findUserByUsername, listUsers,
@@ -32,6 +32,8 @@ import { fetchAurora } from './feeds/spaceWeather.js';
 import { fetchBuildings } from './sources/osm.js';
 import { fetchRoadCell, parseCell } from './sources/roads.js';
 import { fetchCameras } from './feeds/cameras.js';
+import { fetchWazeAlerts, validateWazeBounds } from './feeds/waze.js';
+import { startWazeSetup, wazeSetupStatus, loadWazeRuntime } from './wazeRuntime.js';
 import {
   buildPointPassesResponse, combinedFeedData, combinedRealtime, emptyFeedData, nextPasses, parsePointPassRequest, predictTrainPositions, tripCount, TRAIN_FEEDS,
 } from './feeds/trains.js';
@@ -56,7 +58,8 @@ import { versionInfo } from './version.js';
 import { isRouteType, parseRouteSnap, parseRouteStaging, parseRouteVertices, serializeRouteWaypoints, routeJson, type RouteRow } from './routes.js';
 import { chatFeed } from './realtime.js';
 import { cruiseJson, readCruise, resolveCruise } from './cruise.js';
-import { fetchRadioPlaces, fetchRadioStations, getProviderListenUrl, isValidRadioId } from './sources/radioGarden.js';
+import { mountPlugins } from './plugins/routes.js';
+import { pluginRuntime } from './plugins/host.js';
 import crypto from 'node:crypto';
 
 declare global {
@@ -97,7 +100,7 @@ app.use(
         'img-src': ["'self'", 'data:', 'blob:', 'https:'],
         'connect-src': ["'self'", 'https:'],
         'worker-src': ["'self'", 'blob:'],
-        // Radio streams: /api/radio/.../listen redirects to radio.garden and on to the station.
+        // Radio streams: the Radio Garden plugin's /stations/<id>/listen redirects to radio.garden and on to the station.
         'media-src': ["'self'", 'https:'],
         // The installable app: its manifest and the service worker that lets it open offline.
         'manifest-src': ["'self'"],
@@ -180,7 +183,7 @@ const writeLimit = limit(MINUTE, 90, 'changes');
 // third party one, so they are counted on their own and kept low.
 const upstreamLimit = limit(MINUTE, 60, 'lookups');
 app.use(
-  ['/api/geocode', '/api/route', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates', '/api/radio'],
+  ['/api/geocode', '/api/route', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates', '/api/plugins/media.24thframe.radio-garden', '/api/waze'],
   upstreamLimit
 );
 app.use(/^\/api\/(spots|places)\/[^/]+\/(nearby|commons|trains)$/, upstreamLimit);
@@ -190,7 +193,8 @@ const uploadLimit = limit(10 * MINUTE, 60, 'uploads');
 const chatLimit = limit(MINUTE, 10, 'messages');
 
 app.use('/api', (req, res, next) => {
-  if (!needsAuth(req.method, req.baseUrl + req.path)) return next();
+  // A plugin's own route is open only where that plugin declares it public (plugin.json "public").
+  if (!needsAuth(req.method, req.baseUrl + req.path, (id, method, rest) => pluginRuntime.isPublicRoute(id, method, rest))) return next();
   if (req.user) return next();
   res.status(401).json({ error: 'Sign in required' });
 });
@@ -206,12 +210,6 @@ app.use(['/api/places', '/api/spots', '/api/routes'], (req, res, next) => {
   if (problem) return res.status(400).json({ error: problem });
   next();
 });
-
-function requireAdmin(req: express.Request, res: express.Response): boolean {
-  if (req.user?.role === 'admin') return true;
-  res.status(403).json({ error: 'Admins only' });
-  return false;
-}
 
 // --- auth -------------------------------------------------------------------
 
@@ -1082,40 +1080,76 @@ app.get('/api/cameras/:id/image', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// --- Radio Garden layer (unsupported provider behind server adapter) ---------
+// --- Waze feed status and alerts ----------------------------------------------
 
-app.get('/api/radio/places', async (_req, res) => {
-  try {
-    const places = await fetchRadioPlaces(db);
-    res.json({ places });
-  } catch (err) {
-    const status = (err as any).status ?? 502;
-    res.status(status).json({ error: (err as Error).message });
-  }
-});
+app.get('/api/waze/status', async (req, res) => {
+  loadWazeRuntime();
+  let liveCode: number | null = null;
+  let liveMsg = 'Alert feed not checked';
+  let alertCount: number | null = null;
+  let coverage: 'route' | 'viewport' | null = null;
+  let observedAt: number | null = null;
 
-app.get('/api/radio/places/:id/stations', async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!isValidRadioId(id)) {
-      return res.status(400).json({ error: 'Invalid place ID' });
+  if (req.query.check === '1') {
+    try {
+      const result = await fetchWazeAlerts({ minLng: -180, minLat: -90, maxLng: 180, maxLat: 90 }, fetch, false);
+      liveCode = 200;
+      alertCount = result.alerts.length;
+      coverage = result.coverage;
+      observedAt = result.observedAt;
+      liveMsg = `${alertCount} reports returned (${coverage === 'route' ? 'active Waze route only' : 'areas loaded by Waze'})`;
+    } catch (e) {
+      liveMsg = e instanceof Error ? e.message : 'Alert feed check failed';
+      const match = /HTTP (\d{3})/.exec(liveMsg);
+      liveCode = match ? Number(match[1]) : null;
     }
-    const details = await fetchRadioStations(db, id);
-    res.json(details);
+  }
+
+  res.json({
+    configured: Boolean(process.env.WAZE_ALERT_SERVICE_URL),
+    liveMapStatus: {
+      endpoint: 'Android police/hazard report bridge',
+      accessible: liveCode === 200,
+      status: liveCode,
+      message: liveMsg,
+    },
+    checked: req.query.check === '1',
+    alertCount, coverage, observedAt,
+    canDisplayOnMap: liveCode === 200,
+    attribution: 'Waze / Google',
+    setup: wazeSetupStatus({ admin: req.user?.role === 'admin' }),
+  });
+});
+
+app.post('/api/waze/setup', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try { res.status(202).json(startWazeSetup()); }
+  catch (err) { res.status(503).json({ error: err instanceof Error ? err.message : 'Setup could not start' }); }
+});
+
+app.get('/api/waze/alerts', async (req, res, next) => {
+  try {
+    if (![req.query.minLng, req.query.minLat, req.query.maxLng, req.query.maxLat].every(v => typeof v === 'string' && v.trim())) {
+      return res.status(400).json({ error: 'minLng, minLat, maxLng and maxLat must be non-empty coordinates' });
+    }
+    const minLng = Number(req.query.minLng);
+    const minLat = Number(req.query.minLat);
+    const maxLng = Number(req.query.maxLng);
+    const maxLat = Number(req.query.maxLat);
+    try { validateWazeBounds({ minLng, minLat, maxLng, maxLat }); }
+    catch { return res.status(400).json({ error: 'A valid minLng, minLat, maxLng, maxLat bounding box is required' }); }
+    try {
+      const result = await fetchWazeAlerts({ minLng, minLat, maxLng, maxLat }, fetch, true, req.query.priority === 'navigation' && req.user ? 'navigation' : 'map');
+      res.json({ configured: true, ...result });
+    } catch (err: any) {
+      res.status(503).json({ configured: false, error: err.message, alerts: [] });
+    }
   } catch (err) {
-    const status = (err as any).status ?? 502;
-    res.status(status).json({ error: (err as Error).message });
+    next(err);
   }
 });
 
-app.get('/api/radio/stations/:id/listen', (req, res) => {
-  const { id } = req.params;
-  if (!isValidRadioId(id)) {
-    return res.status(400).json({ error: 'Invalid station channel ID' });
-  }
-  const listenUrl = getProviderListenUrl(id);
-  res.redirect(307, listenUrl);
-});
+// The Radio Garden layer is the media.24thframe.radio-garden plugin (plugins/radio-garden), served under /api/plugins/.
 
 // --- Event Scout: nearby events and busyness --------------------------------------
 
@@ -2081,6 +2115,10 @@ app.get('/api/calendar/:file', (req, res) => {
   res.set('Cache-Control', 'private, max-age=300');
   res.send(buildIcs(all, { name: starredOnly ? 'PhotoScout - shortlist' : 'PhotoScout events', description: `${all.length} events from PhotoScout` }));
 });
+
+// --- plugins: their routes, the admin API and their static files ------------------
+
+mountPlugins(app, pluginRuntime);
 
 // --- 404 + error handling, then the built frontend -------------------------------
 

@@ -13,6 +13,9 @@ import EventsNotify from '../settings/events/Notify.js';
 import EventTasks from '../settings/events/EventTasks.js';
 import { GROUPS, Tab, tabFromHash } from '../settings/tabs.js';
 import SignInSetup from '../settings/SignInSetup.js';
+import Plugins from '../settings/Plugins.js';
+import WazeSettings from '../settings/WazeSettings.js';
+import ActivityLog from '../components/ActivityLog.js';
 
 export default function Settings({ user, account, onChange }: { user: User | null; account: string | null; onChange: () => void }) {
   const isAdmin = user?.role === 'admin';
@@ -95,6 +98,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
 
   return (
     <div className="page settings">
+      <ActivityLog admin={isAdmin} floating />
       <h1>Settings</h1>
       <div className="settings__layout">
       <nav className="settingsnav" aria-label="Settings">
@@ -118,8 +122,8 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       <div className="settings__body">
       {/* Outside the fieldset below: your own account is yours to change, admin or not. */}
       {tab === 'account' && user && <><Account user={user} account={account} onChange={onChange} /><CalendarLink /></>}
-      {!isAdmin && tab !== 'account' && <div className="banner">Only an admin can change these.</div>}
-      <fieldset disabled={!isAdmin} className="bare">
+      {!isAdmin && tab !== 'account' && tab !== 'waze' && <div className="banner">Only an admin can change these.</div>}
+      <fieldset disabled={!isAdmin && tab !== 'waze'} className="bare">
         {tab === 'areas' && <section>
           <h2>📍 Areas</h2>
           <p className="hint">Every place the app looks around. The first is home, where the map opens; feeds and Plan a shoot search around all of them. The switches say where events are scraped and where venues are watched for how busy they are.</p>
@@ -195,6 +199,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
             </>
           )}
         </section>}
+        {tab === 'waze' && <WazeSettings isAdmin={isAdmin} />}
       </fieldset>
 
       {isAdmin && (tab === 'areas' || tab === 'instance') && (
@@ -219,6 +224,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       )}
       {isAdmin && tab === 'tasks' && <><Tasks /><div className="evs"><EventTasks /></div></>}
       {isAdmin && tab === 'signin' && <SignInSetup />}
+      {isAdmin && tab === 'plugins' && <Plugins />}
       {isAdmin && tab === 'users' && <Users me={user!} />}
       </div>
       </div>
