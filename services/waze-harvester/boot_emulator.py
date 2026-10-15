@@ -171,7 +171,9 @@ def prepare_software_guest():
     prepare_debug_transport()
     multiplier = run('adb', '-s', 'emulator-5554', 'shell', 'getprop', 'ro.hw_timeout_multiplier').stdout.strip()
     if multiplier:
-        if int(multiplier) < 10:
+        # The multiplier only matters for slow software emulation. A KVM guest is
+        # fast, so a low value baked into the image (e.g. 3 on the 37.1 images) is fine.
+        if int(multiplier) < 10 and emulator_acceleration() != 'on':
             raise RuntimeError('Android image has an immutable timeout unsuitable for software emulation')
         return
     # AOSP's multiplier exists for slow software emulators. Restart only this
