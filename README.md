@@ -107,12 +107,19 @@ server/   Express API, SQLite (node:sqlite), feeds and background tasks
 web/      React 19 + Vite + MapLibre
   src/map/      layers, sun/moon maths, shadow workers, geometry helpers
   src/pages/    Map, Events, Calendar, Plan shoot, Settings, Import/Export
+services/
+  crawler/      standalone event crawler, HTTP service and container
+  density/      venue density browser, sampling, storage and rendering package
+  waze-harvester/ Android emulator and police/hazard report bridge
 docs/     API reference and research notes
 ```
 
 - **Sun and moon** positions use [suncalc](https://github.com/mourner/suncalc) in `web/src/map/sun.ts`, all client-side, so the time slider is instant.
 - **Shadows** are one raster. Terrain shadows are ray-marched over elevation tiles (AWS Terrain Tiles) in a worker, and building footprints are drawn into the same mask so overlaps don't darken twice.
 - **Events.** The engine's own API (`/api/events-admin/*`) is for admins only. Everyone else gets a cut-down list: what the engine has culled or hidden is dropped, only the fields the pages need are passed on, and the result is kept for a minute so visitors can't make the server rebuild it on every request. The crawler, which drives a headless browser against other people's sites, stays a separate container.
+- **Service code.** The density implementation lives in `services/density`; the server supplies its existing events database, settings, network guards and scheduler. It continues to use the same database. The crawler source and Dockerfile live in `services/crawler`; local development keeps using `crawler/data` for existing crawler state, and containers use `CRAWLER_DATA`.
+- **Police and hazards.** Enable Police & hazards under Live on the map. Drive shows nearby reports ahead along the route, with voice warnings when enabled. The Android report bridge, host setup command and container configuration are described in [services/waze-harvester/README.md](services/waze-harvester/README.md). Windows report integration and interleaved area requests have been verified; fresh software-emulated Linux setup remains under verification.
+- **Service activity.** The bottom-right Logs button opens a timestamped activity history on the map and in Settings. It includes feed updates, queued scans and failures, with an Issues only filter. Admins can also see crawler and venue density progress while the log is open. The history stays in the current browser session and is limited to 80 entries.
 - **Remotes and shares.** A share link is a token that returns a GeoJSON bundle. Another instance adds it as a remote and syncs daily. Remote URLs are SSRF-guarded.
 - **Trains.** Passenger trains come from TfNSW timetables plus realtime positions. Freight has no public feed ([why](docs/freight-schedule-research.md)), so it's built from logged sightings snapped to the rail network.
 

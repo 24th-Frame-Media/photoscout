@@ -28,7 +28,7 @@ export const config = {
    */
   enabled: process.env.CRAWLER_ENABLED !== 'false',
 
-  dataDir: process.env.CRAWLER_DATA ?? path.resolve(__dirname, '../data'),
+  dataDir: process.env.CRAWLER_DATA ?? path.resolve(__dirname, '../../../crawler/data'),
 
   /**
    * Named honestly, with a link, because that is the deal: a site owner who

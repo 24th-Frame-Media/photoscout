@@ -6,3 +6,7 @@ data/
 .env
 .claude/worktrees/
 osrm/
+__pycache__/
+*.pyc
+androguard.db*
+/frida-server*

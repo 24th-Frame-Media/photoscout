@@ -10,6 +10,8 @@ Sign-in is Google or Discord (see the README); a session is a `__Host-ps_session
 
 Also open to a visitor: `GET /api/feed` (`scope=all` only) and `GET /api/posts/:id/comments`.
 
+Waze report reads (`GET /api/waze/alerts` and `/api/waze/status`) are also available to visitors. Nearby requests share the Android bridge's area queue and cache. Navigation priority requires a signed-in member. Setup remains admin-only.
+
 Every other method than `GET` and `HEAD` needs a session, and one from another site's `Origin` is refused. Admin routes answer 403 to anyone else. Which accounts are admins is `ADMIN_IDS`; everyone else is a contributor, who edits only their own rows. An admin can make a user a moderator: staff (admins and moderators) can read the reports queue, hide content, delete other people's posts, comments and chat lines, and suspend contributors, and nothing else an admin can do.
 
 ## Core
@@ -27,6 +29,9 @@ Every other method than `GET` and `HEAD` needs a session, and one from another s
 | GET | `/api/geocode?q=` | Nominatim search, cached. |
 | GET | `/api/route?coords=lng,lat;lng,lat&steps=1` | Sign-in required. A driving route from OSRM (`OSRM_URL`), passed through as OSRM's JSON with GeoJSON geometry; `steps=1` adds the turn-by-turn steps. Two to 25 points; cached five minutes. 502 if the routing service is down. |
 | GET | `/api/version` | Build info. |
+| GET | `/api/waze/alerts?minLng=&minLat=&maxLng=&maxLat=` | Geographic bounds required. Returns `{ alerts, coverage, observedAt, state, retryAfterMs }`. Pending area scans have no observation time; cached data is marked `stale` while refreshing. `priority=navigation` requires sign-in to receive queue priority. Bridge failures are reported, not converted into a fresh empty feed. |
+| GET | `/api/waze/status?check=1` | Setup state and an optional live report connection check. A check reads current reports without moving the shared emulator. |
+| POST | `/api/waze/setup` | Admin: start the host setup helper or connect to a configured remote bridge. Progress is returned by the status route. |
 | GET/POST | `/api/places` | List (visibility-filtered) / create. |
 | GET/PATCH/DELETE | `/api/places/:id` | |
 | GET/POST | `/api/spots` | `?bbox=s,w,n,e`, `?near=lat,lng&radiusKm=`, `?placeId=`. |

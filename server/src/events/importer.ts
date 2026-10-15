@@ -6,8 +6,8 @@ import { BROWSER_HEADERS } from './useragent.js';
 import { parseEnd, parseWhen } from './shared/when.js';
 import { whenFromText } from './shared/textWhen.js';
 import { cleanDescription } from './validate.js';
-import { chatJson } from './enrich/ollama.js';
-import { ollamaUrl } from './enrich/pipeline.js';
+import { chatJson } from './llm/router.js';
+import { servicesFor } from './llm/services.js';
 import type { RawEvent, Settings } from './sources/types.js';
 
 /**
@@ -300,7 +300,7 @@ const MODEL_SCHEMA = {
  * whoever owns the site, not by the person asking.
  */
 async function fillFromModel(c: ImportCandidate, text: string, settings: Settings, now: Date): Promise<boolean> {
-  if (!settings.llmEnabled || !settings.llmModel) return false;
+  if (!settings.llmEnabled || servicesFor('text', settings).length === 0) return false;
   if (c.title && c.startTime) return false;
   const prompt = [
     'Below is the text of a web page about an event. Say what the event is, when, and where.',
@@ -312,13 +312,11 @@ async function fillFromModel(c: ImportCandidate, text: string, settings: Setting
     '--- page ---',
     text.slice(0, 8000),
   ].join('\n');
-  const answer = (await chatJson({
-    url: ollamaUrl(settings.llmUrl),
-    model: settings.llmModel,
+  const answer = (await chatJson('text', {
     prompt,
     schema: MODEL_SCHEMA,
     timeoutMs: 120000,
-  })) as Record<string, unknown>;
+  }, settings)) as Record<string, unknown>;
   const said = (key: string): string => (typeof answer?.[key] === 'string' ? (answer[key] as string).trim() : '');
 
   let filled = false;

@@ -9,7 +9,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json server/package.json
 COPY web/package.json web/package.json
-COPY crawler/package.json crawler/package.json
+COPY services/crawler/package.json services/crawler/package.json
+COPY services/density/package.json services/density/package.json
+COPY plugins/radio-garden/package.json plugins/radio-garden/package.json
 RUN npm ci
 
 COPY . .
@@ -30,9 +32,15 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/server/package.json ./server/package.json
 COPY --from=build /app/server/dist ./server/dist
+COPY --from=build /app/services/density/package.json ./services/density/package.json
+COPY --from=build /app/services/density/dist ./services/density/dist
 # The gear suggestions the Kit form reads (gearCatalog.ts looks for them next to dist/).
 COPY --from=build /app/server/data-static ./server/data-static
 COPY --from=build /app/web/dist ./web/dist
+COPY --from=build /app/scripts/setup-waze.mjs ./scripts/setup-waze.mjs
+COPY --from=build /app/services/waze-harvester ./services/waze-harvester
+# Plugins that ship with the app, installed at startup (server/src/plugins/bundled.ts reads this folder).
+COPY --from=build /app/plugins/*/dist/*.zip ./bundled-plugins/
 
 # db.ts resolves its directory relative to the compiled server, so this is
 # where the database and photos land. Mount it.

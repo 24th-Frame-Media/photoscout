@@ -57,7 +57,7 @@ services:
     image: ghcr.io/kapsikkum/photoscout-crawler:latest
     build:
       context: .
-      dockerfile: Dockerfile.crawler
+      dockerfile: services/crawler/Dockerfile
     init: true
     environment:
       CRAWLER_PORT: "3002"

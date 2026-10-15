@@ -11,10 +11,11 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json server/package.json
 COPY web/package.json web/package.json
-COPY crawler/package.json crawler/package.json
+COPY services/crawler/package.json services/crawler/package.json
+COPY services/density/package.json services/density/package.json
 RUN npm ci
 
-COPY crawler crawler
+COPY services/crawler services/crawler
 RUN npm run build --workspace crawler
 
 
@@ -26,8 +27,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends tini ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app/crawler/dist ./crawler/dist
-COPY --from=build /app/crawler/package.json ./crawler/package.json
+COPY --from=build /app/services/crawler/dist ./services/crawler/dist
+COPY --from=build /app/services/crawler/package.json ./services/crawler/package.json
 
 # The frontier and the finds. Worth a volume so a restart does not throw away
 # what the crawl has learned, but nothing in here is precious: delete it and it
@@ -41,4 +42,4 @@ EXPOSE 3002
 ENV CRAWLER_PORT=3002
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["node", "crawler/dist/index.js"]
+CMD ["node", "services/crawler/dist/index.js"]

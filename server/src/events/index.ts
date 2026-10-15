@@ -22,6 +22,7 @@ import { pickAreas } from './density/areas.js';
 import { getDensityStatus } from './densityRefresh.js';
 import { clearEnrichment, getLlmStatus } from './enrich/pipeline.js';
 import { clearVision } from './enrich/visionPipeline.js';
+import { LLM_STRATEGIES } from './llm/types.js';
 import { ENRICH_JOBS } from './enrich/schema.js';
 import { tasks } from './tasks/tasks.js';
 import { runDueTasksOnStartup, startScheduler } from './tasks/scheduler.js';
@@ -64,7 +65,7 @@ app.put('/api/settings', (req, res) => {
     ...mergeSecrets(current, body as Record<string, unknown>),
   };
   // Keep arrays sane if the client sends junk
-  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'excludedCategories', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'corsOrigins', 'crawlerUrls', 'notifyTargets'] as const) {
+  for (const key of ['eventbriteOrganizerIds', 'fbSearchTerms', 'fbPages', 'icalFeeds', 'eventTopics', 'eventAreas', 'excludedCategories', 'midnightspecStates', 'tasksDisabled', 'llmJobs', 'llmServices', 'corsOrigins', 'crawlerUrls', 'notifyTargets'] as const) {
     if (!Array.isArray(next[key])) (next as unknown as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key];
   }
   const bot = (next.matrixBot && typeof next.matrixBot === 'object' ? next.matrixBot : {}) as Partial<Settings['matrixBot']>;
@@ -83,6 +84,9 @@ app.put('/api/settings', (req, res) => {
     },
   };
   next.appUrl = typeof next.appUrl === 'string' ? next.appUrl.trim() : '';
+  next.llmStrategy = (LLM_STRATEGIES as readonly string[]).includes(String(next.llmStrategy))
+    ? next.llmStrategy
+    : 'least_busy';
   saveSettings(next);
   // Area/city/category changes reshuffle place, area and culled on every
   // event, so the cached list has to be recomputed, not just re-served.

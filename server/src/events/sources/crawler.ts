@@ -3,7 +3,7 @@ import { bumpEventsVersion, getMergedEvents, MergedEvent } from '../events.js';
 import { fetchFb, parseEvent } from './facebook.js';
 import { expandTopics, rotateQueries, topicsFor } from './topics.js';
 import { EventSourceAdapter, Location, MissingConfigError, RawEvent, Settings } from './types.js';
-import { ollamaUrl } from '../enrich/pipeline.js';
+import { ollamaUrl, servicesFor } from '../llm/services.js';
 
 /**
  * Events from the crawler, which is a separate program.
@@ -58,6 +58,21 @@ export interface CrawlerConfig {
 }
 
 /**
+ * The model the crawler may use, if any.
+ *
+ * The crawler only speaks Ollama, so it gets the first listing-pass service that
+ * is one. Off, the model name is still passed as it always was, and the address
+ * is not, which is what switches the crawler's own reading off. On with no
+ * Ollama to give it, both are sent blank: the crawler keeps whatever it was last
+ * told for a field that is left out, and would go on using a service removed here.
+ */
+export function crawlerModel(settings: Settings): { ollamaUrl?: string; llmModel?: string } {
+  if (!settings.llmEnabled) return { ollamaUrl: undefined, llmModel: settings.llmModel };
+  const service = servicesFor('text', settings).find((s) => s.provider === 'ollama');
+  return service ? { ollamaUrl: ollamaUrl(service.baseUrl), llmModel: service.model } : { ollamaUrl: '', llmModel: '' };
+}
+
+/**
  * What the crawler should look for, from Settings.
  *
  * The same topics and extra terms web search expands, in every area, so
@@ -86,8 +101,7 @@ export function crawlerConfigFrom(settings: Settings): CrawlerConfig {
   return {
     interests,
     seeds,
-    ollamaUrl: settings.llmEnabled ? ollamaUrl(settings.llmUrl) : undefined,
-    llmModel: settings.llmModel,
+    ...crawlerModel(settings),
   };
 }
 
@@ -110,8 +124,7 @@ export async function syncCrawler(settings: Settings): Promise<{ ok: boolean; me
   const body: CrawlerConfig = {
     interests: off ? [] : config.interests,
     seeds: off ? [] : config.seeds,
-    ollamaUrl: settings.llmEnabled ? ollamaUrl(settings.llmUrl) : undefined,
-    llmModel: settings.llmModel,
+    ...crawlerModel(settings),
   };
   try {
     const res = await fetch(`${base}/config`, {
