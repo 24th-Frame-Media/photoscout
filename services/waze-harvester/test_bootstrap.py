@@ -2,6 +2,50 @@ import subprocess
 import unittest
 from unittest.mock import patch
 from boot_emulator import AVD_NAME, prepare_debug_transport, prepare_software_guest, prepare_integrity_verification, wait_android_services, start_report_reader, quiet_software_guest, compile_waze, emulator_acceleration
+from boot_emulator import PlayServicesRequired, check_play_services, reports_connected
+from rt_stream import ReportStore
+from types import SimpleNamespace
+import time
+
+
+class PlayServicesTests(unittest.TestCase):
+    def test_pinned_waze_rejects_the_outdated_services_from_the_api36_image(self):
+        with patch('boot_emulator.emulator_adb', side_effect=['  versionName=5.25.0.1\n', '  versionCode=252635038 minSdk=35\n']):
+            with self.assertRaisesRegex(PlayServicesRequired, 'requires Google Play services 261200000.*252635038'):
+                check_play_services()
+
+    def test_missing_services_are_an_actionable_dependency_error(self):
+        with patch('boot_emulator.emulator_adb', side_effect=['  versionName=5.25.0.1\n', 'Unable to find package']):
+            with self.assertRaisesRegex(PlayServicesRequired, 'installed version: missing'):
+                check_play_services()
+
+    def test_compatible_services_include_build_variant_suffixes(self):
+        for version in (261200038, 261200000, 263500038):
+            with self.subTest(version=version), patch('boot_emulator.emulator_adb', side_effect=[
+                    '  versionName=5.25.0.1\n', f'  versionCode={version} minSdk=35\n']):
+                check_play_services()
+
+    def test_another_waze_version_does_not_inherit_a_guessed_requirement(self):
+        with patch('boot_emulator.emulator_adb', return_value='  versionName=5.24.0.0\n') as adb:
+            check_play_services()
+            self.assertEqual(adb.call_count, 1)
+
+    def test_failed_reads_are_not_misreported_as_old_services(self):
+        with patch('boot_emulator.emulator_adb', side_effect=subprocess.TimeoutExpired('adb', 120)):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                check_play_services()
+
+
+class ConnectionReadinessTests(unittest.TestCase):
+    def test_an_unauthenticated_response_does_not_mark_setup_ready(self):
+        collector = SimpleNamespace(store=ReportStore())
+        collector.store.ready = True
+        collector.store.last_received = time.time()
+        self.assertFalse(reports_connected(collector))
+        collector.store.authenticated = True
+        self.assertTrue(reports_connected(collector))
+        collector.store.last_received -= 100
+        self.assertFalse(reports_connected(collector))
 
 class DebugTransportTests(unittest.TestCase):
     def test_root_restart_timeout_is_recovered_and_actual_root_is_verified(self):
