@@ -1,4 +1,7 @@
 import { loadRoads, type RoadsStatus } from '../map/roadQuality';
+import ActivityLog from '../components/ActivityLog.js';
+import { logActivity, logSuccessIfNews } from '../activity.js';
+import { useWazeReports } from '../map/useWazeReports.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { GeoJSONSource, LngLatBounds, Map as MlMap, MapMouseEvent, Marker, NavigationControl, Point, Popup, ScaleControl, setWorkerUrl } from 'maplibre-gl';
@@ -81,7 +84,7 @@ const newSpot = (lat: number, lng: number, placeId: string | null = null): SpotD
 });
 
 /** Legend keys whose visibility is applied by their own effect below. */
-const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events', 'radio'];
+const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events', 'radio', 'waze'];
 const RADAR_POLL_MS = 10 * 60_000;
 
 type RouteHistoryEntry = { draft: RouteDraft; duration: number | null; ready: boolean };
@@ -101,6 +104,9 @@ export default function MapPage({ user }: { user: User | null }) {
   const canSuggest = useRef(false);
   const [mode, setMode] = useState<'browse' | 'pick-spot' | 'draw' | 'anchor'>('browse');
   const [sheetSize, setSheetSize] = useState<'peek' | 'half'>('peek');
+  // The Activity log and the Nearby list share the map's bottom-right corner, so opening one closes the other.
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [nearbyOpen, setNearbyOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth > 820);
   const editorKey = editing ? `${editing.type}:${(editing.draft as { id?: string }).id ?? 'new'}` : null;
   const selectedKey = selected ? `${selected.type}:${selected.id}` : null;
   // Back to peek whenever the sheet's content changes or a map-picking mode starts, so the map stays usable.
@@ -112,6 +118,8 @@ export default function MapPage({ user }: { user: User | null }) {
   const [centre, setCentre] = useState({ lat: -33.419, lng: 149.577 });
   const [view, setView] = useState(0); // bumps on moveend, for zoom-scaled geometry and shadows
   const [params, setParams] = useSearchParams();
+  const initialMapPoint = useRef(params.has('lat') && params.has('lng') && Number.isFinite(Number(params.get('lat'))) && Number.isFinite(Number(params.get('lng'))) && Math.abs(Number(params.get('lat'))) <= 90 && Math.abs(Number(params.get('lng'))) <= 180
+    ? { lat: Number(params.get('lat')), lng: Number(params.get('lng')) } : null);
   const { time, setTime } = useMapTime();
 
   const sunAnchorController = useRef<SunAnchorController | null>(null);
@@ -133,6 +141,7 @@ export default function MapPage({ user }: { user: User | null }) {
   // Phase 3: live feeds, each behind its own toggle so nothing polls unasked.
   // Layer visibility: one source of truth for the legend and the chips.
   const [vis, setVis] = useState<Visibility>(loadVisibility);
+  const wazeReports = useWazeReports(map, !!vis.waze);
   useEffect(() => saveVisibility(vis), [vis]);
   const toggle = (key: string, on = !vis[key]) => setVis((v) => ({ ...v, [key]: on }));
   const { planes: planesOn, rail: railOn, trains: trainsOn, candidates: candidatesOn, imagery, weather: weatherOn, fires: firesOn, cameras: camerasOn, events: eventsOn, radio: radioOn } = vis;
@@ -181,6 +190,24 @@ export default function MapPage({ user }: { user: User | null }) {
   const [followNote, setFollowNote] = useState('');
   const [roadsStatus, setRoadsStatus] = useState<RoadsStatus | 'zoom'>('');
 
+  useEffect(() => { if (error) logActivity('Map', error, 'error'); }, [error]);
+  useEffect(() => { if (followNote) logActivity('Location and following', followNote); }, [followNote]);
+  useEffect(() => {
+    if (!roadsStatus) return;
+    logActivity('Road quality', { loading: 'Loading roads…', failed: 'Road data unavailable; move the map to retry', zoom: 'Zoom in to see road quality' }[roadsStatus], roadsStatus === 'failed' ? 'error' : 'info');
+  }, [roadsStatus]);
+  useEffect(() => {
+    if (!vis.waze) return;
+    if (wazeReports.error) { logActivity('Police and hazards', 'Reports unavailable; check Police & hazards in Settings', 'error'); return; }
+    const state = wazeReports.state;
+    // No reports is not the same as a clear road: the log says so rather than implying all-clear.
+    if (state) logActivity('Police and hazards', {
+      queued: 'Waiting to check reports for this area', scanning: 'Checking reports for this area…',
+      stale: 'Showing older reports while they refresh…',
+      fresh: wazeReports.alerts.length ? `${wazeReports.alerts.length} reports for this area` : 'No reports for this area right now; that does not mean the roads are clear',
+    }[state], state === 'fresh' && wazeReports.alerts.length ? 'success' : 'info');
+  }, [vis.waze, wazeReports.state, wazeReports.error, wazeReports.alerts.length]);
+
   const canEdit = (ownerId: string) => !!user && (user.role === 'admin' || user.id === ownerId);
 
   const reload = () => Promise.all([api.places(), api.spots(), api.routes()])
@@ -191,7 +218,8 @@ export default function MapPage({ user }: { user: User | null }) {
   useEffect(() => {
     let m: MlMap;
     try {
-      m = new MlMap({ container: container.current!, style: STYLE_URL, center: [149.577, -33.419], zoom: 10, maxPitch: 70 });
+      const point = initialMapPoint.current;
+      m = new MlMap({ container: container.current!, style: STYLE_URL, center: point ? [point.lng, point.lat] : [149.577, -33.419], zoom: point ? 15 : 10, maxPitch: 70 });
     } catch (e) {
       setError((e as Error).message);
       return;
@@ -218,7 +246,7 @@ export default function MapPage({ user }: { user: User | null }) {
 
   // Start on home, unless a spot or place was asked for in the URL.
   useEffect(() => {
-    if (!map || params.get('spot') || params.get('place') || params.get('lat')) return;
+    if (!map || initialMapPoint.current || params.get('spot') || params.get('place') || params.get('lat')) return;
     api.settings().then((s) => map.jumpTo({ center: [s.home.lng, s.home.lat], zoom: 10 })).catch(() => {});
   }, [map]);
 
@@ -581,6 +609,12 @@ export default function MapPage({ user }: { user: User | null }) {
   const routeDraftDirty = useRef(false);
   const [routeRecovered, setRouteRecovered] = useState(false);
   const [routeRouting, setRouteRouting] = useState({ busy: false, error: '' });
+  const routeWasBusy = useRef(false);
+  useEffect(() => {
+    if (routeRouting.busy) { routeWasBusy.current = true; logActivity('Route planner', 'Calculating the route…'); }
+    else if (routeRouting.error) { routeWasBusy.current = false; logActivity('Route planner', 'Could not calculate this route', 'error'); }
+    else if (routeWasBusy.current) { routeWasBusy.current = false; logActivity('Route planner', 'Route ready', 'success'); }
+  }, [routeRouting.busy, routeRouting.error]);
   const routeRoutingRef = useRef(routeRouting);
   routeRoutingRef.current = routeRouting;
   const [routeDuration, setRouteDuration] = useState<number | null>(null);
@@ -841,7 +875,12 @@ export default function MapPage({ user }: { user: User | null }) {
   const [radarIdx, setRadarIdx] = useState<RadarIndex | null>(null);
   useEffect(() => {
     if (!weatherOn) return;
-    const load = () => { if (document.visibilityState === 'visible') fetch(RAINVIEWER_INDEX).then((r) => r.json()).then(setRadarIdx).catch(() => {}); };
+    const load = () => {
+      if (document.visibilityState !== 'visible') return;
+      fetch(RAINVIEWER_INDEX).then((r) => { if (!r.ok) throw new Error('Radar unavailable'); return r.json(); })
+        .then((data) => { setRadarIdx(data); logSuccessIfNews('Rain radar', 'Radar frames updated'); })
+        .catch(() => logActivity('Rain radar', 'Radar frames unavailable', 'error'));
+    };
     load();
     const id = setInterval(load, RADAR_POLL_MS);
     return () => clearInterval(id);
@@ -1238,9 +1277,8 @@ export default function MapPage({ user }: { user: User | null }) {
   const hasRadioWidget = !!radioPlayerState.activeStation;
 
   return (
-    <div className={`mapshell${isPanelActive ? ' mapshell--panel' : ''}${editing ? ' mapshell--editing' : ''}${hasRadioWidget ? ' mapshell--has-radio-widget' : ''}`}>
+    <div className={`mapshell${isPanelActive ? ' mapshell--panel' : ''}${editing ? ' mapshell--editing' : ''}${hasRadioWidget ? ' mapshell--has-radio-widget' : ''}${weatherOn && forecast ? ' mapshell--has-weather' : ''}`}>
       <div ref={container} className="mapshell__map" />
-      {error && <div className="maptoast error">{error}</div>}
       {follow && (
         <div className="followpill" role="status">
           <span>Following <strong>{follow.name}</strong></span>
@@ -1249,12 +1287,8 @@ export default function MapPage({ user }: { user: User | null }) {
           <button onClick={() => setFollow(null)} title="Stop following" aria-label="Stop following">✕</button>
         </div>
       )}
-      {followNote && !follow && <div className="maptoast">{followNote}</div>}
-      {roadsStatus && <div className={`maptoast${roadsStatus === 'failed' ? ' error' : ''}`} role="status">{{
-        loading: 'Loading roads…', failed: 'Road data unavailable — Overpass busy, retry by moving the map', zoom: 'Zoom in to see road quality',
-      }[roadsStatus]}</div>}
       {mode !== 'browse' && (mode === 'pick-spot' || mode === 'anchor' || editing?.type !== 'route') && (
-        <div className="maptoast">
+        <div className="mapinstruction" role="status">
           {mode === 'pick-spot'
             ? 'Click the map to place the spot'
             : mode === 'anchor'
@@ -1268,7 +1302,21 @@ export default function MapPage({ user }: { user: User | null }) {
         <EventDetail ev={eventFeed.events.find((e) => e.group === openEvent)!} user={user} onClose={() => setOpenEvent(null)} onMark={user ? eventFeed.mark : undefined} onGoing={user ? eventFeed.setGoing : undefined} />
       )}
       <Legend map={map} vis={vis} onToggle={toggle} />
-      <NearbyList planes={planesOn ? planeData : null} trains={trainsOn ? trainData : null} centre={centre}
+      <div className="mapcorner">
+        {radioPlayerState.activeStation && (
+          <RadioWidget
+            station={radioPlayerState.activeStation}
+            playbackState={radioPlayerState.playbackState}
+            playbackError={radioPlayerState.playbackError}
+            onPlayPause={() => radioPlayer.current?.handleStationClick(radioPlayerState.activeStation!)}
+            onStop={() => radioPlayer.current?.stop()}
+          />
+        )}
+        <div className="mapcorner__row">
+        <ActivityLog admin={user?.role === 'admin'} open={activityOpen}
+          onOpenChange={(open) => { setActivityOpen(open); if (open) setNearbyOpen(false); }} />
+        <NearbyList planes={planesOn ? planeData : null} trains={trainsOn ? trainData : null} centre={centre}
+        open={nearbyOpen} onOpenChange={(open) => { setNearbyOpen(open); if (open) setActivityOpen(false); }}
         onHover={(at) => { if (map) setNearbyHighlight(map, at); }}
         following={follow?.id ?? null}
         onFollow={(kind, r) => (follow?.id === r.id ? setFollow(null) : startFollow(kind, r.id))}
@@ -1285,6 +1333,8 @@ export default function MapPage({ user }: { user: User | null }) {
           if (t) showTrainPopup(map, { type: 'Feature', properties: { id: t.tripId, route: t.route, headsign: t.headsign, serviceName: t.serviceName, status: t.status, delaySec: t.delaySec }, geometry: { type: 'Point', coordinates: [t.lng, t.lat] } },
             (id) => startFollow('train', id));
         }} />
+        </div>
+      </div>
       <div className="maptools">
         <button className={`chip${imagery ? ' active' : ''}`} onClick={() => toggle('imagery')}><Swatch cat={category('imagery')} />{category('imagery').label}</button>
         <button className={`chip${terrain ? ' active' : ''}`} onClick={() => setTerrainOn(!terrain)}>3D</button>
@@ -1297,6 +1347,7 @@ export default function MapPage({ user }: { user: User | null }) {
             { key: 'weather', label: category('weather').label, swatch: <Swatch cat={category('weather')} />, on: weatherOn, title: 'Rain radar (RainViewer, recent past only) and the forecast at the map centre for the map time', onSelect: () => toggle('weather') },
             { key: 'cameras', label: category('cameras').label, swatch: <Swatch cat={category('cameras')} />, on: camerasOn, title: 'NSW live traffic cameras (TfNSW)', onSelect: () => toggle('cameras') },
             { key: 'fires', label: category('fires').label, swatch: <Swatch cat={category('fires')} />, on: !!vis.fires, onSelect: () => toggle('fires') },
+            { key: 'waze', label: category('waze').label, swatch: <Swatch cat={category('waze')} />, on: !!vis.waze, title: 'Community police and hazard reports from Waze', onSelect: () => toggle('waze') },
             { key: 'radio', label: category('radio').label, swatch: <Swatch cat={category('radio')} />, on: !!radioOn, title: 'World radio locations (Radio Garden)', onSelect: () => toggle('radio') },
           ] },
           { label: 'Scout', items: [
@@ -1486,17 +1537,7 @@ export default function MapPage({ user }: { user: User | null }) {
         />
       )}
 
-      {radioPlayerState.activeStation && (
-        <RadioWidget
-          station={radioPlayerState.activeStation}
-          playbackState={radioPlayerState.playbackState}
-          playbackError={radioPlayerState.playbackError}
-          onPlayPause={() => radioPlayer.current?.handleStationClick(radioPlayerState.activeStation!)}
-          onStop={() => radioPlayer.current?.stop()}
-        />
-      )}
-
-      {weatherOn && (
+      {weatherOn && forecast && (
         <div className="wxpill" role="status" title={wxHour ? `Forecast for the map centre at ${new Date(wxHour.time).toLocaleString()} (Open-Meteo)` : undefined}>
           {wxHour ? (<>
             <span className="wxpill__icon">{weatherIcon(wxHour, wxNight)}</span>
@@ -1505,7 +1546,7 @@ export default function MapPage({ user }: { user: User | null }) {
             <span>💧 {wxHour.precipMm ?? 0} mm{wxHour.precipProbPct != null ? ` · ${wxHour.precipProbPct}%` : ''}</span>
             <span>💨 {wxHour.windKmh != null ? Math.round(wxHour.windKmh) : '–'}{wxHour.gustKmh != null ? `–${Math.round(wxHour.gustKmh)}` : ''} km/h</span>
             {wxHour.fogLikely && <span className="wxpill__warn">fog</span>}
-          </>) : <span className="wxpill__muted">{forecast ? 'No forecast for this time' : 'Loading weather…'}</span>}
+          </>) : <span className="wxpill__muted">No forecast for this time</span>}
           {!radarFrame && <span className="wxpill__muted" title="RainViewer only has the last ~2 hours">· radar n/a at this time</span>}
           {radarFrame?.nowcast && <span className="wxpill__muted">· radar nowcast</span>}
         </div>
