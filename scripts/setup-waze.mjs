@@ -65,7 +65,7 @@ async function healthy() {
   catch { return false; }
 }
 try {
-  if (systemImage && !/^system-images;android-\d+;google_apis;x86_64$/.test(systemImage)) throw new Error('WAZE_SYSTEM_IMAGE must be a Google APIs x86_64 system image, such as system-images;android-36;google_apis;x86_64');
+  if (systemImage && !/^system-images;android-\d+(\.\d+)?;google_apis(_ps16k)?;x86_64$/.test(systemImage)) throw new Error('WAZE_SYSTEM_IMAGE must be a Google APIs x86_64 system image, such as system-images;android-36;google_apis;x86_64');
   if (await healthy()) { status('ready', 'Waze reports are already running'); process.exit(0); }
   const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || (process.platform === 'win32' ? path.join(process.env.LOCALAPPDATA, 'Android', 'Sdk') : path.join(process.env.HOME, 'Android', 'Sdk'));
   const adb = path.join(sdk, 'platform-tools', process.platform === 'win32' ? 'adb.exe' : 'adb');

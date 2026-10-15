@@ -9,6 +9,10 @@ class SystemImageTests(unittest.TestCase):
         self.assertEqual(avd_name_for('system-images;android-36;google_apis;x86_64'), 'photoscout-api36')
         self.assertEqual(avd_name_for('system-images;android-31;google_apis;x86_64'), 'photoscout-api31')
 
+    def test_dotted_and_16k_page_images_get_their_own_avd(self):
+        self.assertEqual(avd_name_for('system-images;android-37.0;google_apis;x86_64'), 'photoscout-api37-0')
+        self.assertEqual(avd_name_for('system-images;android-37.1;google_apis_ps16k;x86_64'), 'photoscout-api37-1-ps16k')
+
     def test_only_google_apis_x86_64_images_are_accepted(self):
         for image in ('system-images;android-36;google_apis_playstore;x86_64', 'system-images;android-36;google_apis;arm64-v8a',
                       'system-images;android-36;default;x86_64', 'android-36', ''):

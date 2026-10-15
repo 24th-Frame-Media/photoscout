@@ -23,13 +23,42 @@ DEFAULT_SYSTEM_IMAGE = 'system-images;android-36;google_apis;x86_64'
 SYSTEM_IMAGE = os.environ.get('WAZE_SYSTEM_IMAGE', DEFAULT_SYSTEM_IMAGE).strip()
 SCREEN_PORT = 5556
 SCREEN_RELAY = None
+# Required by the pinned Waze build, confirmed by GooglePlayServicesUtil on both test workers.
+PINNED_WAZE_VERSION = '5.25.0.1'
+PINNED_WAZE_PLAY_SERVICES_VERSION = 261200000
+
+
+class PlayServicesRequired(RuntimeError):
+    """A public, actionable dependency error rather than an authentication diagnosis."""
+
+
+def check_play_services():
+    package = emulator_adb('shell', 'dumpsys', 'package', 'com.waze', timeout=120)
+    version = re.search(r'^\s*versionName=(\S+)', package, re.MULTILINE)
+    # Do not assume another Waze release has the same dependency requirement.
+    if not version or version[1] != PINNED_WAZE_VERSION:
+        return
+    services = emulator_adb('shell', 'dumpsys', 'package', 'com.google.android.gms', timeout=120)
+    installed = re.search(r'^\s*versionCode=(\d+)', services, re.MULTILINE)
+    if not installed or int(installed[1]) // 1000 < PINNED_WAZE_PLAY_SERVICES_VERSION // 1000:
+        found = installed[1] if installed else 'missing'
+        raise PlayServicesRequired(
+            f'Waze {PINNED_WAZE_VERSION} requires Google Play services {PINNED_WAZE_PLAY_SERVICES_VERSION} '
+            f'or newer; installed version: {found}. Update Google Play services or use a newer stock Google SDK image.'
+        )
+
+
+def reports_connected(collector):
+    return collector.store.snapshot()['connected']
 
 
 def avd_name_for(image):
-    match = re.fullmatch(r'system-images;android-(\d+);google_apis;x86_64', image)
+    # Newer images are named like android-37.0, and 16 KB page-size builds carry _ps16k.
+    match = re.fullmatch(r'system-images;android-(\d+)(?:\.(\d+))?;google_apis(_ps16k)?;x86_64', image)
     if not match:
         raise ValueError('WAZE_SYSTEM_IMAGE must be a Google APIs x86_64 system image, such as ' + DEFAULT_SYSTEM_IMAGE)
-    return f'photoscout-api{match[1]}'
+    minor = f'-{match[2]}' if match[2] is not None else ''
+    return f'photoscout-api{match[1]}{minor}{"-ps16k" if match[3] else ""}'
 
 
 AVD_NAME = avd_name_for(SYSTEM_IMAGE)
@@ -303,6 +332,7 @@ def initialize():
             # Let the same healthy install finish instead of cancelling it and
             # creating another abandoned Android session on every retry.
             run('adb', '-s', 'emulator-5554', 'install-multiple', '--no-streaming', '-r', '-g', *map(str, apks), timeout=1800)
+        check_play_services()
         with harvester.state_lock:
             harvester.state['setup_stage'] = 'compiling_waze'
         compile_waze()
@@ -319,7 +349,7 @@ def initialize():
         with harvester.state_lock:
             harvester.state.update(frida_ready=True, setup_stage='connecting_waze')
         # Read-only welcome-screen detection; it stops itself once reports flow.
-        first_run_watch = FirstRunWatcher(adb=emulator_adb, has_reports=lambda: collector.store.last_received > 0,
+        first_run_watch = FirstRunWatcher(adb=emulator_adb, has_reports=lambda: reports_connected(collector),
                                           update=update_state, screen_access=screen_access_enabled())
         first_run_watch.start()
         reader_started = time.monotonic()
@@ -365,6 +395,9 @@ def worker():
             with harvester.state_lock:
                 harvester.state.update(setup_stage='needs_installer', last_error='A compatible ARM64 Waze APK bundle is required; retry setup with --apk or WAZE_APK_PATH')
             STOP.wait()
+        except PlayServicesRequired as exc:
+            harvester.logger.error('%s', exc)
+            update_state(setup_stage='needs_play_services', last_error=str(exc), waze_ready=False, frida_ready=False)
         except Exception as exc:
             harvester.logger.error('Android report setup failed: %s', str(exc))
             if isinstance(exc, subprocess.CalledProcessError):
