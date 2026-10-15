@@ -559,7 +559,7 @@ function NotifyPanel({ draft, set, dirty, save }: {
           weather and light, which places are busy, and the last few messages. It can only read.
         </p>
         {llm && !llm.reachable ? (
-          <div className="status-line error">No Ollama reachable{llm.problem ? ` — ${llm.problem}` : ''}. Set it up under Local model.</div>
+          <div className="status-line error">No AI model reachable{llm.problem ? ` — ${llm.problem}` : ''}. Set it up under AI models.</div>
         ) : (
           <>
             <Check checked={chat.enabled} onChange={(v) => setChat({ enabled: v })}>

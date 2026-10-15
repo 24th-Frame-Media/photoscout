@@ -1,3 +1,5 @@
+import type { LlmService, LlmStrategy } from '../llm/types.js';
+
 export interface Location {
   lat: number;
   lng: number;
@@ -111,11 +113,23 @@ export interface Settings {
    */
   llmEnabled: boolean;
   /**
+   * The model services that answer for the listing pass, the flyer reader and
+   * the chat bot. Each can be a local Ollama or a hosted API, and a service is
+   * used for any of the roles it is given. See llm/.
+   */
+  llmServices: LlmService[];
+  /** Which service takes the next request when several can do the same job. */
+  llmStrategy: LlmStrategy;
+  /**
    * An Ollama. Blank uses `OLLAMA_URL`, then `http://localhost:11434`. In
    * Docker the host's is `http://host.docker.internal:11434` — localhost inside
    * a container is the container.
+   *
+   * Used only while `llmServices` is empty: an install that has never added a
+   * service keeps working from these fields. See llm/services.ts.
    */
   llmUrl: string;
+  /** The listing pass's model, while `llmServices` is empty. */
   llmModel: string;
   /** Which of 'describe' | 'classify' | 'extract' | 'score' to ask for. */
   llmJobs: string[];
@@ -268,7 +282,7 @@ export interface MatrixChatSettings {
    * bare model with only the system prompt. !chat context changes it for one chat.
    */
   eventContext: boolean;
-  /** An installed Ollama model. Blank uses the one the listing pass uses. */
+  /** A model of one of the chat services. Blank uses the one the chat services use. */
   model: string;
   /**
    * Who the model is and how it talks; blank uses DEFAULT_PERSONA. How the
@@ -325,6 +339,8 @@ export const DEFAULT_SETTINGS: Settings = {
   crawlerUrl: '',
   crawlerUrls: [],
   llmEnabled: false,
+  llmServices: [],
+  llmStrategy: 'least_busy',
   llmUrl: '',
   llmModel: '',
   llmJobs: ['vet', 'describe', 'rename', 'classify', 'extract', 'score'],

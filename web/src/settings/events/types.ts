@@ -9,6 +9,30 @@ export interface SourceStatus {
   count: number;
 }
 
+/** What a model service is used for: listings, flyers, the chat bot. */
+export type LlmRole = 'text' | 'vision' | 'chat';
+export type ProviderId = 'ollama' | 'openai' | 'anthropic' | 'gemini';
+/** Which service takes the next request when several can do the same job. */
+export type LlmStrategy = 'least_busy' | 'round_robin' | 'random';
+
+/** One place a model is asked, as the AI models tab edits it. */
+export interface LlmService {
+  id: string;
+  label: string;
+  provider: ProviderId;
+  /** Ollama and OpenAI-compatible servers: the address. Blank is the provider's own. */
+  baseUrl: string;
+  /**
+   * A credential. Arrives as '', with apiKeySet saying whether one is stored:
+   * '' keeps the stored key, and null is how it is removed on purpose.
+   */
+  apiKey: string | null;
+  apiKeySet?: boolean;
+  model: string;
+  roles: LlmRole[];
+  enabled: boolean;
+}
+
 export interface Settings {
   city: string;
   lat: number | null;
@@ -47,6 +71,9 @@ export interface Settings {
    */
   corsOrigins: string[];
   llmEnabled: boolean;
+  /** The model services for listings, flyers and chat. Empty means the legacy Ollama fields are used. */
+  llmServices: LlmService[];
+  llmStrategy: LlmStrategy;
   crawlerUrl: string;
   crawlerUrls: string[];
   llmUrl: string;
@@ -166,6 +193,22 @@ export interface VersionInfo {
   display: string;
 }
 
+/** One service as the status shows it: how it stands, and never its key. */
+export interface LlmServiceStatus {
+  id: string;
+  label: string;
+  provider: ProviderId;
+  model: string;
+  roles: LlmRole[];
+  enabled: boolean;
+  reachable: boolean;
+  /** Why not, when unreachable. */
+  problem: string;
+  models: { name: string; size: number }[];
+  /** Whether its model is among the ones it reports. */
+  modelAvailable: boolean;
+}
+
 /** What the local model can be asked to do, and how the pass is getting on. */
 export interface LlmStatus {
   enabled: boolean;
@@ -184,6 +227,9 @@ export interface LlmStatus {
   availableJobs: { key: string; label: string; hint: string }[];
   /** The flyer pass, which shares the server and the model list. */
   vision: { enabled: boolean; model: string; modelInstalled: boolean; backlog: number; read: number };
+  strategy: LlmStrategy;
+  /** Every service, with whether it answers. */
+  services: LlmServiceStatus[];
 }
 
 export interface LlmQueueItem {

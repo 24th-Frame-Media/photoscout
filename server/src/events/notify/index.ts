@@ -15,8 +15,9 @@ import {
 } from './chat.js';
 import { resolveAreas } from '../density/areas.js';
 import { venueReadings } from '../density/pipeline.js';
-import { chatText, listModels, type ChatMessage } from '../enrich/ollama.js';
-import { ollamaUrl } from '../enrich/pipeline.js';
+import { chatText, listRoleModels } from '../llm/router.js';
+import { servicesFor } from '../llm/services.js';
+import type { ChatMessage } from '../llm/types.js';
 import { getPhotoConditions } from '../photo.js';
 import type { NotifyFilters } from '../sources/types.js';
 import type { TaskLog, TaskResult } from '../tasks/registry.js';
@@ -153,17 +154,31 @@ const CHAT_OFF = 'Chat is switched off. It can be switched on in Settings → No
 /** What each running chat has changed about itself. In memory, like the conversation, and gone with it. */
 const sessions = new Map<string, ChatSession>();
 
-/** A chat's model, prompt and context as they stand: its own changes, then Settings. */
-function effectiveChat(roomId: string): { model: string; context: boolean; systemPrompt: string; from: Record<string, string> } {
+/**
+ * A chat's model, prompt and context as they stand: its own changes, then Settings.
+ *
+ * `override` is the model the chat asked for by name, if any. Without one, each
+ * chat-capable service answers with its own model; `model` is the one shown.
+ */
+function effectiveChat(roomId: string): {
+  model: string;
+  override: string | undefined;
+  context: boolean;
+  systemPrompt: string;
+  from: Record<string, string>;
+} {
   const settings = getSettings();
   const chat = settings.matrixBot?.chat;
   const s = sessions.get(roomId) ?? {};
+  const override = s.model || chat?.model || '';
+  const configured = (settings.llmServices ?? []).length > 0;
   return {
-    model: s.model || chat?.model || settings.llmModel || '',
+    model: override || servicesFor('chat', settings)[0]?.model || '',
+    override: override || undefined,
     context: s.context ?? chat?.eventContext !== false,
     systemPrompt: s.systemPrompt ?? chat?.systemPrompt ?? '',
     from: {
-      model: s.model ? 'this chat' : chat?.model ? 'Settings' : 'the listing pass',
+      model: s.model ? 'this chat' : chat?.model ? 'Settings' : configured ? 'a chat service' : 'the listing pass',
       context: s.context !== undefined ? 'this chat' : 'Settings',
       systemPrompt: s.systemPrompt !== undefined ? 'this chat' : chat?.systemPrompt ? 'Settings' : 'the default',
     },
@@ -263,9 +278,9 @@ async function chatCommand(msg: IncomingMessage): Promise<MatrixContent> {
   // model
   let installed: string[] = [];
   try {
-    installed = (await listModels(ollamaUrl(settings.llmUrl))).map((m) => m.name);
+    installed = await listRoleModels('chat', settings);
   } catch (err) {
-    return matrixText(`Cannot reach the Ollama to check: ${(err as Error).message}`);
+    return matrixText(`Cannot reach the models to check: ${(err as Error).message}`);
   }
   if (asking) return matrixText(`Model: ${now.model || '(none)'} (${now.from.model}). Installed: ${installed.join(', ') || 'none'}.`);
   if (action.value === null) {
@@ -322,7 +337,7 @@ async function answerTurn(roomId: string, lines: ChatLine[], filters: NotifyFilt
   const chat = settings.matrixBot.chat;
   const conn = connFromSettings(settings);
   if (!conn) return;
-  const { model, context, systemPrompt } = effectiveChat(roomId);
+  const { model, override, context, systemPrompt } = effectiveChat(roomId);
   const session = sessions.get(roomId);
   if (!model) {
     await sendMatrix(conn, roomId, matrixText('Chat is on, but no model is chosen. Pick one in Settings → Notifications.'));
@@ -354,7 +369,7 @@ async function answerTurn(roomId: string, lines: ChatLine[], filters: NotifyFilt
     // Without the "Kapsikkum:" it likes to open with, and kept that way in the
     // history, so the next answer is not taught to do it again.
     const answer = stripSpeakerLabel(
-      await chatText({ url: ollamaUrl(settings.llmUrl), model, messages, timeoutMs: 180000, numCtx: 8192 }),
+      await chatText('chat', { messages, timeoutMs: 180000, numCtx: 8192 }, { model: override }, settings),
       lines
     );
     await sendMatrix(conn, roomId, chatReply(answer, lines));
