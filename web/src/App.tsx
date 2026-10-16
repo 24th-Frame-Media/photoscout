@@ -93,8 +93,10 @@ export default function App() {
       <Routes>
         <Route path="/places/:id" element={<PlacePage />} />
         <Route path="/events" element={<Events user={user} />} />
+        <Route path="/events/c/:id" element={<Events user={user} />} />
         <Route path="/events/new" element={<CommunityEventForm user={user} />} />
         <Route path="/events/:id/edit" element={<CommunityEventForm user={user} />} />
+        <Route path="/events/:group" element={<Events user={user} />} />
         <Route path="/drive" element={<Drive user={user}><DriveConvoy /></Drive>} />
         <Route path="/feed" element={<Feed user={user} />} />
         <Route path="/chat" element={<Chat user={user} />} />

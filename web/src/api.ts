@@ -345,11 +345,30 @@ export interface EventItem {
   communityId?: string;
   ownerId?: string;
   organiser?: string;
+  /** How many say they are going. On a community event this is the whole count; a scraped one has it from the RSVP routes. */
   going?: number;
+  /** Scraped events only: how many are interested. A community event has no "interested". */
+  interested?: number;
+  /** The caller's own RSVP, null for none or for a visitor. */
+  myRsvp?: RsvpStatus | null;
+  /** Kept for a community event that says only whether you are going. */
   isGoing?: boolean;
   /** The cruise of a community event, without its line (see Cruise). */
   cruise?: Cruise | null;
 }
+
+export type RsvpStatus = 'going' | 'interested';
+export interface RsvpAttendee { id: string; username: string; avatar: string }
+/** Who is coming to one event: the counts, the caller's own answer and the people behind "going". */
+export interface RsvpSummary { going: number; interested: number; mine: RsvpStatus | null; attendees: RsvpAttendee[] }
+export interface UserHit { id: string; username: string; avatar: string }
+export type InviteKind = 'event' | 'community';
+export interface Invite {
+  id: string; kind: InviteKind; ref: string; from: UserHit; createdAt: string;
+  /** The event as it was when the invite was read, null once it has gone. */
+  event: { title: string; startsAt: string; venue: string; imageUrl: string } | null;
+}
+export interface InviteInbox { invites: Invite[]; pendingCount: number }
 export interface KitPhoto { id: string; url: string; thumbUrl: string; w: number; h: number }
 export interface RideInput { kind: 'car' | 'motorbike'; make: string; model: string; year: number | null; nickname: string; notes: string }
 export interface Ride extends RideInput { id: string; ownerId: string; photos: KitPhoto[]; createdAt: string; updatedAt: string }
@@ -455,6 +474,14 @@ export interface Share {
   revoked_at: string | null;
 }
 
+/** A refusal that carries the HTTP status, so a caller can treat 429 (too many) differently from the rest. */
+export class HttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
 export class Unauthorized extends Error {
   constructor(message = 'Sign in required') {
     super(message);
@@ -467,7 +494,7 @@ async function json<T>(res: Response): Promise<T> {
     const body = await res.json().catch(() => ({}));
     const message = (body as { error?: string }).error ?? `HTTP ${res.status}`;
     if (res.status === 401) throw new Unauthorized(message);
-    throw new Error(message);
+    throw new HttpError(message, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -653,8 +680,11 @@ export const api = {
   updateCommunityEvent: (id: string, ev: Partial<CommunityEventInput>) =>
     fetch(`/api/community-events/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(ev) }).then((r) => json<CommunityEvent>(r)),
   deleteCommunityEvent: (id: string) => fetch(`/api/community-events/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
-  setGoing: (id: string, going: boolean) =>
-    fetch(`/api/community-events/${id}/rsvp`, { method: going ? 'PUT' : 'DELETE' }).then((r) => json<CommunityEvent>(r)),
+  communityRsvp: (id: string) => fetch(`/api/community-events/${encodeURIComponent(id)}/rsvp`).then((r) => json<{ rsvp: RsvpSummary }>(r)),
+  setCommunityRsvp: (id: string) =>
+    fetch(`/api/community-events/${encodeURIComponent(id)}/rsvp`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ status: 'going' }) }).then((r) => json<{ rsvp: RsvpSummary }>(r)),
+  clearCommunityRsvp: (id: string) =>
+    fetch(`/api/community-events/${encodeURIComponent(id)}/rsvp`, { method: 'DELETE' }).then((r) => json<{ rsvp: RsvpSummary }>(r)),
 
   // --- feed, chat and reports (the feed and a post's comments are open to visitors) ---
   feed: (scope: 'all' | 'following', before?: string) =>
@@ -690,6 +720,20 @@ export const api = {
 
   // --- events (open to visitors; starring and hiding need a session and are your own) ---
   events: () => fetch('/api/events').then((r) => json<EventItem[]>(r)),
+  event: (group: string) => fetch(`/api/events/${encodeURIComponent(group)}`).then((r) => json<EventItem>(r)),
+  eventRsvp: (group: string) => fetch(`/api/events/${encodeURIComponent(group)}/rsvp`).then((r) => json<{ rsvp: RsvpSummary }>(r)),
+  setEventRsvp: (group: string, status: RsvpStatus) =>
+    fetch(`/api/events/${encodeURIComponent(group)}/rsvp`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ status }) }).then((r) => json<{ rsvp: RsvpSummary }>(r)),
+  clearEventRsvp: (group: string) =>
+    fetch(`/api/events/${encodeURIComponent(group)}/rsvp`, { method: 'DELETE' }).then((r) => json<{ rsvp: RsvpSummary }>(r)),
+
+  // --- invites (a signed-in user asks another to an event; the other accepts or dismisses) ---
+  searchUsers: (q: string) => fetch(`/api/users/search?q=${encodeURIComponent(q)}`).then((r) => json<UserHit[]>(r)),
+  sendInvite: (kind: InviteKind, ref: string, username: string) =>
+    fetch('/api/invites', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ kind, ref, username }) }).then((r) => json<{ invite: Invite }>(r)),
+  invites: () => fetch('/api/invites').then((r) => json<InviteInbox>(r)),
+  acceptInvite: (id: string) => fetch(`/api/invites/${encodeURIComponent(id)}/accept`, { method: 'POST' }).then((r) => json<{ ok: boolean }>(r)),
+  dismissInvite: (id: string) => fetch(`/api/invites/${encodeURIComponent(id)}/dismiss`, { method: 'POST' }).then((r) => json<{ ok: boolean }>(r)),
   setEventState: (group: string, state: Partial<EventState>) =>
     fetch(`/api/events/${encodeURIComponent(group)}/state`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(state) })
       .then((r) => json<EventState & { group: string }>(r)),

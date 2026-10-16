@@ -1299,7 +1299,7 @@ export default function MapPage({ user }: { user: User | null }) {
 
       {suggestAt && <SuggestSpot at={suggestAt} onClose={() => setSuggestAt(null)} />}
       {openEvent && eventFeed.events?.find((e) => e.group === openEvent) && (
-        <EventDetail ev={eventFeed.events.find((e) => e.group === openEvent)!} user={user} onClose={() => setOpenEvent(null)} onMark={user ? eventFeed.mark : undefined} onGoing={user ? eventFeed.setGoing : undefined} />
+        <EventDetail ev={eventFeed.events.find((e) => e.group === openEvent)!} user={user} onClose={() => setOpenEvent(null)} onMark={user ? eventFeed.mark : undefined} onRsvp={user ? eventFeed.rsvp : undefined} />
       )}
       <Legend map={map} vis={vis} onToggle={toggle} />
       <div className="mapcorner">

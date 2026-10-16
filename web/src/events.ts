@@ -274,7 +274,8 @@ export function communityToItem(c: CommunityEvent): EventItem {
     group: `community:${c.id}`, title: c.title, description: c.description, startTime: c.startTime, endTime: c.endTime,
     venueName: c.venueName, address: c.address, locality: '', lat: c.lat, lng: c.lng, imageUrl: '', category: COMMUNITY_CATEGORY,
     priceText: c.priceText, isOnline: false, dateOnly: false, photoScore: 0, series: '', url: '', sources: [], foundAt: null, starred: false, hidden: false,
-    community: true, communityId: c.id, ownerId: c.ownerId, organiser: c.owner.username, going: c.going, isGoing: c.isGoing, cruise: c.cruise,
+    community: true, communityId: c.id, ownerId: c.ownerId, organiser: c.owner.username, going: c.going, interested: 0, myRsvp: c.isGoing ? 'going' : null,
+    isGoing: c.isGoing, cruise: c.cruise,
   };
 }
 
@@ -406,4 +407,165 @@ export function decodeEntities(text: string): string {
   const el = document.createElement('textarea');
   el.innerHTML = text;
   return el.value;
+}
+
+// --- when it is, in words ----------------------------------------------------------
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+/** A listing with a start and no end is taken to run this long, so "Happening now" does not last all day. */
+const ASSUMED_LENGTH = 3 * HOUR;
+
+export type Timing = { kind: 'ended' | 'now' | 'soon' | 'later' | 'unknown'; text: string };
+
+const plural = (n: number, unit: string): string => `${n} ${unit}${n === 1 ? '' : 's'}`;
+const dayStart = (d: Date): number => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+/**
+ * Where an event is on the clock, as a few words: "Happening now", "Ended", "Starts in 3 days".
+ * A day-only event is "Today" for the whole of its day, since no clock time says when in it.
+ * Calendar days, not 24-hour blocks, decide "tomorrow" and "in N days", so 10pm tonight and
+ * 9am tomorrow are not both "in 1 day".
+ */
+export function timingOf(ev: Pick<EventItem, 'startTime' | 'endTime' | 'dateOnly'>, now = new Date()): Timing {
+  const start = Date.parse(ev.startTime);
+  if (Number.isNaN(start)) return { kind: 'unknown', text: '' };
+  const t = now.getTime();
+  if (isOver(ev, t)) return { kind: 'ended', text: 'Ended' };
+  const end = ev.endTime ? Date.parse(ev.endTime) : NaN;
+  if (start <= t) {
+    if (ev.dateOnly) return { kind: 'now', text: 'Happening today' };
+    if (Number.isFinite(end) || t < start + ASSUMED_LENGTH) return { kind: 'now', text: 'Happening now' };
+    return { kind: 'now', text: 'Started earlier today' };
+  }
+  const days = Math.round((dayStart(new Date(start)) - dayStart(now)) / 86400_000);
+  if (days === 0) {
+    if (ev.dateOnly) return { kind: 'soon', text: 'Today' };
+    const mins = Math.max(1, Math.round((start - t) / MINUTE));
+    if (mins < 60) return { kind: 'soon', text: `Starts in ${plural(mins, 'minute')}` };
+    return { kind: 'soon', text: `Starts in ${plural(Math.round(mins / 60), 'hour')}` };
+  }
+  if (days === 1) return { kind: 'soon', text: 'Starts tomorrow' };
+  return { kind: days <= 7 ? 'soon' : 'later', text: `Starts in ${plural(days, 'day')}` };
+}
+
+/** The host a link points at, without "www.": what to call the link so a reader knows where it goes. */
+export function hostOf(url: string | null | undefined): string {
+  try {
+    return new URL(url ?? '').hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/** The address if it is a plain web address, so a scraped `javascript:` link never becomes a href. */
+export function safeHref(url: string | null | undefined): string | undefined {
+  try {
+    const u = new URL(url ?? '');
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Where to look at the venue: this app's map when the event has coordinates, otherwise a Google Maps search. */
+export function mapLink(ev: Pick<EventItem, 'lat' | 'lng' | 'venueName' | 'address' | 'locality'>): { href: string; internal: boolean; label: string } | null {
+  if (ev.lat != null && ev.lng != null) {
+    return { href: `/?lat=${ev.lat.toFixed(5)}&lng=${ev.lng.toFixed(5)}`, internal: true, label: 'Show on the map' };
+  }
+  const query = [ev.venueName, ev.address || ev.locality].filter(Boolean).join(', ').trim();
+  if (!query) return null;
+  return { href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, internal: false, label: 'Search Google Maps' };
+}
+
+// --- addresses of one event ---------------------------------------------------------
+
+/** The page for one event, which is also what a share link points at. */
+export function eventPath(ev: Pick<EventItem, 'group' | 'community' | 'communityId'>): string {
+  return ev.community && ev.communityId ? `/events/c/${encodeURIComponent(ev.communityId)}` : `/events/${encodeURIComponent(ev.group)}`;
+}
+
+/** The event a URL's route params name: a community id becomes its list group, a crawled group stays itself. */
+export function openKeyOf(params: { group?: string; id?: string }): { group: string; communityId: string | null } | null {
+  if (params.id) return { group: `community:${params.id}`, communityId: params.id };
+  if (params.group) return { group: params.group, communityId: null };
+  return null;
+}
+
+// --- links an event carries -----------------------------------------------------------
+
+export interface Social { network: string; handle: string; url: string; icon: string }
+
+const NETWORKS: { host: RegExp; network: string; icon: string }[] = [
+  { host: /(^|\.)facebook\.com$/i, network: 'Facebook', icon: '📘' },
+  { host: /(^|\.)instagram\.com$/i, network: 'Instagram', icon: '📷' },
+  { host: /(^|\.)(twitter|x)\.com$/i, network: 'X', icon: '🐦' },
+  { host: /(^|\.)tiktok\.com$/i, network: 'TikTok', icon: '🎵' },
+  { host: /(^|\.)youtube\.com$/i, network: 'YouTube', icon: '▶️' },
+  { host: /(^|\.)eventbrite\.[a-z.]+$/i, network: 'Eventbrite', icon: '🎟' },
+  { host: /(^|\.)meetup\.com$/i, network: 'Meetup', icon: '👥' },
+];
+
+/**
+ * Every distinct web address an event carries, from its listing link and its description.
+ * Trailing punctuation is trimmed, which a regex over prose always picks up.
+ */
+export function findUrls(ev: Pick<EventItem, 'url' | 'description'>): string[] {
+  const urls = new Set<string>();
+  if (safeHref(ev.url)) urls.add(ev.url);
+  const text = decodeEntities(ev.description ?? '');
+  for (const m of text.matchAll(/https?:\/\/[^\s"'<>)\]]+/g)) urls.add(m[0].replace(/[.,;:!?)\]]+$/, ''));
+  return [...urls];
+}
+
+/** The description's links other than the listing itself, by host, for a "Links" list. */
+export function findLinks(ev: Pick<EventItem, 'url' | 'description'>): { host: string; url: string }[] {
+  return findUrls(ev).filter((u) => u !== ev.url && safeHref(u)).map((url) => ({ host: hostOf(url), url })).filter((l) => l.host);
+}
+
+/** Organiser profiles read off the links the event already carries; nothing is looked up, so nothing is guessed. */
+export function findSocials(ev: Pick<EventItem, 'url' | 'description'>): Social[] {
+  const found = new Map<string, Social>();
+  for (const raw of findUrls(ev)) {
+    let url: URL;
+    try { url = new URL(raw); } catch { continue; }
+    const match = NETWORKS.find((n) => n.host.test(url.hostname));
+    if (!match) continue;
+    // The first path segment is the handle on every network here; deeper is a post or an event, which is not who runs it.
+    const segment = url.pathname.split('/').filter(Boolean)[0];
+    if (!segment) continue;
+    let handle: string;
+    try { handle = decodeURIComponent(segment).replace(/^@/, '').trim(); } catch { continue; }
+    if (/^(events?|e|watch|p|posts?|share|pages|profile\.php)$/i.test(handle)) continue;
+    if (!/^[A-Za-z0-9._-]{2,}$/.test(handle)) continue;
+    const key = `${match.network}:${handle.toLowerCase()}`;
+    if (!found.has(key)) found.set(key, { network: match.network, handle, url: raw, icon: match.icon });
+  }
+  return [...found.values()];
+}
+
+/** The month and day for the card's date badge: "OCT" "18", or "OCT" "18–20" across days. */
+export function dateBadge(ev: Pick<EventItem, 'startTime' | 'endTime' | 'dateOnly'>): { mon: string; day: string; range: boolean; monRange: boolean } {
+  const start = new Date(ev.startTime);
+  const end = ev.endTime ? new Date(ev.endTime) : null;
+  const mon = (d: Date) => d.toLocaleDateString(undefined, { month: 'short' }).replace('.', '').toUpperCase();
+  const multi = isMultiDay(ev) && end !== null && !isNaN(end.getTime());
+  const startMon = mon(start);
+  const endMon = multi && end ? mon(end) : startMon;
+  const monRange = startMon !== endMon;
+  return {
+    mon: monRange ? `${startMon}–${endMon}` : startMon,
+    day: multi && end ? `${start.getDate()}–${end.getDate()}` : String(start.getDate()),
+    range: multi,
+    monRange,
+  };
+}
+
+/** The viewer's time zone, named, for "Times are in your local time (Australia/Sydney)". */
+export function localZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  } catch {
+    return '';
+  }
 }

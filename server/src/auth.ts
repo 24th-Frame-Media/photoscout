@@ -55,6 +55,9 @@ const ANONYMOUS_READS = [
   // Events, from a list this server keeps for a minute (see events.ts), so
   // asking costs event-scout nothing more however many visitors there are.
   /^\/api\/events(\/[^/]+)?$/,
+  // Who is going to an event: the counts are public, as the list is.
+  /^\/api\/events\/[^/]+\/rsvp$/,
+  /^\/api\/community-events\/[^/]+\/rsvp$/,
   // A stored flyer; the route checks that its event is still on show.
   /^\/api\/flyer\/[^/]+\/[^/]+$/,
   // A profile by handle, the public community events, and the pictures of a

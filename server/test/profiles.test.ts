@@ -134,8 +134,8 @@ test('deleting an account removes its kit, photo files, follows, events and RSVP
   const when = new Date(Date.now() + 5 * 86_400_000).toISOString();
   const mine = (await erin('POST', '/api/community-events', { title: 'Erin meet', startTime: when, lat: -33.8, lng: 151.2 })).json;
   const theirs = (await alice('POST', '/api/community-events', { title: 'Alice meet', startTime: when, lat: -33.8, lng: 151.2 })).json;
-  assert.equal((await bob('PUT', `/api/community-events/${mine.id}/rsvp`)).json.going, 1);
-  assert.equal((await erin('PUT', `/api/community-events/${theirs.id}/rsvp`)).json.going, 1);
+  assert.equal((await bob('PUT', `/api/community-events/${mine.id}/rsvp`)).json.rsvp.going, 1);
+  assert.equal((await erin('PUT', `/api/community-events/${theirs.id}/rsvp`)).json.rsvp.going, 1);
 
   assert.equal((await admin('DELETE', `/api/users/${erinId}`)).status, 200);
 
