@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 from boot_emulator import AVD_NAME, prepare_debug_transport, prepare_software_guest, prepare_integrity_verification, wait_android_services, start_report_reader, quiet_software_guest, compile_waze, emulator_acceleration
 from boot_emulator import PlayServicesRequired, check_play_services, reports_connected
+from boot_emulator import is_magisk_active, root_avd_with_magisk, configure_magisk_and_props, check_waze_installer, install_waze_as_vending, restore_persisted_ramdisk
 from rt_stream import ReportStore
 from types import SimpleNamespace
 import time
@@ -210,6 +211,69 @@ class AccelerationTests(unittest.TestCase):
     def test_explicit_mode_overrides_detection(self):
         with patch('boot_emulator.os.path.exists', return_value=True), patch('boot_emulator.os.access', return_value=True):
             self.assertEqual(emulator_acceleration(), 'off')
+
+
+class MagiskTests(unittest.TestCase):
+    def test_magisk_active_detected(self):
+        with patch('boot_emulator.emulator_adb', return_value='uid=0(root) gid=0(root)\n'):
+            self.assertTrue(is_magisk_active())
+        with patch('boot_emulator.emulator_adb', return_value='uid=2000(shell)\n'):
+            self.assertFalse(is_magisk_active())
+        with patch('boot_emulator.emulator_adb', side_effect=Exception('su failed')):
+            self.assertFalse(is_magisk_active())
+
+    def test_restore_persisted_ramdisk(self):
+        with patch('boot_emulator.Path.is_file', side_effect=[True, True]), \
+             patch('boot_emulator.Path.is_dir', return_value=True), \
+             patch('boot_emulator.Path.stat') as stat_mock, \
+             patch('boot_emulator.shutil.copyfile') as copy_mock:
+            stat_mock.side_effect = [SimpleNamespace(st_size=1000), SimpleNamespace(st_size=2000)]
+            restore_persisted_ramdisk()
+            copy_mock.assert_called_once()
+
+    def test_root_avd_runs_rootavd_script_and_persists(self):
+        with patch('boot_emulator.Path.is_file', return_value=True), \
+             patch('boot_emulator.run') as run_mock, \
+             patch('boot_emulator.shutil.copyfile') as copy_mock:
+            self.assertTrue(root_avd_with_magisk())
+            run_mock.assert_called_once()
+            self.assertIn('/opt/rootAVD/rootAVD.sh', run_mock.call_args.args[0])
+            self.assertEqual(run_mock.call_args.kwargs.get('input'), '1\n')
+            copy_mock.assert_called_once()
+
+    def test_configure_magisk_and_props_installs_pif_and_sets_stealth(self):
+        with patch('boot_emulator.is_magisk_active', return_value=True), \
+             patch('boot_emulator.emulator_adb') as adb_mock, \
+             patch('boot_emulator.Path.is_file', return_value=True), \
+             patch('boot_emulator.run') as run_mock:
+            adb_mock.side_effect = ['0\n'] + [None] * 50
+            configure_magisk_and_props()
+            self.assertTrue(any('PIF.zip' in str(call) for call in run_mock.call_args_list))
+            self.assertTrue(any('resetprop' in str(call) for call in adb_mock.call_args_list))
+
+
+class InstallSourceTests(unittest.TestCase):
+    def test_check_waze_installer(self):
+        with patch('boot_emulator.emulator_adb', return_value='  installerPackageName=com.android.vending\n'):
+            self.assertTrue(check_waze_installer())
+        with patch('boot_emulator.emulator_adb', return_value='  installerPackageName=com.android.shell\n'):
+            self.assertFalse(check_waze_installer())
+        with patch('boot_emulator.emulator_adb', return_value=''):
+            self.assertFalse(check_waze_installer())
+
+    def test_install_waze_as_vending_creates_and_commits_session(self):
+        from pathlib import Path
+        apks = [Path('base.apk'), Path('split_config.arm64_v8a.apk')]
+        with patch('boot_emulator.run') as run_mock, \
+             patch('boot_emulator.emulator_adb', side_effect=['', '', 'Success: [12345]', '', '', 'Success', '']) as adb_mock:
+            install_waze_as_vending(apks)
+            create_calls = [c for c in adb_mock.call_args_list if 'install-create' in str(c)]
+            self.assertEqual(len(create_calls), 1)
+            self.assertIn('-i', create_calls[0].args)
+            self.assertIn('com.android.vending', create_calls[0].args)
+            commit_calls = [c for c in adb_mock.call_args_list if 'install-commit' in str(c)]
+            self.assertEqual(len(commit_calls), 1)
+            self.assertIn('12345', commit_calls[0].args)
 
 
 if __name__ == '__main__': unittest.main()

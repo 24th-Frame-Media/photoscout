@@ -269,6 +269,187 @@ def start_report_reader():
             raise
 
 
+def get_system_image_ramdisk():
+    image_rel = Path(*SYSTEM_IMAGE.split(';'))
+    return Path(os.environ.get('ANDROID_HOME', '/opt/android')) / image_rel / 'ramdisk.img'
+
+
+def restore_persisted_ramdisk():
+    persisted = Path('/data/ramdisk.img')
+    system_ramdisk = get_system_image_ramdisk()
+    if persisted.is_file() and system_ramdisk.parent.is_dir():
+        try:
+            if not system_ramdisk.is_file() or system_ramdisk.stat().st_size != persisted.stat().st_size:
+                shutil.copyfile(persisted, system_ramdisk)
+                harvester.logger.info('Restored Magisk-patched ramdisk from /data/ramdisk.img')
+        except Exception as exc:
+            harvester.logger.warning('Failed to restore /data/ramdisk.img: %s', exc)
+
+
+def is_magisk_active():
+    try:
+        out = emulator_adb('shell', 'su', '-c', 'id', timeout=15)
+        return 'uid=0' in out
+    except Exception:
+        return False
+
+
+def root_avd_with_magisk():
+    rootavd_script = Path('/opt/rootAVD/rootAVD.sh')
+    if not rootavd_script.is_file():
+        harvester.logger.warning('rootAVD script not found at /opt/rootAVD/rootAVD.sh; skipping Magisk rooting')
+        return False
+    system_ramdisk = get_system_image_ramdisk()
+    android_home = Path(os.environ.get('ANDROID_HOME', '/opt/android'))
+    try:
+        rel_path = str(system_ramdisk.relative_to(android_home)).replace('\\', '/')
+    except ValueError:
+        rel_path = str(system_ramdisk)
+    harvester.logger.info('Running rootAVD to patch ramdisk with Magisk...')
+    run(rootavd_script.as_posix(), rel_path, input='1\n', timeout=300)
+    
+    global EMULATOR
+    if EMULATOR and EMULATOR.poll() is None:
+        try:
+            EMULATOR.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            EMULATOR.terminate()
+            try:
+                EMULATOR.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                EMULATOR.kill()
+    EMULATOR = None
+    
+    persisted = Path('/data/ramdisk.img')
+    if system_ramdisk.is_file():
+        try:
+            shutil.copyfile(system_ramdisk, persisted)
+            harvester.logger.info('Saved patched ramdisk to /data/ramdisk.img')
+        except Exception as exc:
+            harvester.logger.warning('Failed to persist /data/ramdisk.img: %s', exc)
+    return True
+
+
+STEALTH_PROPERTIES = (
+    ('ro.product.model', 'Pixel 5'),
+    ('ro.product.brand', 'google'),
+    ('ro.product.manufacturer', 'Google'),
+    ('ro.product.device', 'redfin'),
+    ('ro.product.name', 'redfin'),
+    ('ro.build.fingerprint', 'google/redfin/redfin:13/TQ3A.230805.001/10293847:user/release-keys'),
+    ('ro.boot.flash.locked', '1'),
+    ('ro.boot.verifiedbootstate', 'green'),
+    ('ro.boot.veritymode', 'enforcing'),
+    ('ro.build.type', 'user'),
+    ('ro.build.tags', 'release-keys'),
+    ('ro.debuggable', '0'),
+    ('ro.secure', '1'),
+    ('ro.boot.qemu', '0'),
+    ('ro.kernel.qemu', '0'),
+    ('ro.build.characteristics', 'nosdcard'),
+)
+
+
+def configure_magisk_and_props():
+    if not is_magisk_active():
+        return
+    try:
+        installed = emulator_adb('shell', 'su', '-c', '[ -d /data/adb/modules/playintegrityfix ] && echo 1 || echo 0', timeout=15).strip()
+        if installed != '1':
+            pif = Path('/opt/PIF.zip')
+            if pif.is_file():
+                run('adb', '-s', 'emulator-5554', 'push', str(pif), '/data/local/tmp/PIF.zip', timeout=60)
+                emulator_adb('shell', 'su', '-c', 'magisk --install-module /data/local/tmp/PIF.zip', timeout=120)
+                emulator_adb('shell', 'rm', '-f', '/data/local/tmp/PIF.zip', timeout=15)
+                harvester.logger.info('Installed PlayIntegrityFix module in Magisk')
+    except Exception as exc:
+        harvester.logger.warning('Failed to configure PlayIntegrityFix: %s', exc)
+
+    for prop, val in STEALTH_PROPERTIES:
+        try:
+            emulator_adb('shell', 'su', '-c', f'magisk resetprop {prop} "{val}"', timeout=15)
+        except Exception:
+            pass
+    try:
+        emulator_adb('shell', 'am', 'force-stop', 'com.google.android.gms', timeout=15)
+        emulator_adb('shell', 'am', 'force-stop', 'com.android.vending', timeout=15)
+    except Exception:
+        pass
+
+
+def check_waze_installed():
+    try:
+        out = emulator_adb('shell', 'pm', 'list', 'packages', 'com.waze', timeout=60)
+        return 'com.waze' in out
+    except Exception:
+        return False
+
+
+def check_waze_installer():
+    try:
+        out = emulator_adb('shell', 'dumpsys', 'package', 'com.waze', timeout=60)
+        return bool(re.search(r'^\s*installerPackageName=com\.android\.vending', out, re.MULTILINE))
+    except Exception:
+        return False
+
+
+def install_waze_as_vending(apks):
+    """Install Waze split APKs setting installer package to com.android.vending."""
+    harvester.logger.info('Installing Waze with installer package com.android.vending...')
+    remote_dir = '/data/local/tmp/waze_install'
+    emulator_adb('shell', 'rm', '-rf', remote_dir, timeout=60)
+    emulator_adb('shell', 'mkdir', '-p', remote_dir, timeout=60)
+    try:
+        for apk in apks:
+            run('adb', '-s', 'emulator-5554', 'push', str(apk), f'{remote_dir}/{apk.name}', timeout=600)
+        out = emulator_adb('shell', 'pm', 'install-create', '-i', 'com.android.vending', '-r', '-g', timeout=60)
+        match = re.search(r'\[(\d+)\]', out) or re.search(r'(\d+)', out)
+        if not match:
+            raise RuntimeError(f'Failed to create pm install session: {out}')
+        sid = match.group(1)
+        for apk in apks:
+            emulator_adb('shell', 'pm', 'install-write', sid, apk.name, f'{remote_dir}/{apk.name}', timeout=300)
+        res = emulator_adb('shell', 'pm', 'install-commit', sid, timeout=600)
+        if 'Success' not in res:
+            raise RuntimeError(f'pm install-commit failed: {res}')
+        harvester.logger.info('Successfully installed Waze with com.android.vending installer source')
+    finally:
+        try:
+            emulator_adb('shell', 'rm', '-rf', remote_dir, timeout=60)
+        except Exception:
+            pass
+
+
+def start_emulator():
+    global EMULATOR
+    accel = emulator_acceleration()
+    if EMULATOR is None or EMULATOR.poll() is not None:
+        EMULATOR = subprocess.Popen(['emulator', '-avd', AVD_NAME, '-port', '5554', '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot-save',
+            '-accel', accel, '-gpu', 'swiftshader_indirect', '-memory', os.environ.get('WAZE_EMULATOR_MEMORY_MB', '3072'),
+            '-cores', os.environ.get('WAZE_EMULATOR_CORES', '4'), '-skin', '480x800'])
+    return EMULATOR
+
+
+def wait_emulator_boot(timeout=1800):
+    prepare_software_guest()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if EMULATOR and EMULATOR.poll() is not None:
+            raise RuntimeError('Android software emulator exited')
+        try:
+            if run('adb', '-s', 'emulator-5554', 'shell', 'getprop', 'sys.boot_completed', timeout=30).stdout.strip() == '1':
+                break
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pass
+        time.sleep(5)
+    else:
+        raise RuntimeError('Android software emulator did not boot within 30 minutes')
+    prepare_debug_transport()
+    wait_android_services()
+    prepare_integrity_verification()
+    quiet_software_guest()
+
+
 def initialize():
     global EMULATOR
     with harvester.state_lock:
@@ -283,41 +464,38 @@ def initialize():
     config = avd / f'{AVD_NAME}.avd' / 'config.ini'
     lines = [line for line in config.read_text().splitlines() if not line.startswith('hw.lcd.density=')]
     config.write_text('\n'.join(lines) + '\nhw.lcd.density=240\n')
-    accel = emulator_acceleration()
-    if EMULATOR is None or EMULATOR.poll() is not None:
-        # One emulated core left Waze on its splash screen for over ten minutes.
-        # Match the container's CPU allowance; slower hosts can lower it.
-        EMULATOR = subprocess.Popen(['emulator', '-avd', AVD_NAME, '-port', '5554', '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot-save',
-            '-accel', accel, '-gpu', 'swiftshader_indirect', '-memory', os.environ.get('WAZE_EMULATOR_MEMORY_MB', '3072'),
-            '-cores', os.environ.get('WAZE_EMULATOR_CORES', '4'), '-skin', '480x800'])
-    emulator = EMULATOR
+    
+    restore_persisted_ramdisk()
+    start_emulator()
     start_screen_relay()
     boot_failed = False
     first_run_watch = None
+    accel = emulator_acceleration()
     with harvester.state_lock:
         harvester.state.update(emulator_running=True, setup_stage='booting_android',
                                acceleration='kvm' if accel == 'on' else 'software')
     try:
-        prepare_software_guest()
-        deadline = time.monotonic() + 1800
-        while time.monotonic() < deadline:
-            if emulator.poll() is not None:
-                raise RuntimeError('Android software emulator exited')
-            try:
-                if run('adb', '-s', 'emulator-5554', 'shell', 'getprop', 'sys.boot_completed', timeout=30).stdout.strip() == '1':
-                    break
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                pass
-            time.sleep(5)
-        else:
+        try:
+            wait_emulator_boot()
+        except RuntimeError:
             boot_failed = True
-            raise RuntimeError('Android software emulator did not boot within 30 minutes')
+            raise
         with harvester.state_lock:
             harvester.state.update(device_connected=True, boot_completed=True, setup_stage='preparing_android')
-        prepare_debug_transport()
-        wait_android_services()
-        prepare_integrity_verification()
-        quiet_software_guest()
+        
+        # Ensure Magisk is active; if not, patch via rootAVD and reboot
+        if not is_magisk_active():
+            if root_avd_with_magisk():
+                start_emulator()
+                try:
+                    wait_emulator_boot()
+                except RuntimeError:
+                    boot_failed = True
+                    raise
+        
+        # Configure PIF module and stealth properties
+        configure_magisk_and_props()
+        
         with harvester.state_lock:
             harvester.state['setup_stage'] = 'installing_waze'
         try:
@@ -327,13 +505,17 @@ def initialize():
             # emulator. Installation and the background report reader can proceed.
             harvester.logger.warning('Android keyguard is not ready; continuing app installation')
         run('adb', '-s', 'emulator-5554', 'emu', 'geo', 'fix', os.environ.get('WAZE_INITIAL_LNG', '151.2093'), os.environ.get('WAZE_INITIAL_LAT', '-33.8688'))
-        package = run('adb', '-s', 'emulator-5554', 'shell', 'pm', 'list', 'packages', 'com.waze', timeout=180).stdout
-        if 'com.waze' not in package:
+        
+        installed = check_waze_installed()
+        installer_ok = check_waze_installer() if installed else False
+        if not installed or not installer_ok:
             apks = worker_apks(get_apks(os.environ.get('WAZE_VERSION', '5.25.0.1'), os.environ.get('WAZE_APK_PATH')))
-            # The no-KVM test was still transferring at 78% after eight minutes.
-            # Let the same healthy install finish instead of cancelling it and
-            # creating another abandoned Android session on every retry.
-            run('adb', '-s', 'emulator-5554', 'install-multiple', '--no-streaming', '-r', '-g', *map(str, apks), timeout=1800)
+            # Use pm install-create -i com.android.vending to officially set Play Store as installer
+            try:
+                install_waze_as_vending(apks)
+            except Exception as exc:
+                harvester.logger.warning('Failed to install via pm install-create: %s; falling back to install-multiple', exc)
+                run('adb', '-s', 'emulator-5554', 'install-multiple', '--no-streaming', '-r', '-g', *map(str, apks), timeout=1800)
         check_play_services()
         with harvester.state_lock:
             harvester.state['setup_stage'] = 'compiling_waze'
@@ -357,7 +539,7 @@ def initialize():
         reader_started = time.monotonic()
         first_run_handled = False
         while not STOP.wait(5):
-            if emulator.poll() is not None:
+            if EMULATOR and EMULATOR.poll() is not None:
                 raise RuntimeError('Android software emulator exited')
             with harvester.state_lock:
                 current_stage = harvester.state.get('setup_stage')
@@ -379,11 +561,12 @@ def initialize():
             harvester.report_queue.close(); harvester.report_queue = None
         # Retry installer/reader failures on the same booted device. Rebooting
         # Android after every transient ADB or network error prevents recovery.
-        if STOP.is_set() or boot_failed or emulator.poll() is not None:
-            emulator.terminate()
-            try: emulator.wait(timeout=20)
-            except subprocess.TimeoutExpired: emulator.kill()
-            EMULATOR = None
+        if STOP.is_set() or boot_failed or (EMULATOR and EMULATOR.poll() is not None):
+            if EMULATOR:
+                EMULATOR.terminate()
+                try: EMULATOR.wait(timeout=20)
+                except subprocess.TimeoutExpired: EMULATOR.kill()
+                EMULATOR = None
             with harvester.state_lock:
                 harvester.state.update(emulator_running=False, device_connected=False, boot_completed=False)
 
