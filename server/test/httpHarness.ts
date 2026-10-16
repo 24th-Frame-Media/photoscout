@@ -50,12 +50,18 @@ function fakeProviders(): void {
  * Boots the real Express app on a throwaway data directory and a free port.
  * `node --test` runs each file in its own process, so one app per file: the
  * database is a module singleton and DATA_DIR has to be set before it loads.
+ *
+ * The app is private unless told otherwise (access.ts), so a visitor would be
+ * refused the public map. Most tests are about that map and its visibility
+ * rules, so the harness starts it with PUBLIC_READS on. A test of the
+ * instance's own access mode passes `PUBLIC_READS: ''` to leave it unset.
  */
 export async function startApp(env: Record<string, string> = {}, realtime: RealtimeOptions = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'photoscout-http-'));
   Object.assign(process.env, {
     DATA_DIR: dir,
     RATE_LIMITS: 'off',
+    PUBLIC_READS: '1',
     PUBLIC_URL: 'https://photoscout.test',
     GOOGLE_CLIENT_ID: 'test-google', GOOGLE_CLIENT_SECRET: 'test-google-secret',
     DISCORD_CLIENT_ID: 'test-discord', DISCORD_CLIENT_SECRET: 'test-discord-secret',

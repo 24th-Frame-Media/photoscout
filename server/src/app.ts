@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, photosDir } from './db.js';
+import { db, photosDir, prunePoliceSightings, queryPoliceHeatmap, recordPoliceSightings, WAZE_SIGHTING_RETENTION_MS } from './db.js';
 import helmet from 'helmet';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import {
@@ -19,6 +19,7 @@ import {
 import { catalog, searchCatalog } from './gearCatalog.js';
 import { authConfigView, configuredProviders, generateCodeVerifier, generateState, provider, publicUrl, updateCredentials } from './oauth.js';
 import { corsDecision, readOrigins } from './cors.js';
+import { accessConfigView, publicReads, setPublicReads } from './access.js';
 import { applySettingsUpdate, getSettings, memberSettings, publicSettings, tfnswKey } from './settings.js';
 import { geocode, GeocoderBusyError } from './geocode.js';
 import { routing } from './routing.js';
@@ -32,7 +33,7 @@ import { fetchAurora } from './feeds/spaceWeather.js';
 import { fetchBuildings } from './sources/osm.js';
 import { fetchRoadCell, parseCell } from './sources/roads.js';
 import { fetchCameras } from './feeds/cameras.js';
-import { fetchWazeAlerts, validateWazeBounds } from './feeds/waze.js';
+import { fetchWazeAlerts, fetchWazeAlertsCached, validateWazeBounds } from './feeds/waze.js';
 import { startWazeSetup, wazeSetupStatus, loadWazeRuntime } from './wazeRuntime.js';
 import {
   buildPointPassesResponse, combinedFeedData, combinedRealtime, emptyFeedData, nextPasses, parsePointPassRequest, predictTrainPositions, tripCount, TRAIN_FEEDS,
@@ -131,7 +132,9 @@ app.use('/api', (req, res, next) => {
       path: req.baseUrl + req.path,
       requestMethod: req.headers['access-control-request-method'] as string | undefined,
     },
-    readOrigins(getSettings(db).corsOrigins)
+    readOrigins(getSettings(db).corsOrigins),
+    // The same access mode the sign-in gate below uses, so CORS never offers what that gate refuses.
+    publicReads(db)
   );
   if (decision) {
     res.vary(decision.vary);
@@ -195,8 +198,9 @@ const uploadLimit = limit(10 * MINUTE, 60, 'uploads');
 const chatLimit = limit(MINUTE, 10, 'messages');
 
 app.use('/api', (req, res, next) => {
-  // A plugin's own route is open only where that plugin declares it public (plugin.json "public").
-  if (!needsAuth(req.method, req.baseUrl + req.path, (id, method, rest) => pluginRuntime.isPublicRoute(id, method, rest))) return next();
+  // Private unless an admin (or PUBLIC_READS) allows public reads; then a plugin's own route is open
+  // only where that plugin declares it public (plugin.json "public"). Sign-in routes are open either way.
+  if (!needsAuth(req.method, req.baseUrl + req.path, (id, method, rest) => pluginRuntime.isPublicRoute(id, method, rest), publicReads(db))) return next();
   if (req.user) return next();
   res.status(401).json({ error: 'Sign in required' });
 });
@@ -224,6 +228,7 @@ app.get('/api/auth/status', (req, res) => {
     // What to put in ADMIN_IDS to make this account an admin. Its own, and only to itself.
     account: req.user ? accountIdOf(db, req.user.id) : null,
     providers: configuredProviders(db),
+    publicReads: publicReads(db),
   });
 });
 
@@ -338,6 +343,24 @@ app.put('/api/auth-config/:provider', (req, res) => {
   const refused = updateCredentials(db, req.params.provider, (req.body ?? {}) as Record<string, unknown>);
   if (refused) return res.status(400).json({ error: refused });
   res.json(authConfigView(db));
+});
+
+/**
+ * Whether visitors who have not signed in may read the public map, for
+ * Settings → Instance. Private unless this says otherwise. PUBLIC_READS in the
+ * environment wins; a save is refused while it is set, rather than stored where it would do nothing.
+ */
+app.get('/api/settings/access', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  res.json(accessConfigView(db));
+});
+app.put('/api/settings/access', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const value = (req.body as { publicReads?: unknown } | undefined)?.publicReads;
+  if (typeof value !== 'boolean') return res.status(400).json({ error: 'publicReads must be true or false' });
+  if (accessConfigView(db).source === 'env') return res.status(409).json({ error: 'Set by PUBLIC_READS in the environment — change it there' });
+  setPublicReads(db, value);
+  res.json(accessConfigView(db));
 });
 
 // --- settings -----------------------------------------------------------------
@@ -1168,12 +1191,48 @@ app.get('/api/waze/alerts', async (req, res, next) => {
     const maxLat = Number(req.query.maxLat);
     try { validateWazeBounds({ minLng, minLat, maxLng, maxLat }); }
     catch { return res.status(400).json({ error: 'A valid minLng, minLat, maxLng, maxLat bounding box is required' }); }
+    let result: Awaited<ReturnType<typeof fetchWazeAlertsCached>>;
     try {
-      const result = await fetchWazeAlerts({ minLng, minLat, maxLng, maxLat }, fetch, true, req.query.priority === 'navigation' && req.user ? 'navigation' : 'map');
-      res.json({ configured: true, ...result });
+      result = await fetchWazeAlertsCached({ minLng, minLat, maxLng, maxLat }, { priority: req.query.priority === 'navigation' && req.user ? 'navigation' : 'map' });
     } catch (err: any) {
-      res.status(503).json({ configured: false, error: err.message, alerts: [] });
+      return res.status(503).json({ configured: false, error: err.message, alerts: [] });
     }
+    // Only fresh harvester data is recorded: a cache hit would count the same reports again.
+    if (!result.fromCache && (result.state === 'fresh' || result.state === 'stale')) {
+      const now = Date.now();
+      recordPoliceSightings(db, result.alerts.filter(alert => alert.type === 'POLICE'), now);
+      if (now - lastWazePrune >= WAZE_PRUNE_EVERY_MS) {
+        lastWazePrune = now;
+        prunePoliceSightings(db, now, WAZE_SIGHTING_RETENTION_MS);
+      }
+    }
+    res.json({ configured: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+let lastWazePrune = 0;
+const WAZE_PRUNE_EVERY_MS = 60000;
+
+/** Police reports from the database alone, so it answers even while the live feed is queued. */
+app.get('/api/waze/heatmap', (req, res, next) => {
+  try {
+    if (![req.query.minLng, req.query.minLat, req.query.maxLng, req.query.maxLat].every(v => typeof v === 'string' && v.trim())) {
+      return res.status(400).json({ error: 'minLng, minLat, maxLng and maxLat must be non-empty coordinates' });
+    }
+    const bbox = { minLng: Number(req.query.minLng), minLat: Number(req.query.minLat), maxLng: Number(req.query.maxLng), maxLat: Number(req.query.maxLat) };
+    try { validateWazeBounds(bbox); }
+    catch { return res.status(400).json({ error: 'A valid minLng, minLat, maxLng, maxLat bounding box is required' }); }
+    const asked = typeof req.query.windowMs === 'string' && req.query.windowMs.trim() ? Number(req.query.windowMs) : NaN;
+    const windowMs = Number.isFinite(asked) ? Math.min(WAZE_SIGHTING_RETENTION_MS, Math.max(3600000, asked)) : 7200000;
+    const now = Date.now();
+    res.json({
+      configured: Boolean(process.env.WAZE_ALERT_SERVICE_URL),
+      windowMs,
+      observedAt: now,
+      points: queryPoliceHeatmap(db, bbox, windowMs, now),
+    });
   } catch (err) {
     next(err);
   }

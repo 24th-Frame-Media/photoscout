@@ -63,14 +63,22 @@ test('publicRouteAllowed: exact paths, * as any run of characters, GET and HEAD 
   assert.equal(publicRouteAllowed([], 'GET', '/places'), false);
 });
 
-test('needsAuth: a plugin route needs a session unless the plugin declares it public', () => {
+test('needsAuth: with public reads on, a plugin route needs a session unless the plugin declares it public', () => {
   const declared = (id: string, method: string, rest: string) => id === ID && publicRouteAllowed(['/ping'], method, rest);
-  assert.equal(needsAuth('GET', `/api/plugins/${ID}/ping`, declared), false);
-  assert.equal(needsAuth('HEAD', `/api/plugins/${ID}/ping`, declared), false);
-  assert.equal(needsAuth('GET', `/api/plugins/${ID}/private`, declared), true, 'undeclared');
-  assert.equal(needsAuth('POST', `/api/plugins/${ID}/ping`, declared), true, 'writes always');
-  assert.equal(needsAuth('GET', `/api/plugins/${ID}/ping`), true, 'with no predicate, every plugin route needs a session');
-  assert.equal(needsAuth('GET', '/api/plugins-web'), false, 'the web bundle list is still open');
+  assert.equal(needsAuth('GET', `/api/plugins/${ID}/ping`, declared, true), false);
+  assert.equal(needsAuth('HEAD', `/api/plugins/${ID}/ping`, declared, true), false);
+  assert.equal(needsAuth('GET', `/api/plugins/${ID}/private`, declared, true), true, 'undeclared');
+  assert.equal(needsAuth('POST', `/api/plugins/${ID}/ping`, declared, true), true, 'writes always');
+  assert.equal(needsAuth('GET', `/api/plugins/${ID}/ping`, undefined, true), true, 'with no predicate, every plugin route needs a session');
+  assert.equal(needsAuth('GET', '/api/plugins-web', undefined, true), false, 'the web bundle list is open to a visitor');
+});
+
+test('needsAuth: on a private instance a plugin route needs a session even when the plugin declares it public', () => {
+  const declared = (id: string, method: string, rest: string) => id === ID && publicRouteAllowed(['/ping'], method, rest);
+  assert.equal(needsAuth('GET', `/api/plugins/${ID}/ping`, declared), true, 'private is the default');
+  assert.equal(needsAuth('GET', `/api/plugins/${ID}/ping`, declared, false), true);
+  assert.equal(needsAuth('HEAD', `/api/plugins/${ID}/ping`, declared, false), true);
+  assert.equal(needsAuth('GET', '/api/plugins-web', undefined, false), true, 'the web bundle list is behind sign-in too');
 });
 
 const SERVER = [
@@ -91,17 +99,34 @@ test('a declared public route answers a visitor; an undeclared route and any wri
   assert.equal(h.runtime.isPublicRoute(ID, 'GET', '/ping'), true);
   assert.equal(h.runtime.isPublicRoute(ID, 'GET', '/private'), false);
 
-  const anon = await listen(gatedApp(h.runtime, null));
+  const anon = await listen(gatedApp(h.runtime, null, true));
   servers.push(anon);
   assert.equal((await fetch(`${anon.base}/api/plugins/${ID}/ping`)).status, 200);
   assert.equal((await fetch(`${anon.base}/api/plugins/${ID}/ping`, { method: 'HEAD' })).status, 200);
   assert.equal((await fetch(`${anon.base}/api/plugins/${ID}/private`)).status, 401);
   assert.equal((await fetch(`${anon.base}/api/plugins/${ID}/ping`, { method: 'POST' })).status, 401);
 
-  const member = await listen(gatedApp(h.runtime, { id: 'u-1', role: 'contributor' }));
+  const member = await listen(gatedApp(h.runtime, { id: 'u-1', role: 'contributor' }, true));
   servers.push(member);
   assert.equal((await fetch(`${member.base}/api/plugins/${ID}/private`)).status, 200);
   assert.equal((await fetch(`${member.base}/api/plugins/${ID}/ping`, { method: 'POST' })).status, 200);
+});
+
+test('on a private instance a declared public route still asks a visitor to sign in', async () => {
+  const h = makeRuntime();
+  harnesses.push(h);
+  await h.runtime.store.installFromZip(pluginPackage({ id: ID, server: SERVER, public: ['/ping'] }), { source: 'upload' });
+  await h.runtime.loadAll();
+  assert.equal(h.runtime.isPublicRoute(ID, 'GET', '/ping'), true, 'the plugin still declares it');
+
+  const anon = await listen(gatedApp(h.runtime, null, false));
+  servers.push(anon);
+  assert.equal((await fetch(`${anon.base}/api/plugins/${ID}/ping`)).status, 401);
+  assert.equal((await fetch(`${anon.base}/api/plugins/${ID}/ping`, { method: 'HEAD' })).status, 401);
+
+  const member = await listen(gatedApp(h.runtime, { id: 'u-1', role: 'contributor' }, false));
+  servers.push(member);
+  assert.equal((await fetch(`${member.base}/api/plugins/${ID}/ping`)).status, 200);
 });
 
 test('a plugin that is switched off has no public routes, and its routes ask for a sign-in', async () => {
@@ -112,7 +137,7 @@ test('a plugin that is switched off has no public routes, and its routes ask for
   await h.runtime.setEnabled(ID, false);
 
   assert.equal(h.runtime.isPublicRoute(ID, 'GET', '/ping'), false);
-  const anon = await listen(gatedApp(h.runtime, null));
+  const anon = await listen(gatedApp(h.runtime, null, true));
   servers.push(anon);
   assert.equal((await fetch(`${anon.base}/api/plugins/${ID}/ping`)).status, 401);
 });

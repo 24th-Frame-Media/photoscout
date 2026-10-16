@@ -66,9 +66,9 @@ async function radio(stub?: (url: string, init?: RequestInit) => Promise<Respons
   harnesses.push(h);
   h.runtime.store.installFromZip(radioPluginZip(), { source: 'bundled' });
   await h.runtime.loadAll();
-  const anon = await listen(gatedApp(h.runtime, null));
+  const anon = await listen(gatedApp(h.runtime, null, true));
   servers.push(anon);
-  const member = await listen(gatedApp(h.runtime, { id: 'member-1', role: 'contributor' }));
+  const member = await listen(gatedApp(h.runtime, { id: 'member-1', role: 'contributor' }, true));
   servers.push(member);
   return { h, calls, anon: anon.base, member: member.base };
 }

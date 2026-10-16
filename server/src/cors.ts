@@ -39,7 +39,12 @@ export interface CorsDecision {
   preflight: boolean;
 }
 
-export function corsDecision(req: CorsRequest, allowed: string[]): CorsDecision | null {
+/**
+ * `publicReads` is the instance's access mode (access.ts) and must be the one
+ * the sign-in gate in app.ts is given, so a route that gate refuses is never
+ * offered to another origin. It has no default on purpose.
+ */
+export function corsDecision(req: CorsRequest, allowed: string[], publicReads: boolean): CorsDecision | null {
   if (allowed.length === 0) return null;
   const origin = matchOrigin(req.origin, allowed);
   if (!origin) return null;
@@ -47,7 +52,7 @@ export function corsDecision(req: CorsRequest, allowed: string[]): CorsDecision 
   const preflight = req.method === 'OPTIONS' && Boolean(req.requestMethod);
   const method = preflight ? req.requestMethod! : req.method;
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return null;
-  if (needsAuth(method, req.path)) return null;
+  if (needsAuth(method, req.path, undefined, publicReads)) return null;
 
   const headers: Record<string, string> = {
     'Access-Control-Allow-Origin': origin,

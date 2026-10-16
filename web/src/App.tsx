@@ -53,6 +53,13 @@ export default function App() {
     return <Login providers={status.providers} />;
   }
 
+  // A private instance (publicReads === false) has no anonymous reads, so a
+  // signed-out visitor would otherwise land on a map where every call 401s.
+  // Send them to sign in; the legal pages stay reachable.
+  if (!status.authed && !status.publicReads && !['/privacy', '/terms'].includes(location.pathname)) {
+    return <Navigate to="/login" replace />;
+  }
+
   async function logout() {
     await api.logout();
     await refresh();

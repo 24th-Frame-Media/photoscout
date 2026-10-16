@@ -24,7 +24,10 @@ export interface SessionUser {
   role: Role;
 }
 
-/** Signing in and out cannot themselves require a session. */
+/**
+ * Open in every mode, private or public. Signing in and out cannot themselves
+ * require a session, and a share or calendar token is its own credential.
+ */
 const OPEN_ROUTES = [
   /^\/api\/auth\/status$/,
   /^\/api\/auth\/logout$/,
@@ -38,10 +41,12 @@ const OPEN_ROUTES = [
 ];
 
 /**
- * What a visitor who has not signed in may read: the public map and nothing
- * that costs anything. Each of these filters its rows through `canRead`, so
- * an anonymous request sees public rows only. Everything that proxies a
- * third-party service is left off on purpose — an open proxy is an invitation.
+ * What a visitor who has not signed in may read when the instance allows
+ * public reads (see access.ts; off by default, so a private instance ignores
+ * this list): the public map and nothing that costs anything. Each of these
+ * filters its rows through `canRead`, so an anonymous request sees public rows
+ * only. Everything that proxies a third-party service is left off on purpose —
+ * an open proxy is an invitation.
  */
 const ANONYMOUS_READS = [
   /^\/api\/(places|spots|routes)(\/[^/]+)?$/,
@@ -68,8 +73,8 @@ const ANONYMOUS_READS = [
   // The feed (scope=following is refused to a visitor by the handler: the query is not seen here) and a post's comments.
   /^\/api\/feed$/,
   /^\/api\/posts\/[^/]+\/comments$/,
-  // Waze status and alerts
-  /^\/api\/waze\/(status|alerts)$/,
+  // Waze status, alerts and the police heatmap (a week of history, from this server's own database)
+  /^\/api\/waze\/(status|alerts|heatmap)$/,
   // The web bundles of the active plugins: the map loads them before anyone signs in.
   /^\/api\/plugins-web$/,
 ];
@@ -87,17 +92,24 @@ export function normalizePath(p: string): string {
 }
 
 /**
- * Whether a request needs a signed-in session at all. `pluginRoutePublic` says
- * whether a running plugin has declared the route public; without it, every
- * plugin route needs a session.
+ * Whether a request needs a signed-in session at all.
+ *
+ * `publicReads` is the instance's access mode (see access.ts). Anything but
+ * exactly `true`, which includes leaving it out, makes the instance private:
+ * everything but OPEN_ROUTES needs a session, plugin routes and reads included.
+ * With `true`, a visitor may also read ANONYMOUS_READS, and the plugin routes a
+ * running plugin has declared public. `pluginRoutePublic` says whether it has;
+ * without it, every plugin route needs a session.
  */
 export function needsAuth(
   method: string,
   path: string,
   pluginRoutePublic: (id: string, method: string, rest: string) => boolean = () => false,
+  publicReads = false,
 ): boolean {
   const normalized = normalizePath(path);
   if (OPEN_ROUTES.some((re) => re.test(normalized))) return false;
+  if (publicReads !== true) return true;
   const plugin = PLUGIN_ROUTE.exec(normalized);
   if (plugin) return !pluginRoutePublic(plugin[1], method, plugin[2] ?? '/');
   if (method === 'GET' || method === 'HEAD') return !ANONYMOUS_READS.some((re) => re.test(normalized));

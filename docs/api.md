@@ -2,15 +2,21 @@
 
 ## Who may call what
 
-Sign-in is Google or Discord (see the README); a session is a `__Host-ps_session` cookie. Every route needs a session except:
+Sign-in is Google or Discord (see the README); a session is a `__Host-ps_session` cookie. Every route needs a session except the ones below. Whether a visitor who has not signed in may also read the public map depends on the instance's access mode:
+
+- **Private (the default).** Only the always-open routes answer a visitor. Every `GET` under "Public reads" below gets 401 until they sign in.
+- **Public reads.** An admin turns it on under Settings > Instance (`GET`/`PUT /api/settings/access`), or the operator sets `PUBLIC_READS=1`. The "Public reads" below are then open to a visitor too, and so are the routes a plugin declares public. Writes and everything else still need a session.
+
+`PUBLIC_READS` in the environment wins over the setting: `1` or `true` allows public reads, any other value that is not blank (`0`, `false`, a typo) keeps the instance private, and blank counts as unset. Cross-origin reads (`corsOrigins` in Settings) follow the same mode.
+
+Always open, in either mode:
 
 - Sign-in itself, `GET /api/auth/status` and `GET /api/version`.
-- Share-token reads under `/api/share/`: the token is the credential.
-- Reads an anonymous visitor may make: `GET` on `/api/places`, `/api/spots` and `/api/routes` (and one by id) and a spot's photos and photo files (public rows only, plus unlisted ones by id), `/api/settings` (a cut-down answer: where the map opens), `/api/rail`, `/api/fires`, `/api/aurora`, `/api/events` (below), `/api/flyer/:day/:name` and the secret calendar links `/api/calendar/:token.ics` (the token is the credential). Anything that proxies a third-party service, or costs a request elsewhere, is not on this list.
+- Share-token reads under `/api/share/`: the token is the credential. So are the secret calendar links `/api/calendar/:token.ics`.
 
-Also open to a visitor: `GET /api/feed` (`scope=all` only) and `GET /api/posts/:id/comments`.
+Public reads, open to a visitor only when public reads are on: `GET` on `/api/places`, `/api/spots` and `/api/routes` (and one by id) and a spot's photos and photo files (public rows only, plus unlisted ones by id), `/api/settings` (a cut-down answer: where the map opens), `/api/rail`, `/api/fires`, `/api/aurora`, `/api/events` (below), `/api/flyer/:day/:name`, `/api/plugins-web`, `GET /api/feed` (`scope=all` only) and `GET /api/posts/:id/comments`. Anything that proxies a third-party service, or costs a request elsewhere, is not on this list.
 
-Waze report reads (`GET /api/waze/alerts` and `/api/waze/status`) are also available to visitors. Nearby requests share the Android bridge's area queue and cache. Navigation priority requires a signed-in member. Setup remains admin-only.
+Waze report reads (`GET /api/waze/alerts`, `/api/waze/status` and `/api/waze/heatmap`) are public reads too. Nearby requests share the Android bridge's area queue and cache. Navigation priority requires a signed-in member. Setup remains admin-only.
 
 Every other method than `GET` and `HEAD` needs a session, and one from another site's `Origin` is refused. Admin routes answer 403 to anyone else. Which accounts are admins is `ADMIN_IDS`; everyone else is a contributor, who edits only their own rows. An admin can make a user a moderator: staff (admins and moderators) can read the reports queue, hide content, delete other people's posts, comments and chat lines, and suspend contributors, and nothing else an admin can do.
 
@@ -26,6 +32,7 @@ Every other method than `GET` and `HEAD` needs a session, and one from another s
 | GET | `/api/users` | Admin: list users. |
 | PATCH/DELETE | `/api/users/:id` | Admin: change `role` or `banned`, or remove a user. Not your own account. |
 | GET/PUT | `/api/settings` | Home area, extra areas, remotes policy, feed URLs. PUT is admin-only; members and visitors get the cut-down read. |
+| GET/PUT | `/api/settings/access` | Admin only. `{ publicReads, source }`: whether visitors may read the public map (`source` is `env` when `PUBLIC_READS` is set, `stored` for an admin's choice, `default` for the private default). PUT `{ publicReads: boolean }`; 400 for anything else, 409 while `PUBLIC_READS` is set. |
 | GET | `/api/geocode?q=` | Nominatim search, cached. |
 | GET | `/api/route?coords=lng,lat;lng,lat&steps=1` | Sign-in required. A driving route from OSRM (`OSRM_URL`), passed through as OSRM's JSON with GeoJSON geometry; `steps=1` adds the turn-by-turn steps. Two to 25 points; cached five minutes. 502 if the routing service is down. |
 | GET | `/api/version` | Build info. |

@@ -13,6 +13,7 @@ import EventsNotify from '../settings/events/Notify.js';
 import EventTasks from '../settings/events/EventTasks.js';
 import { GROUPS, Tab, tabFromHash } from '../settings/tabs.js';
 import SignInSetup from '../settings/SignInSetup.js';
+import AccessSetting from '../settings/AccessSetting.js';
 import Plugins from '../settings/Plugins.js';
 import WazeSettings from '../settings/WazeSettings.js';
 import ActivityLog from '../components/ActivityLog.js';
@@ -138,9 +139,9 @@ export default function Settings({ user, account, onChange }: { user: User | nul
               {geoResults.length === 0 && <span className="hint">No matches found.</span>}
               {geoResults.map((r) => (
                 <div key={`${r.lat},${r.lng}`} className="feedrow">
-                  <span style={{ flex: 1 }}>📍 {r.displayName}</span>
-                  <button onClick={() => { setAll([fromResult(r, draft.home.radiusKm), ...all]); setGeoResults(null); }}>Make home</button>
-                  <button onClick={() => { setAll([...all, fromResult(r, 30)]); setGeoResults(null); }}>+ Area</button>
+                  <span className="grow">📍 {r.displayName}</span>
+                  <button className="linkbtn" onClick={() => { setAll([fromResult(r, draft.home.radiusKm), ...all]); setGeoResults(null); }}>Make home</button>
+                  <button className="linkbtn" onClick={() => { setAll([...all, fromResult(r, 30)]); setGeoResults(null); }}>+ Area</button>
                 </div>
               ))}
             </div>
@@ -151,7 +152,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
                 <div className="arealist__head">
                   <input aria-label="Area name" value={a.name} maxLength={100} onChange={(e) => setArea(i, { name: e.target.value })} />
                   {i === 0 ? <span className="arealist__home">Home</span> : <button className="linkbtn" onClick={() => makeHome(i)}>Make home</button>}
-                  {i > 0 && <button aria-label={`Remove ${a.name}`} onClick={() => setAll(all.filter((_, j) => j !== i))}>✕</button>}
+                  {i > 0 && <button className="iconbtn iconbtn--ghost" aria-label={`Remove ${a.name}`} onClick={() => setAll(all.filter((_, j) => j !== i))}>✕</button>}
                 </div>
                 <div className="arealist__opts">
                   <label>Reach <input type="number" min={1} max={1000} value={a.radiusKm} onChange={(e) => setArea(i, { radiusKm: Number(e.target.value) })} /> km</label>
@@ -166,6 +167,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
 
         {tab === 'instance' && isAdmin && <section>
           <h2>🔗 Instance</h2>
+          <AccessSetting />
           <div className="formrow"><label>Private remotes</label>
             <input type="checkbox" checked={draft.allowPrivateRemotes} onChange={(e) => set({ allowPrivateRemotes: e.target.checked })} />
             <span className="hint">Let remotes resolve to LAN addresses.</span></div>
@@ -376,7 +378,7 @@ function Users({ me }: { me: User }) {
               <td className="hint">{new Date(u.created_at).toLocaleDateString()}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 {u.id !== me.id && <button onClick={() => void run(() => api.updateUser(u.id, { banned: !u.banned }))}>{u.banned ? 'Reinstate' : 'Suspend'}</button>}{' '}
-                {u.id !== me.id && <button onClick={() => { if (confirm(`Delete ${u.username}?`)) void run(() => api.deleteUser(u.id)); }}>Delete</button>}
+                {u.id !== me.id && <button className="danger" onClick={() => { if (confirm(`Delete ${u.username}?`)) void run(() => api.deleteUser(u.id)); }}>Delete</button>}
               </td>
             </tr>
           ))}

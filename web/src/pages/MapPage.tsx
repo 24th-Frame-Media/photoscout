@@ -2,6 +2,8 @@ import { loadRoads, type RoadsStatus } from '../map/roadQuality';
 import ActivityLog from '../components/ActivityLog.js';
 import { logActivity, logSuccessIfNews } from '../activity.js';
 import { useWazeReports } from '../map/useWazeReports.js';
+import { usePoliceHeat } from '../map/usePoliceHeat.js';
+import { POLICE_HEAT_DEFAULT_MS, POLICE_HEAT_WINDOWS } from '../map/policeHeat.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { GeoJSONSource, LngLatBounds, Map as MlMap, MapMouseEvent, Marker, NavigationControl, Point, Popup, ScaleControl, setWorkerUrl } from 'maplibre-gl';
@@ -84,7 +86,7 @@ const newSpot = (lat: number, lng: number, placeId: string | null = null): SpotD
 });
 
 /** Legend keys whose visibility is applied by their own effect below. */
-const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events', 'radio', 'waze'];
+const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events', 'radio', 'waze', 'police-heat'];
 const RADAR_POLL_MS = 10 * 60_000;
 
 type RouteHistoryEntry = { draft: RouteDraft; duration: number | null; ready: boolean };
@@ -142,6 +144,9 @@ export default function MapPage({ user }: { user: User | null }) {
   // Layer visibility: one source of truth for the legend and the chips.
   const [vis, setVis] = useState<Visibility>(loadVisibility);
   const wazeReports = useWazeReports(map, !!vis.waze);
+  const heatOn = !!vis['police-heat'];
+  const [heatWindowMs, setHeatWindowMs] = useState<number>(POLICE_HEAT_DEFAULT_MS);
+  const policeHeat = usePoliceHeat(map, heatOn, heatWindowMs);
   useEffect(() => saveVisibility(vis), [vis]);
   const toggle = (key: string, on = !vis[key]) => setVis((v) => ({ ...v, [key]: on }));
   const { planes: planesOn, rail: railOn, trains: trainsOn, candidates: candidatesOn, imagery, weather: weatherOn, fires: firesOn, cameras: camerasOn, events: eventsOn, radio: radioOn } = vis;
@@ -207,6 +212,9 @@ export default function MapPage({ user }: { user: User | null }) {
       fresh: wazeReports.alerts.length ? `${wazeReports.alerts.length} reports for this area` : 'No reports for this area right now; that does not mean the roads are clear',
     }[state], state === 'fresh' && wazeReports.alerts.length ? 'success' : 'info');
   }, [vis.waze, wazeReports.state, wazeReports.error, wazeReports.alerts.length]);
+  useEffect(() => {
+    if (heatOn && policeHeat.error) logActivity('Police heatmap', 'Heatmap unavailable; check Police & hazards in Settings', 'error');
+  }, [heatOn, policeHeat.error]);
 
   const canEdit = (ownerId: string) => !!user && (user.role === 'admin' || user.id === ownerId);
 
@@ -1284,7 +1292,7 @@ export default function MapPage({ user }: { user: User | null }) {
           <span>Following <strong>{follow.name}</strong></span>
           <label title="Turn the map to the vehicle's heading"><input type="checkbox" checked={follow.heading}
             onChange={(e) => setFollow({ ...follow, heading: e.target.checked })} />heading</label>
-          <button onClick={() => setFollow(null)} title="Stop following" aria-label="Stop following">✕</button>
+          <button className="iconbtn iconbtn--ghost" onClick={() => setFollow(null)} title="Stop following" aria-label="Stop following">✕</button>
         </div>
       )}
       {mode !== 'browse' && (mode === 'pick-spot' || mode === 'anchor' || editing?.type !== 'route') && (
@@ -1303,6 +1311,14 @@ export default function MapPage({ user }: { user: User | null }) {
       )}
       <Legend map={map} vis={vis} onToggle={toggle} />
       <div className="mapcorner">
+        {heatOn && (
+          <div className="seg" role="group" aria-label="Police heatmap time window">
+            {POLICE_HEAT_WINDOWS.map((w) => (
+              <button key={w.ms} type="button" className={heatWindowMs === w.ms ? 'active' : ''} aria-pressed={heatWindowMs === w.ms}
+                onClick={() => setHeatWindowMs(w.ms)}>{w.label}</button>
+            ))}
+          </div>
+        )}
         {radioPlayerState.activeStation && (
           <RadioWidget
             station={radioPlayerState.activeStation}
@@ -1348,6 +1364,7 @@ export default function MapPage({ user }: { user: User | null }) {
             { key: 'cameras', label: category('cameras').label, swatch: <Swatch cat={category('cameras')} />, on: camerasOn, title: 'NSW live traffic cameras (TfNSW)', onSelect: () => toggle('cameras') },
             { key: 'fires', label: category('fires').label, swatch: <Swatch cat={category('fires')} />, on: !!vis.fires, onSelect: () => toggle('fires') },
             { key: 'waze', label: category('waze').label, swatch: <Swatch cat={category('waze')} />, on: !!vis.waze, title: 'Community police and hazard reports from Waze', onSelect: () => toggle('waze') },
+            { key: 'police-heat', label: category('police-heat').label, swatch: <Swatch cat={category('police-heat')} />, on: heatOn, title: 'Where police reports from Waze cluster over the chosen time window; pick the window in the bottom-right corner', onSelect: () => toggle('police-heat') },
             { key: 'radio', label: category('radio').label, swatch: <Swatch cat={category('radio')} />, on: !!radioOn, title: 'World radio locations (Radio Garden)', onSelect: () => toggle('radio') },
           ] },
           { label: 'Scout', items: [
@@ -1410,7 +1427,7 @@ export default function MapPage({ user }: { user: User | null }) {
           )}
           {editing?.type === 'route' && (
             <>
-            {routeRecovered && <div className="hint" role="status">Recovered your unsaved route draft. <button type="button" onClick={() => {
+            {routeRecovered && <div className="hint" role="status">Recovered your unsaved route draft. <button type="button" className="linkbtn" onClick={() => {
               try { localStorage.removeItem(draftKey(editing.draft.id)); } catch { /* storage may be disabled */ }
               ++routeRequest.current;
               routeHistory.current = { undo: [], redo: [] };
@@ -1508,7 +1525,7 @@ export default function MapPage({ user }: { user: User | null }) {
               <div className="panel__actions">
                 <Link to={`/plan?route=${selectedRoute.id}`}><button>Plan shoot</button></Link>
                 {user && <Link to={`/drive?route=${selectedRoute.id}`}><button>Drive it</button></Link>}
-                {canEdit(selectedRoute.ownerId) && <><button className="primary" onClick={() => openRouteEdit(routeToDraft(selectedRoute))}>Edit</button><button onClick={() => void deleteRoute(selectedRoute)}>Delete</button></>}
+                {canEdit(selectedRoute.ownerId) && <><button className="primary" onClick={() => openRouteEdit(routeToDraft(selectedRoute))}>Edit</button><button className="danger" onClick={() => void deleteRoute(selectedRoute)}>Delete</button></>}
               </div>
             </>
           )}

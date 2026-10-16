@@ -77,3 +77,48 @@ export async function fetchWazeAlerts(bbox: WazeBoundingBox, fetchFn: typeof fet
   return { alerts, coverage: data.coverage as 'route' | 'viewport', observedAt: data.observedAt,
     state: data.state === 'stale' ? 'stale' as const : 'fresh' as const, retryAfterMs: data.state === 'stale' ? 5000 : 30000 };
 }
+
+/** Each harvester scan pans the emulator, so overlapping map polls share one scan per grid cell and TTL. */
+export const WAZE_CACHE_GRID_DEG = 0.05;
+export const WAZE_CACHE_TTL_MS = 60000;
+
+type WazeFetchResult = Awaited<ReturnType<typeof fetchWazeAlerts>>;
+const wazeCache = new Map<string, { at: number; result: WazeFetchResult }>();
+
+/** Widen a box outward to whole grid cells. The epsilon stops a box already on the grid gaining a cell to float error. */
+function snapWazeBounds(bbox: WazeBoundingBox): WazeBoundingBox {
+  const g = WAZE_CACHE_GRID_DEG, eps = 1e-9;
+  const snap = (cells: number) => Number((cells * g).toFixed(6));
+  return {
+    minLng: snap(Math.floor(bbox.minLng / g + eps)),
+    minLat: snap(Math.floor(bbox.minLat / g + eps)),
+    maxLng: snap(Math.ceil(bbox.maxLng / g - eps)),
+    maxLat: snap(Math.ceil(bbox.maxLat / g - eps)),
+  };
+}
+
+/**
+ * fetchWazeAlerts with a short cache per grid cell. Navigation always asks the
+ * harvester and is never stored. Only fresh or stale results are stored, so a
+ * queued or scanning result is asked for again on the next poll.
+ */
+export async function fetchWazeAlertsCached(
+  bbox: WazeBoundingBox,
+  opts: { now?: number; fetchFn?: typeof fetch; priority?: 'map' | 'navigation' } = {},
+): Promise<WazeFetchResult & { fromCache: boolean }> {
+  validateWazeBounds(bbox);
+  const { now = Date.now(), fetchFn = fetch, priority = 'map' } = opts;
+  // Drivers need live data, so navigation neither reads nor fills the cache. It asks for the box as given.
+  if (priority === 'navigation') return { ...(await fetchWazeAlerts(bbox, fetchFn, true, priority)), fromCache: false };
+  const snapped = snapWazeBounds(bbox);
+  const key = `${priority}:${snapped.minLng},${snapped.minLat},${snapped.maxLng},${snapped.maxLat}`;
+  const hit = wazeCache.get(key);
+  if (hit && now >= hit.at && now - hit.at < WAZE_CACHE_TTL_MS) return { ...hit.result, fromCache: true };
+  for (const [k, entry] of wazeCache) if (now < entry.at || now - entry.at >= WAZE_CACHE_TTL_MS) wazeCache.delete(k);
+  const result = await fetchWazeAlerts(snapped, fetchFn, true, priority);
+  if (result.state === 'fresh' || result.state === 'stale') wazeCache.set(key, { at: now, result });
+  return { ...result, fromCache: false };
+}
+
+/** Test hook: forget every cached scan. */
+export function __resetWazeCache(): void { wazeCache.clear(); }

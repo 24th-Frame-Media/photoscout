@@ -13,7 +13,7 @@ A map of photography spots, the events worth shooting, and when the light works 
 - **Events.** The events engine (what was event-scout) runs inside this server: it gathers upcoming events from the sources an admin switches on, places and culls them, and shows them on an Events page, a Calendar and a clustered map layer. Anyone can browse them; signed-in users keep their own shortlist and hide what they don't want. Admins manage areas, sources, the crawler, the local model and notifications under Settings.
 - **Drive.** An in-car screen (`/drive`) with turn-by-turn directions to a searched, tapped or saved destination, or along a saved route. Heading-up map that follows you, speed, spoken prompts, rerouting, and the screen kept awake. Install PhotoScout to your home screen from the browser's menu and it opens like an app.
 - **Import, export, share.** KML/KMZ, GPX, GeoJSON, CSV and Google Takeout in; GeoJSON, GPX or a zip with photos out. Share links, and syncing spots from other instances.
-- **Accounts.** Sign in with Google or Discord; there are no passwords. Anonymous visitors see public spots, places and routes, and the events. Signed-in contributors add and edit their own; admins manage everyone's, the users and the settings.
+- **Accounts.** Sign in with Google or Discord; there are no passwords. The instance is private by default (everything needs a sign-in); an admin can allow public reads under Settings > Instance, and then anonymous visitors see public spots, places and routes, and the events. Signed-in contributors add and edit their own; admins manage everyone's, the users and the settings.
 
 ## Screenshots
 
@@ -84,6 +84,7 @@ The compose file mounts `./osrm` into the `osrm` container and sets `OSRM_URL=ht
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | Turns on "Continue with Google". |
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | — | Turns on "Continue with Discord". |
 | `ADMIN_IDS` | — | Comma-separated `provider:id` accounts that are admins, e.g. `google:1234,discord:5678`. Takes effect on their next sign-in. |
+| `PUBLIC_READS` | — | Whether visitors who have not signed in may read the public map. Unset, the instance is private: everything but signing in needs a session. `1` or `true` allows public reads; any other value (`0`, `false`) keeps it private. Wins over the Settings > Instance switch. |
 | `TRUST_PROXY` | — | Behind a reverse proxy: hops to trust `X-Forwarded-For` from. The proxy must also pass WebSocket upgrades on `/ws` (convoys and live chat); without it chat falls back to polling and convoys do not connect. |
 | `DATA_DIR` | `data/` in the repo (`/app/data` in the image) | Where the database and photos are kept. |
 | `TFNSW_API_KEY` | — | TfNSW Open Data key, for passenger trains and live traffic cameras. |

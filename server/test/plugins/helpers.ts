@@ -152,8 +152,10 @@ export function pluginApp(runtime: PluginRuntime, caller: Caller = { user: { id:
 /**
  * The /api gate as app.ts applies it, with the plugin predicate, then the plugin
  * routes and a 404 for everything else under /api. `user` is who is signed in.
+ * `publicReads` is the instance's access mode, passed on to needsAuth as app.ts does;
+ * it has no default so a test says which mode it is exercising.
  */
-export function gatedApp(runtime: PluginRuntime, user: SessionUser | null): express.Express {
+export function gatedApp(runtime: PluginRuntime, user: SessionUser | null, publicReads: boolean): express.Express {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.use((req, _res, next) => {
@@ -161,7 +163,7 @@ export function gatedApp(runtime: PluginRuntime, user: SessionUser | null): expr
     next();
   });
   app.use('/api', (req, res, next) => {
-    if (!needsAuth(req.method, req.baseUrl + req.path, (id, method, rest) => runtime.isPublicRoute(id, method, rest))) return next();
+    if (!needsAuth(req.method, req.baseUrl + req.path, (id, method, rest) => runtime.isPublicRoute(id, method, rest), publicReads)) return next();
     if (req.user) return next();
     res.status(401).json({ error: 'Sign in required' });
   });

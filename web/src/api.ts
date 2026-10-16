@@ -26,6 +26,15 @@ export interface AuthConfig {
   providers: { name: Provider; clientId: string; secretSet: boolean; fromEnv: boolean; ready: boolean; redirectUrl: string }[];
 }
 
+/**
+ * Whether visitors who have not signed in may read the public map (Settings → Instance).
+ * `source` says where the answer came from: 'env' means PUBLIC_READS is set on the server, which wins and cannot be changed here.
+ */
+export interface AccessConfig {
+  publicReads: boolean;
+  source: 'env' | 'stored' | 'default';
+}
+
 export interface AuthStatus {
   authed: boolean;
   user: User | null;
@@ -33,6 +42,8 @@ export interface AuthStatus {
   account: string | null;
   /** The sign-in providers this instance has set up. */
   providers: Provider[];
+  /** False when this instance is private (sign-in required to read anything). */
+  publicReads: boolean;
 }
 
 export type Phase = 'sunrise' | 'golden_am' | 'day' | 'golden_pm' | 'sunset' | 'blue' | 'night' | 'astro';
@@ -269,6 +280,19 @@ export interface WazeAlert {
   confidence?: number;
   thumbsUp?: number;
   description?: string;
+}
+
+/** One weighted report for the police heatmap; point is [lng, lat]. */
+export interface WazeHeatPoint {
+  point: [number, number];
+  weight: number;
+}
+
+export interface WazeHeatmap {
+  configured: boolean;
+  windowMs: number;
+  observedAt: number | null;
+  points: WazeHeatPoint[];
 }
 
 /** Where the Radio Garden plugin's routes live. Station listen links come from the server and already point here. */
@@ -539,6 +563,11 @@ export const api = {
   saveAuthProvider: (name: Provider, body: { clientId?: string; clientSecret?: string; clear?: boolean }) =>
     fetch(`/api/auth-config/${name}`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(body) }).then((r) => json<AuthConfig>(r)),
 
+  // --- instance access: private (sign-in only) or public reads (admins) ---
+  getAccess: () => fetch('/api/settings/access').then((r) => json<AccessConfig>(r)),
+  setAccess: (publicReads: boolean) =>
+    fetch('/api/settings/access', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ publicReads }) }).then((r) => json<AccessConfig>(r)),
+
   // --- settings ---
   settings: () => fetch('/api/settings').then((r) => json<Settings>(r)),
   saveSettings: (s: Partial<Settings> & { tfnswApiKey?: string; clearTfnswApiKey?: boolean }) =>
@@ -636,6 +665,8 @@ export const api = {
   wazeSetup: () => fetch('/api/waze/setup', { method: 'POST', headers: jsonHeaders, body: '{}' }).then(r => json<WazeStatus['setup']>(r)),
   wazeAlerts: (bbox: { minLng: number; minLat: number; maxLng: number; maxLat: number }, signal?: AbortSignal, priority: 'map' | 'navigation' = 'map') =>
     fetch(`/api/waze/alerts?minLng=${bbox.minLng}&minLat=${bbox.minLat}&maxLng=${bbox.maxLng}&maxLat=${bbox.maxLat}&priority=${priority}`, { signal }).then((r) => json<{ configured: boolean; alerts: WazeAlert[]; coverage: 'route' | 'viewport' | 'bbox'; observedAt: number | null; state: 'fresh' | 'queued' | 'scanning' | 'stale'; retryAfterMs: number }>(r)),
+  wazeHeatmap: (bbox: { minLng: number; minLat: number; maxLng: number; maxLat: number }, windowMs: number, signal?: AbortSignal) =>
+    fetch(`/api/waze/heatmap?minLng=${bbox.minLng}&minLat=${bbox.minLat}&maxLng=${bbox.maxLng}&maxLat=${bbox.maxLat}&windowMs=${windowMs}`, { signal }).then((r) => json<WazeHeatmap>(r)),
   // --- Radio Garden layer (the media.24thframe.radio-garden plugin) ---
   radioPlaces: () => fetch(`${RADIO_BASE}/places`).then((r) => json<RadioPlacesResponse>(r)),
   radioStations: (placeId: string) => fetch(`${RADIO_BASE}/places/${encodeURIComponent(placeId)}/stations`).then((r) => json<RadioStationsResponse>(r)),
