@@ -61,7 +61,7 @@ function Secret({ label, value, isSet, placeholder, onChange }: {
         placeholder={value === null ? 'will be removed on save' : isSet ? 'stored — paste to replace' : placeholder}
         onChange={(e) => onChange(e.target.value)}
       />
-      {isSet && value !== null && <button onClick={() => onChange(null)}>Remove</button>}
+      {isSet && value !== null && <button className="danger" onClick={() => onChange(null)}>Remove</button>}
       {value === null && <button onClick={() => onChange('')}>Keep</button>}
     </div>
   );
@@ -462,7 +462,7 @@ function NotifyPanel({ draft, set, dirty, save }: {
       <section>
         <h2>
           Matrix bot
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <label className="toggle toggle--end">
             <input type="checkbox" checked={bot.enabled} onChange={(e) => setBot({ enabled: e.target.checked })} /> Enabled
           </label>
         </h2>

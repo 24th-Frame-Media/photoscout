@@ -106,7 +106,7 @@ function Card({ item, user, onGone }: { item: FeedItem; user: User | null; onGon
         <button className={it.voted ? 'primary' : ''} disabled={!user} onClick={() => void vote()} aria-pressed={it.voted}>▲ {it.votes}</button>
         <button onClick={() => void toggle()}>💬 {it.comments}</button>
         <ReportButton user={user} kind="post" id={it.id} />
-        {user && (user.username === it.author.username || staff) && <button className="linkbtn" onClick={() => void remove()}>Delete</button>}
+        {user && (user.username === it.author.username || staff) && <button className="danger" onClick={() => void remove()}>Delete</button>}
       </div>
       {open && (
         <div className="feedcard__comments">
@@ -115,7 +115,7 @@ function Card({ item, user, onGone }: { item: FeedItem; user: User | null; onGon
               <Link to={`/u/${encodeURIComponent(c.author.username)}`}><strong>{c.author.username}</strong></Link> {c.body}{' '}
               <span className="hint">{ago(c.created_at)}</span>{' '}
               <ReportButton user={user} kind="comment" id={c.id} />
-              {user && (user.username === c.author.username || staff) && <> <button className="linkbtn" onClick={() => void removeComment(c.id)}>Delete</button></>}
+              {user && (user.username === c.author.username || staff) && <> <button className="danger" onClick={() => void removeComment(c.id)}>Delete</button></>}
             </p>
           ))}
           {user && (

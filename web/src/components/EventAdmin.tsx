@@ -45,7 +45,7 @@ export function HiddenEvents({ refreshKey, onChanged }: { refreshKey: number; on
         {hidden.map((e) => (
           <li key={e.group}>
             <span className="grow">{decodeEntities(e.title)} <span className="hint">{new Date(e.startTime).toLocaleDateString()}</span></span>
-            <button onClick={() => void api.hideEventForAll(e.group, false).then(onChanged).catch((err) => setError((err as Error).message))}>Show again</button>
+            <button className="linkbtn" onClick={() => void api.hideEventForAll(e.group, false).then(onChanged).catch((err) => setError((err as Error).message))}>Show again</button>
           </li>
         ))}
       </ul>

@@ -109,9 +109,9 @@ export function SecretField({
       {(isSet || cleared) && (
         <p className="hint" style={{ marginTop: -4 }}>
           {cleared ? (
-            <>Will be removed when you save.{' '}<button className="evs-linky" onClick={() => onChange('')}>Keep it</button></>
+            <>Will be removed when you save.{' '}<button className="linkbtn linkbtn--blue" onClick={() => onChange('')}>Keep it</button></>
           ) : (
-            <>One is stored. Leave the box empty to keep it.{' '}<button className="evs-linky" onClick={() => onChange(null)}>Remove</button></>
+            <>One is stored. Leave the box empty to keep it.{' '}<button className="linkbtn linkbtn--blue" onClick={() => onChange(null)}>Remove</button></>
           )}
         </p>
       )}

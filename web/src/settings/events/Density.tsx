@@ -41,7 +41,7 @@ export default function Density() {
       <section>
         <h2>
           📊 Venue density
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <label className="toggle toggle--end">
             <input
               type="checkbox"
               checked={draft.densityEnabled === true}
@@ -55,7 +55,7 @@ export default function Density() {
           Each pass opens one page per venue, so keep the interval relaxed.
         </p>
 
-        <div className="formrow" style={{ marginTop: 12 }}>
+        <div className="formrow mt-3">
           <label>Every: {draft.densityIntervalMinutes ?? 60} min</label>
           <input
             type="range"
@@ -73,7 +73,7 @@ export default function Density() {
           {(draft.densityAreas ?? []).length ? (draft.densityAreas ?? []).map((a) => a.name).join(', ') : 'none yet'}.
         </p>
 
-        <div className="formrow" style={{ marginTop: 10 }}>
+        <div className="formrow mt-2">
           <label>Max venues</label>
           <input
             type="number"
@@ -152,7 +152,7 @@ export default function Density() {
           </p>
         )}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <div className="row mt-2">
           <button className="ghost" disabled={density?.running} onClick={() => runDensity('refresh')}>
             Sample now
           </button>
@@ -160,7 +160,7 @@ export default function Density() {
             Rebuild venue list
           </button>
         </div>
-        {densityMsg && <p className="hint" style={{ marginTop: 8 }}>{densityMsg}</p>}
+        {densityMsg && <p className="hint mt-2">{densityMsg}</p>}
       </section>
       <SaveBar save={s.save} dirty={s.dirty} saved={s.saved} busy={s.busy} error={s.error} canRefresh={draft.lat != null} />
     </>

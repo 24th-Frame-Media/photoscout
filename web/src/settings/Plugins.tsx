@@ -168,7 +168,7 @@ function PluginCard({ plugin, onChange, onRemoved }: {
   const idle = busy === '';
 
   return (
-    <article className="plugins__card" aria-label={plugin.name}>
+    <article className="plugins__card card" aria-label={plugin.name}>
       <div className="plugins__head">
         <div className="plugins__icon" aria-hidden="true">
           {icon ? <img src={icon} alt="" /> : '🧩'}
@@ -277,7 +277,7 @@ function PluginLogs({ id, name }: { id: string; name: string }) {
 
   return (
     <div>
-      <div className="plugins__actions" style={{ marginTop: 8 }}>
+      <div className="plugins__actions mt-2">
         <button type="button" disabled={loading} onClick={load}>{loading ? 'Loading…' : 'Refresh'}</button>
       </div>
       {error && <p className="status-line error" role="alert">{error}</p>}

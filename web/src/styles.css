@@ -21,6 +21,18 @@
   --pill: 999px;
   --topbar-h: 56px;
   --timebar-h: 0px;
+
+  /* Scales: spacing steps, type sizes, and the touch-target sizes. */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
+  --fs-xs: 11px; --fs-sm: 12.5px; --fs-md: 13.5px; --fs-base: 15px;
+  --tap: 44px; --tap-lg: 56px;
+  /* Derived colours, named so they are not written out inline. */
+  --accent-hover: #ffb83d;
+  --accent-line: rgba(245, 166, 35, 0.4);
+  --glass-2: rgba(14, 16, 20, 0.92);
+  --on-dark: #fff;
+  --red-border: #6b3030;
+  --on-red: #2a0b0b;
 }
 
 * { box-sizing: border-box; }
@@ -36,7 +48,10 @@ body {
 a { color: var(--blue); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-button {
+/* ── Buttons ──
+   One base for <button> and <a class="button">, so a link can look like a button.
+   Sizes and states sit on top of it, below. */
+button, a.button {
   font: inherit;
   cursor: pointer;
   border: 1px solid var(--border);
@@ -46,10 +61,47 @@ button {
   padding: 7px 14px;
   transition: background 0.15s, border-color 0.15s;
 }
-button:hover { background: var(--panel-hover); border-color: var(--border-hover); }
+a.button { display: inline-flex; align-items: center; text-decoration: none; }
+button:hover, a.button:hover { background: var(--panel-hover); border-color: var(--border-hover); }
 button:disabled { opacity: 0.5; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-button.primary:hover { background: #ffb83d; }
+button.sm, a.button.sm { padding: 4px 10px; font-size: var(--fs-md); }
+button.xs, a.button.xs { padding: 2px 8px; font-size: var(--fs-sm); }
+button.lg, a.button.lg { min-height: var(--tap-lg); padding: 0 18px; font-size: 18px; }
+
+/* One active state for toggles: chips, segmented and pressed buttons light up the same way. The time bar's
+   green active day is a named variant, kept on its own rule. .is-active is scoped to buttons because a list
+   row (RadioPanel) uses the class for its own treatment. */
+button.is-active, [aria-pressed='true'], .chip.active, .chip--mini.active, .months button.active, .seg button.active,
+.plan__spotselect button.active, .sunanchor-controls button.active {
+  background: var(--accent-soft, var(--accent-line));
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Primary: the accent button. It comes after the active state, so a starred or voted primary keeps its look.
+   The sign-in links are anchors dressed as this button. */
+button.primary, a.button.primary, .signin__providers a {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+button.primary:hover, a.button.primary:hover, .signin__providers a:hover { background: var(--accent-hover); }
+
+/* ── Primitives: cards, badges, icon buttons ── */
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--sp-3); }
+
+/* A small pill. The size is shared here; a use that needs its own size sets it on its own rule. */
+.badge, .eventbadge, .nearby__badge, .glance__tags span { padding: 2px 8px; font-size: var(--fs-sm); border-radius: var(--pill); }
+.badge { border: 1px solid var(--border); color: var(--muted); background: var(--panel-2); }
+.badge--accent { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.badge--live { color: var(--green); border-color: var(--green); }
+.badge--danger { color: var(--red); border-color: var(--red); }
+
+/* Icon-only buttons: a 38px square, or a tap target on a phone. */
+.iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; padding: 0; border-radius: var(--radius-sm); }
+.iconbtn--ghost { background: transparent; border: none; }
+@media (max-width: 640px) { .iconbtn { width: var(--tap); height: var(--tap); } }
 
 input, select, textarea {
   font: inherit;
@@ -73,7 +125,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   align-items: center;
   gap: 18px;
   padding: 10px 22px;
-  background: rgba(14, 16, 20, 0.92);
+  background: var(--glass-2);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
@@ -121,7 +173,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 
 .banner {
   background: var(--accent-soft);
-  border: 1px solid rgba(245, 166, 35, 0.4);
+  border: 1px solid var(--accent-line);
   color: var(--text);
   border-radius: var(--radius);
   padding: 12px 16px;
@@ -145,7 +197,6 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   color: var(--muted);
   font-size: 13px;
 }
-.chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .filterbar select { width: auto; max-width: 100%; }
 .filterbar label.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; }
 
@@ -162,7 +213,6 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .linklike:hover { color: var(--blue); }
 
 /* ── Settings ── */
-.settings { max-width: 860px; }
 .settings section {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -173,6 +223,11 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .settings section h2 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 10px; }
 .settings section .hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
 .settings section .hint a { color: var(--blue); }
+/* Scoped overrides so the design-system utilities win over the `.settings section .hint` rule above (specificity 0,2,1). */
+.settings section .hint.hint--error { color: var(--red); }
+.settings section .hint.hint--flush { margin: 0; }
+.settings section .hint.mt-2 { margin-top: var(--sp-2); }
+.settings section .hint.mt-3 { margin-top: var(--sp-3); }
 .formrow { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
 .formrow label { min-width: 130px; color: var(--muted); font-size: 13.5px; }
 .status-line { font-size: 12.5px; margin-top: 8px; }
@@ -290,10 +345,10 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 
 /* ── Map page ── */
 #root:has(.mapshell) { height: 100dvh; display: flex; flex-direction: column; }
-.mapshell { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.mapshell { position: relative; flex: 1; min-height: 0; overflow: hidden; --corner-bottom: calc(var(--timebar-h, 0px) + 28px); }
 .mapshell .mapshell__map { position: absolute; inset: 0; }
 .maptools { position: absolute; top: 10px; left: 10px; right: 60px; z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
-.maptools .chip { pointer-events: auto; background: rgba(23, 26, 33, 0.92); backdrop-filter: blur(6px); }
+.maptools .chip { pointer-events: auto; background: var(--glass); backdrop-filter: blur(6px); }
 .maptools .chip.active { background: #2b2412; }
 .mapmenus { display: flex; gap: 6px; flex-wrap: wrap; }
 .mapmenu { position: relative; }
@@ -310,7 +365,6 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .sunanchor-controls { position: absolute; left: 10px; bottom: 96px; z-index: 6; display: flex; align-items: center; gap: 6px; max-width: min(560px, calc(100% - 20px));
   background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px; backdrop-filter: blur(6px); font-size: 12.5px; }
 .sunanchor-controls button { padding: 4px 9px; }
-.sunanchor-controls button.active { color: var(--accent); border-color: var(--accent); }
 .sunanchor-controls span { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mapinstruction { position: absolute; top: 52px; left: 10px; z-index: 6; background: var(--panel);
   border: 1px solid var(--accent); color: var(--accent); border-radius: var(--pill); padding: 6px 14px; font-size: 13px; }
@@ -319,7 +373,6 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
    holds the Activity chip (left) and the Nearby chip. --corner-bottom is the column's bottom edge above the bottom of the
    map (phones override it below). Both chip panels are placed against the column, not their own chip, so each opens
    upward above everything in the column. The two panels are never open together (MapPage keeps that state). */
-.mapshell { --corner-bottom: calc(var(--timebar-h, 0px) + 28px); }
 .mapcorner { position: absolute; right: 10px; bottom: var(--corner-bottom); z-index: 8; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: calc(100% - 20px); pointer-events: none; }
 .mapcorner > * { pointer-events: auto; }
 .mapcorner__row { display: flex; flex-direction: row; align-items: flex-end; justify-content: flex-end; gap: 8px; max-width: 100%; }
@@ -327,7 +380,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .mapshell--panel .mapcorner { right: 456px; }
 /* Static, so the panel below is placed against the whole corner column: its right edge lines up with the column's. */
 .activitylog { position: static; }
-.activitylog > .chip { background: rgba(23, 26, 33, 0.92); backdrop-filter: blur(6px); }
+.activitylog > .chip { background: var(--glass); backdrop-filter: blur(6px); }
 .activitylog > .chip.active { background: #2b2412; }
 .activitylog__toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; max-width: 100%; }
 .activitylog__toggle--issues { border-color: var(--red); }
@@ -377,20 +430,21 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .timebar__top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .timebar__top input[type='date'] { width: auto; padding: 4px 8px; }
 .timebar__top button { padding: 4px 12px; }
+/* Green on purpose: the chosen day in the time bar is its own state, not the accent of the shared active state. */
 .timebar__top button.active { color: var(--green); border-color: var(--green); }
 .timebar__time { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .timebar__phase { border: 2px solid; border-radius: var(--pill); padding: 1px 10px; font-size: 12.5px; }
 .timebar__meta { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .timebar__slider { -webkit-appearance: none; appearance: none; height: 16px; border-radius: var(--radius-sm); border: 1px solid var(--border); cursor: pointer; }
-.timebar__slider::-webkit-slider-thumb { -webkit-appearance: none; width: 6px; height: 26px; border-radius: 3px; background: #fff; box-shadow: 0 0 0 2px var(--bg); }
-.timebar__slider::-moz-range-thumb { width: 6px; height: 26px; border-radius: 3px; background: #fff; border: 2px solid var(--bg); }
+.timebar__slider::-webkit-slider-thumb { -webkit-appearance: none; width: 6px; height: 26px; border-radius: 3px; background: var(--on-dark); box-shadow: 0 0 0 2px var(--bg); }
+.timebar__slider::-moz-range-thumb { width: 6px; height: 26px; border-radius: 3px; background: var(--on-dark); border: 2px solid var(--bg); }
 
 .daystrip { margin: 4px 0; }
 .daystrip__row { position: relative; height: 16px; border-radius: 4px; overflow: hidden; background: #05070f; }
 .daystrip__row--moon { height: 6px; margin-top: 3px; background: var(--input-bg); }
 .daystrip__row--moon .daystrip__band { background: #dfe7ff; }
 .daystrip__band { position: absolute; top: 0; bottom: 0; }
-.daystrip__now { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 0 1px var(--bg); }
+.daystrip__now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--on-dark); box-shadow: 0 0 0 1px var(--bg); }
 .daystrip__legend { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); margin-top: 4px; }
 
 .facing-handle { width: 18px; height: 18px; border-radius: 50%; background: rgba(245, 166, 35, 0.35); border: 3px solid var(--accent); cursor: grab; }
@@ -407,8 +461,8 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   justify-content: center;
   font-size: 11px;
   font-weight: 700;
-  color: #ffffff;
-  border: 2px solid #ffffff;
+  color: var(--on-dark);
+  border: 2px solid var(--on-dark);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
   cursor: grab;
   touch-action: none;
@@ -482,7 +536,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 }
 .sun-anchor-crosshair:focus,
 .sun-anchor-crosshair:focus-visible {
-  outline: 2px solid #ffffff;
+  outline: 2px solid var(--accent);
   outline-offset: 4px;
   box-shadow: 0 0 0 4px rgba(245, 166, 35, 0.5), 0 0 14px rgba(255, 210, 63, 0.9);
 }
@@ -503,7 +557,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 }
 .sun-anchor-crosshair__dot {
   fill: #ffd23f;
-  stroke: #0e1014;
+  stroke: var(--bg);
   stroke-width: 1px;
 }
 .sun-anchor-crosshair__line {
@@ -520,14 +574,14 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   padding: 0;
   border-radius: 50%;
   border: 2px solid var(--accent);
-  background: rgba(14, 16, 20, 0.9);
+  background: var(--glass-2);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.65);
   cursor: ew-resize;
   touch-action: none;
 }
 .sun-anchor-bearing:focus,
 .sun-anchor-bearing:focus-visible {
-  outline: 2px solid #ffffff;
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 .sun-anchor-bearing__needle {
@@ -540,7 +594,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   transform-origin: 50% 11px;
   border-radius: 2px;
   background: #ffd23f;
-  box-shadow: 0 0 0 1px #0e1014;
+  box-shadow: 0 0 0 1px var(--bg);
 }
 .sun-anchor-bearing::after {
   content: '';
@@ -585,18 +639,13 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
   padding: 3px 8px;
   font-size: 11.5px;
   font-weight: 500;
-  background: rgba(23, 26, 33, 0.9);
+  background: var(--glass);
   backdrop-filter: blur(4px);
   cursor: pointer;
   user-select: none;
 }
-.chip--mini:hover {
+.chip--mini:hover:not(.active) {
   background: var(--panel-hover);
-}
-.chip--mini.active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent);
 }
 .sunplan__grade--good { color: #22c55e; }
 .sunplan__grade--ok { color: var(--muted); }
@@ -634,7 +683,6 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .gt .chip { font-size: 12.5px; padding: 4px 10px; }
 .months { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; }
 .months button, .seg button { padding: 5px 0; font-size: 12.5px; color: var(--muted); }
-.months button.active, .seg button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .seg { display: inline-flex; gap: 0; }
 .seg button { padding: 5px 12px; border-radius: 0; margin-left: -1px; }
 .seg button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); margin-left: 0; }
@@ -919,7 +967,15 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 /* ── Small shared helpers (replace one-off inline styles) ── */
 .mt-6 { margin-top: 6px; }
 .mt-8 { margin-top: 8px; }
-.mt-12 { margin-top: 12px; }
+.mt-1 { margin-top: var(--sp-1); }
+.mt-2 { margin-top: var(--sp-2); }
+.mt-3 { margin-top: var(--sp-3); }
+.mt-12 { margin-top: var(--sp-3); }
+.row { display: flex; gap: var(--sp-2); }
+.hint--error { color: var(--red); }
+.hint--flush { margin: 0; }
+.toggle--end { margin-left: auto; font-weight: 400; }
+.input--narrow { max-width: 90px; }
 .m-0 { margin: 0; }
 .row-center { align-items: center; }
 .grow { flex: 1; min-width: 0; }
@@ -937,7 +993,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 
 /* ── Map legend ── */
 .legend { position: absolute; left: 10px; bottom: 140px; z-index: 6; display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 6px; max-width: calc(100% - 20px); }
-.legend > .chip { background: rgba(23, 26, 33, 0.92); backdrop-filter: blur(6px); }
+.legend > .chip { background: var(--glass); backdrop-filter: blur(6px); }
 .legend > .chip.active { background: #2b2412; }
 .legend__panel { width: 250px; max-width: 100%; max-height: min(60vh, calc(100dvh - 240px)); overflow-y: auto; background: var(--glass);
   border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 12px 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
@@ -953,7 +1009,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .legend__swatch--dot::after { background: var(--sw); border: 1px solid var(--text); }
 .legend__swatch--ring::after { background: var(--sw); border: 2px solid #f0fdf4; box-sizing: border-box; }
 .legend__swatch--glyph { display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; color: var(--sw);
-  text-shadow: 0 0 1px #0e1014, 0 0 1px #0e1014; }
+  text-shadow: 0 0 1px var(--bg), 0 0 1px var(--bg); }
 .legend__swatch--camera { width: 14px; height: 14px; margin: 0 4px; }
 .chip .legend__swatch { margin-right: 5px; vertical-align: -1px; display: inline-block; }
 .legend__swatch--text::after { content: 'Aa'; position: absolute; inset: -3px 0 0; font-size: 12px; font-weight: 700; text-align: center;
@@ -971,7 +1027,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 
 /* ── Nearby planes/trains list (bottom-right; a bottom sheet on phones) ── */
 .nearby { position: static; } /* the list is placed against the corner column, like the Activity panel */
-.nearby > .chip { background: rgba(23, 26, 33, 0.92); backdrop-filter: blur(6px); }
+.nearby > .chip { background: var(--glass); backdrop-filter: blur(6px); }
 .nearby > .chip.active { background: #2b2412; }
 .nearby__panel { position: absolute; right: 0; bottom: calc(100% + 6px); width: 300px; max-width: calc(100vw - 20px); max-height: min(50vh, calc(100dvh - 330px)); overflow-y: auto; background: var(--glass);
   border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 10px 10px; backdrop-filter: blur(6px); }
@@ -1039,18 +1095,18 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
 
 /* All map popups: MapLibre's injected stylesheet loads after the global link, so make the readable dark treatment explicit. */
 .maplibregl-popup-content {
-  background: #171a21 !important;
-  color: #e9ecf3 !important;
-  border: 1px solid #2a2f3b !important;
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
   border-radius: var(--radius-sm, 8px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   font-size: 13px;
 }
 .maplibregl-popup-content b,
-.maplibregl-popup-content strong { color: #e9ecf3 !important; }
+.maplibregl-popup-content strong { color: var(--text) !important; }
 .maplibregl-popup-content span { color: #c6cfdd !important; }
 .maplibregl-popup-close-button { color: #c6cfdd !important; font-size: 16px; padding: 0 6px; }
-.maplibregl-popup-close-button:hover { color: #fff !important; background: none; }
+.maplibregl-popup-close-button:hover { color: var(--on-dark) !important; background: none; }
 .maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--border); }
 .maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--border); }
 .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--border); }
@@ -1091,7 +1147,6 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
 .plan__spotselect { display: flex; gap: 8px; }
 .plan__spotselect select { flex: 1 1 160px; min-width: 0; }
 .plan__spotselect button { white-space: nowrap; }
-.plan__spotselect button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .plan__browse { margin-bottom: 14px; }
 .plan__criteria { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px 12px; margin: 0 0 14px; background: var(--panel); }
 .plan__criteria legend { padding: 0 6px; color: var(--muted); font-size: 12.5px; }
@@ -1370,7 +1425,7 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
   @page { margin: 14mm; }
 }
 
-/* Sign-in is a link out to a provider, so these are anchors dressed as the primary button. */
+/* Sign-in is a link out to a provider, so these are anchors. Their colours come from the shared primary button (above). */
 .signin__providers { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .signin__providers a {
   display: block;
@@ -1378,11 +1433,7 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
   text-decoration: none;
   padding: 9px 14px;
   border-radius: var(--radius);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
 }
-.signin__providers a:hover { background: #ffb83d; }
 
 /* ── Profiles, the Kit, community events ── */
 .eventbadge--community { color: var(--accent); border-color: var(--accent); }
@@ -1411,7 +1462,9 @@ a.chip { text-decoration: none; }
 .feedcard__comment { font-size: 13.5px; }
 .feedcard__add { display: flex; gap: 6px; }
 .feedcard__add input { flex: 1; min-width: 0; }
-.linkbtn { background: none; border: 0; padding: 0; color: var(--muted); font-size: 12.5px; text-decoration: underline; cursor: pointer; }
+/* Link-style buttons. .linkbtn is canonical; .linky and .linklike take the same body. .linkbtn--blue is the blue variant. */
+.linkbtn, .linky, .linklike { background: none; border: 0; padding: 0; color: var(--muted); font-size: 12.5px; text-decoration: underline; cursor: pointer; }
+.linkbtn--blue { color: var(--blue); }
 .chat__log { height: 60vh; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; }
 .chat__line { margin: 0 0 6px; overflow-wrap: anywhere; }
 
@@ -1427,7 +1480,7 @@ a.chip { text-decoration: none; }
   color: var(--muted);
   background: var(--panel-2);
 }
-.badge.unofficial { color: var(--red); border-color: #6b3030; }
+.badge.unofficial { color: var(--red); border-color: var(--red-border); }
 .activity__feed {
   max-height: 116px;
   overflow-y: auto;
@@ -1473,7 +1526,7 @@ a.chip { text-decoration: none; }
 .console__line--end .console__text { color: var(--green); }
 .console__line--log .console__text { color: var(--muted); }
 .console__line.is-failed .console__text { color: var(--red); }
-button.danger { background: var(--red); border-color: var(--red); color: #2a0b0b; font-weight: 600; }
+button.danger { background: var(--red); border-color: var(--red); color: var(--on-red); font-weight: 600; }
 button.danger:hover { background: #ff8f8f; border-color: #ff8f8f; }
 /* --- the crawler panel --------------------------------------------------- */
 
@@ -1659,10 +1712,8 @@ section > .notify__check { margin-top: 10px; }
   .evs-confirm > span { font-size: 13px; flex: 1; min-width: 220px; }
   .chip.evs-chip-off { opacity: 0.55; text-decoration: line-through; }
   .evs-lead { margin: 0 0 14px; }
-}
 
-/* places, the busy map and the busy chart, inside the events tabs */
-.evs {
+  /* places, the busy map and the busy chart, inside the events tabs (same .evs block) */
   .places__bar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
   .places__bar input { flex: 1; min-width: 160px; }
   .places__bar select { width: auto; }
@@ -1697,7 +1748,7 @@ section > .notify__check { margin-top: 10px; }
   .busychart__now { fill: var(--accent); }
   .busychart__dark { fill: rgba(0, 0, 0, 0.28); }
   .busychart__best { fill: rgba(240, 249, 33, 0.07); stroke: rgba(240, 249, 33, 0.28); }
-  .busychart__dot { fill: #fff; stroke: var(--panel); stroke-width: 1.5; }
+  .busychart__dot { fill: var(--on-dark); stroke: var(--panel); stroke-width: 1.5; }
   .busychart__axis { font-size: 10px; fill: var(--muted); }
 }
 
@@ -1714,7 +1765,7 @@ section > .notify__check { margin-top: 10px; }
 /* the calendar link under Account */
 .calendarlink input { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; }
 /* the "show my location" dot and the suggest-a-spot card on the map */
-.mylocation { width: 16px; height: 16px; border-radius: 50%; background: var(--blue); border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(76, 195, 255, 0.25); }
+.mylocation { width: 16px; height: 16px; border-radius: 50%; background: var(--blue); border: 3px solid var(--on-dark); box-shadow: 0 0 0 6px rgba(76, 195, 255, 0.25); }
 .suggestcard { position: absolute; top: 52px; left: 50%; transform: translateX(-50%); z-index: 7; width: min(360px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 8px; padding: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); }
 .suggestcard h3 { margin: 0; font-size: 15px; }
 .suggestcard .hint { margin: 0; color: var(--muted); font-size: 13px; }
@@ -1726,7 +1777,6 @@ section > .notify__check { margin-top: 10px; }
    Everything for the Drive screen lives in this block. It is read at arm's
    length from a car seat: big type, 56px touch targets, nothing small. The
    screen covers the top bar; Exit is its way back. */
-a.chip { text-decoration: none; }
 .drive {
   position: fixed;
   inset: 0;
@@ -1857,9 +1907,9 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
 .drive__actions button { flex: 1 1 120px; }
 
 /* the car and the destination, drawn on the map */
-.drivecar svg { width: 46px; height: 46px; fill: var(--accent); stroke: #0e1014; stroke-width: 2.5; stroke-linejoin: round; filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.6)); }
+.drivecar svg { width: 46px; height: 46px; fill: var(--accent); stroke: var(--bg); stroke-width: 2.5; stroke-linejoin: round; filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.6)); }
 .drivepin svg { width: 38px; height: 38px; fill: var(--accent); filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.6)); }
-.drivepin circle { fill: #0e1014; }
+.drivepin circle { fill: var(--bg); }
 
 /* landscape on a phone: the turn on the left, the readouts on the right, the buttons along the top */
 @media (orientation: landscape) and (max-height: 600px) {
@@ -1912,13 +1962,13 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
 .convoymap__fit { position: absolute; top: 10px; left: 10px; z-index: 2; padding: 4px 10px; font-size: 12.5px; }
 
 /* A member's pin on any map (web/src/convoy/layer.ts). */
-.convoy-pin { width: 18px; height: 18px; border-radius: 50%; background: var(--blue); border: 3px solid #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5); }
+.convoy-pin { width: 18px; height: 18px; border-radius: 50%; background: var(--blue); border: 3px solid var(--on-dark); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5); }
 .convoy-pin.is-me { background: var(--green); }
 .convoy-pin.is-leader { background: var(--accent); }
 .convoy-pin.is-stale { opacity: 0.45; }
-.convoy-pin__arrow { position: absolute; left: 50%; top: 50%; width: 0; height: 0; margin: -17px 0 0 -6px; transform-origin: 6px 17px; border: 6px solid transparent; border-bottom: 10px solid #fff; border-top: 0; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6)); pointer-events: none; }
-.convoy-pin__label { position: absolute; left: 50%; top: 20px; transform: translateX(-50%); padding: 0 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; color: #fff; background: rgba(5, 7, 15, 0.78); border-radius: var(--pill); pointer-events: none; }
-.convoy-flag { font-size: 30px; line-height: 1; color: var(--red); text-shadow: 0 0 3px #fff, 0 1px 4px rgba(0, 0, 0, 0.6); }
+.convoy-pin__arrow { position: absolute; left: 50%; top: 50%; width: 0; height: 0; margin: -17px 0 0 -6px; transform-origin: 6px 17px; border: 6px solid transparent; border-bottom: 10px solid var(--on-dark); border-top: 0; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6)); pointer-events: none; }
+.convoy-pin__label { position: absolute; left: 50%; top: 20px; transform: translateX(-50%); padding: 0 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; color: var(--on-dark); background: rgba(5, 7, 15, 0.78); border-radius: var(--pill); pointer-events: none; }
+.convoy-flag { font-size: 30px; line-height: 1; color: var(--red); text-shadow: 0 0 3px var(--on-dark), 0 1px 4px rgba(0, 0, 0, 0.6); }
 
 /* A cruise on an event, and its fields in the event form. */
 .cruise { margin: 12px 0; }
@@ -1929,8 +1979,6 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
 .cruisefields .hint { margin: 0; color: var(--muted); font-size: 13px; }
 .cruisefields label { margin: 0; }
 .editor-form label.toggle { display: flex; align-items: center; gap: 8px; color: var(--text); }
-a.button.primary { display: inline-block; background: var(--accent); border: 1px solid var(--accent); color: var(--on-accent); font-weight: 600; border-radius: var(--radius-sm); padding: 7px 14px; }
-a.button.primary:hover { background: #ffb83d; text-decoration: none; }
 
 /* the convoy you are in, on the Drive screen (web/src/convoy/DriveConvoy.tsx) */
 .driveconvoy {
@@ -2008,12 +2056,9 @@ a.button.primary:hover { background: #ffb83d; text-decoration: none; }
    they follow whatever palette those are set to. Tints are mixed from the tokens. */
 .events .hint, .modal .hint { color: var(--muted); font-size: 13px; margin: 0; }
 .events .hint a, .modal .hint a { color: var(--blue); }
-.events a.button:not(.primary), .modal a.button:not(.primary) {
-  display: inline-flex; align-items: center; background: var(--panel-2); border: 1px solid var(--border);
-  color: var(--text); border-radius: var(--radius-sm); padding: 7px 14px; text-decoration: none; transition: background 0.15s, border-color 0.15s;
-}
-.events a.button:not(.primary):hover, .modal a.button:not(.primary):hover { background: var(--panel-hover); border-color: var(--border-hover); }
-.events a.button.primary, .modal a.button.primary { display: inline-flex; align-items: center; text-decoration: none; }
+/* Inside events and the modal, a plain anchor button keeps the 7px 14px padding even where a card rule would shrink it.
+   Its body, hover and primary look all come from the shared button above. */
+.events a.button:not(.primary), .modal a.button:not(.primary) { padding: 7px 14px; }
 .events :focus-visible, .modal :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .modal__panel:focus { outline: none; }
 

@@ -6,8 +6,9 @@
 .plugins__file { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; max-width: 100%; }
 .plugins__file input[type="file"] { max-width: 100%; }
 
-.plugins__list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.plugins__list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
 
+/* The same colours and radius as the shared .card in styles.css. The 14px padding is this card's own. */
 .plugins__card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -98,13 +99,13 @@
 }
 .plugins__switch input:checked + .plugins__switch-track { background: var(--accent); border-color: var(--accent); }
 .plugins__switch input:checked + .plugins__switch-track::after { transform: translateX(16px); background: var(--on-accent); }
-.plugins__switch input:focus-visible + .plugins__switch-track { outline: 2px solid var(--ring); outline-offset: 2px; }
+.plugins__switch input:focus-visible + .plugins__switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
 .plugins__switch input:disabled + .plugins__switch-track { opacity: 0.5; }
 .plugins__switch-text { color: var(--text); }
 
 .plugins__details { border-top: 1px solid var(--border); padding-top: 8px; }
 .plugins__details > summary { cursor: pointer; font-size: 13px; color: var(--text); padding: 4px 0; }
-.plugins__details > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.plugins__details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .plugins__fields { display: flex; flex-direction: column; gap: 12px; margin: 10px 0 0; }
 .plugins__field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; min-width: 0; }
@@ -138,5 +139,5 @@
 
 @media (max-width: 600px) {
   .plugins__badges { margin-left: 0; justify-content: flex-start; }
-  .plugins__card { padding: 12px; }
+  .plugins__card { padding: var(--sp-3); }
 }

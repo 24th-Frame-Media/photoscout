@@ -153,7 +153,7 @@ function SettingField({ field, value, setValue, secretSet, typed, setTyped, remo
             placeholder={removed ? 'Will be removed' : secretSet ? 'Saved — leave blank to keep' : 'Not set'}
             onChange={(e) => setTyped(e.target.value)}
           />
-          {secretSet && !removed && <button type="button" onClick={() => setRemoved(true)}>Remove</button>}
+          {secretSet && !removed && <button type="button" className="danger" onClick={() => setRemoved(true)}>Remove</button>}
           {removed && <button type="button" onClick={() => setRemoved(false)}>Keep it</button>}
         </div>
       );

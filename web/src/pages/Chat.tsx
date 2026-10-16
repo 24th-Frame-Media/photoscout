@@ -87,7 +87,7 @@ export default function Chat({ user }: { user: User | null }) {
             <Link to={`/u/${encodeURIComponent(m.author.username)}`}><strong>{m.author.username}</strong></Link> {m.body}{' '}
             <span className="hint">{ago(m.created_at)}</span>{' '}
             {m.author.username === user.username ? null : <ReportButton user={user} kind="chat" id={m.id} />}
-            {(m.author.username === user.username || staff) && <> <button className="linkbtn" onClick={() => void remove(m.id)}>Delete</button></>}
+            {(m.author.username === user.username || staff) && <> <button className="danger" onClick={() => void remove(m.id)}>Delete</button></>}
           </p>
         ))}
       </div>

@@ -535,7 +535,7 @@ export default function RadioPanel({
       {stationsError && (
         <div className="status-line error" role="alert">
           {stationsError}
-          <div style={{ marginTop: '6px' }}>
+          <div className="mt-6">
             <button
               type="button"
               onClick={() => {

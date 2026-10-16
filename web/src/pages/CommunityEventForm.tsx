@@ -111,7 +111,7 @@ export default function CommunityEventForm({ user }: { user: User | null }) {
           )}
         <div className="eventcard__actions">
           <button type="submit" className="primary" disabled={busy}>{id ? 'Save changes' : 'Add event'}</button>
-          {id && <button type="button" onClick={() => void remove()}>Delete</button>}
+          {id && <button type="button" className="danger" onClick={() => void remove()}>Delete</button>}
           <button type="button" onClick={() => navigate(-1)}>Cancel</button>
         </div>
         {error && <p className="status-line error">{error}</p>}

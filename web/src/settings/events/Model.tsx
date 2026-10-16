@@ -112,7 +112,7 @@ function LocalModelSection({
       <section>
       <h2>
         🧠 AI models
-        <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+        <label className="toggle toggle--end">
           <input
             type="checkbox"
             checked={draft.llmEnabled === true}
@@ -160,7 +160,7 @@ function LocalModelSection({
           </div>
 
           {llm && !llm.reachable && (
-            <p className="hint" style={{ color: 'var(--red)' }}>
+            <p className="hint hint--error">
               {llm.problem}. In Docker the host&apos;s Ollama is{' '}
               <code>http://host.docker.internal:11434</code>, not localhost.
             </p>
@@ -204,7 +204,7 @@ function LocalModelSection({
                   })
                 }
               />{' '}
-              <strong>{job.label}</strong> — <span className="hint" style={{ margin: 0 }}>{job.hint}</span>
+              <strong>{job.label}</strong> — <span className="hint hint--flush">{job.hint}</span>
             </label>
           ))}
         </div>
@@ -216,20 +216,20 @@ function LocalModelSection({
           type="number"
           min={5}
           max={1440}
-          style={{ maxWidth: 90 }}
+          className="input--narrow"
           value={draft.llmIntervalMinutes}
           onChange={(e) => set({ llmIntervalMinutes: Number(e.target.value) })}
         />
-        <span className="hint" style={{ margin: 0 }}>minutes,</span>
+        <span className="hint hint--flush">minutes,</span>
         <input
           type="number"
           min={1}
           max={500}
-          style={{ maxWidth: 90 }}
+          className="input--narrow"
           value={draft.llmMaxPerRun}
           onChange={(e) => set({ llmMaxPerRun: Number(e.target.value) })}
         />
-        <span className="hint" style={{ margin: 0 }}>events per pass</span>
+        <span className="hint hint--flush">events per pass</span>
       </div>
 
       {llm && (
@@ -415,7 +415,7 @@ function ServiceCard({
           {svc.apiKey === null ? (
             <button onClick={() => set({ apiKey: '' })}>Keep</button>
           ) : svc.apiKeySet ? (
-            <button onClick={() => set({ apiKey: null })}>Remove key</button>
+            <button className="danger" onClick={() => set({ apiKey: null })}>Remove key</button>
           ) : null}
         </div>
       )}
@@ -470,14 +470,14 @@ function ServiceCard({
 function ServiceStatusLine({ svc, status }: { svc: LlmService; status: LlmServiceStatus | undefined }) {
   if (!status) {
     return svc.provider !== 'ollama' && !svc.apiKeySet && !svc.apiKey ? (
-      <p className="hint" style={{ color: 'var(--red)' }}>Needs an API key.</p>
+      <p className="hint hint--error">Needs an API key.</p>
     ) : (
       <p className="hint">Save to check this service.</p>
     );
   }
   if (!status.reachable) {
     return (
-      <p className="hint" style={{ color: 'var(--red)' }}>
+      <p className="hint hint--error">
         {status.problem}.
         {svc.provider === 'ollama' && (
           <>
@@ -489,7 +489,7 @@ function ServiceStatusLine({ svc, status }: { svc: LlmService; status: LlmServic
   }
   if (svc.provider === 'ollama' && svc.model && !status.modelAvailable) {
     return (
-      <p className="hint" style={{ color: 'var(--red)' }}>
+      <p className="hint hint--error">
         {svc.model} is not installed — try: ollama pull {svc.model}
       </p>
     );
@@ -527,7 +527,7 @@ function VisionSection({
     <section>
       <h2>
         🖼 Flyer reading
-        <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+        <label className="toggle toggle--end">
           <input
             type="checkbox"
             checked={draft.visionEnabled === true}
@@ -578,20 +578,20 @@ function VisionSection({
           type="number"
           min={5}
           max={1440}
-          style={{ maxWidth: 90 }}
+          className="input--narrow"
           value={draft.visionIntervalMinutes}
           onChange={(e) => set({ visionIntervalMinutes: Number(e.target.value) })}
         />
-        <span className="hint" style={{ margin: 0 }}>minutes,</span>
+        <span className="hint hint--flush">minutes,</span>
         <input
           type="number"
           min={1}
           max={200}
-          style={{ maxWidth: 90 }}
+          className="input--narrow"
           value={draft.visionMaxPerRun}
           onChange={(e) => set({ visionMaxPerRun: Number(e.target.value) })}
         />
-        <span className="hint" style={{ margin: 0 }}>flyers per pass</span>
+        <span className="hint hint--flush">flyers per pass</span>
       </div>
 
       {llm?.vision && (
@@ -720,7 +720,7 @@ function LlmQueueSection() {
         <button className="primary" onClick={() => void runCheck()} disabled={running}>
           {running ? 'Starting…' : '▶ Run check now'}
         </button>
-        {runMsg && <span className="hint" style={{ margin: 0 }}>{runMsg}</span>}
+        {runMsg && <span className="hint hint--flush">{runMsg}</span>}
       </div>
 
       {displayed.length === 0 ? (
