@@ -51,6 +51,8 @@ export interface PackageOpts {
   /** Source of server.js; null leaves the server entry out of the manifest. */
   server?: string | null;
   web?: boolean;
+  /** The web bundle's path when it is not web.js (e.g. "dist/web.mjs"); with `web: true`. */
+  webFile?: string;
   /** Icon path, as plugin.json "icon" (the file itself goes in extraFiles). */
   icon?: string;
   settings?: unknown[];
@@ -75,7 +77,7 @@ export function pluginPackage(opts: PackageOpts = {}): Uint8Array {
     photoscout: opts.photoscout ?? '^1.0',
   };
   if (opts.server !== null) manifest.server = 'server.js';
-  if (opts.web) manifest.web = 'web.js';
+  if (opts.web) manifest.web = opts.webFile ?? 'web.js';
   if (opts.icon) manifest.icon = opts.icon;
   if (opts.settings) manifest.settings = opts.settings;
   if (opts.services) manifest.services = opts.services;
@@ -83,7 +85,7 @@ export function pluginPackage(opts: PackageOpts = {}): Uint8Array {
   if (opts.permissions) manifest.permissions = opts.permissions;
   const files: Record<string, string | Uint8Array> = { 'plugin.json': JSON.stringify(manifest), ...(opts.extraFiles ?? {}) };
   if (opts.server !== null) files['server.js'] = opts.server ?? PING_SERVER;
-  if (opts.web) files['web.js'] = 'export default {};';
+  if (opts.web) files[opts.webFile ?? 'web.js'] = 'export default {};';
   return zipOf(files);
 }
 

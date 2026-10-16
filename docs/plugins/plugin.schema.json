@@ -16,7 +16,7 @@
     "category": { "enum": ["map", "feed", "events", "ai", "tools"], "description": "Where the plugin belongs in the admin list." },
     "photoscout": { "type": "string", "minLength": 1, "description": "Semver range of the host plugin API this plugin was built for, e.g. ^1.0. The host's API version is 1.0.0 today." },
     "server": { "$ref": "#/$defs/jsFile", "description": "Server entry: a self-contained ES module at the package root. Its default export is definePlugin({ activate }). Optional." },
-    "web": { "$ref": "#/$defs/jsFile", "description": "Web bundle: a self-contained ES module at the package root. Its default export is { activate(host) }. Optional." },
+    "web": { "$ref": "#/$defs/webFile", "description": "Web bundle: a self-contained ES module at the package root, .js or .mjs. Its default export is { activate(host) }. Optional." },
     "permissions": { "type": "array", "items": { "$ref": "#/$defs/permission" }, "description": "What the plugin says it needs. Shown to the admin; not enforced by the browser." },
     "services": { "type": "array", "items": { "$ref": "#/$defs/service" }, "description": "Named external services. The admin sets each one's URL; see authoring.md." },
     "settings": { "type": "array", "items": { "$ref": "#/$defs/setting" }, "description": "Fields the admin fills in on the plugin's settings page." },
@@ -47,7 +47,12 @@
     "jsFile": {
       "type": "string",
       "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!.*\\\\)(?!.*\\u0000)(?!.*//)(?!.*/$)(?!(?:.*/)?\\.\\.(?:/|$))[^\\u0000]*\\.js$",
-      "description": "A package path ending in .js (the host does not accept .mjs for manifest entries)."
+      "description": "A package path ending in .js. The server entry is always .js."
+    },
+    "webFile": {
+      "type": "string",
+      "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!.*\\\\)(?!.*\\u0000)(?!.*//)(?!.*/$)(?!(?:.*/)?\\.\\.(?:/|$))[^\\u0000]*\\.m?js$",
+      "description": "A package path ending in .js or .mjs. The web bundle may be either."
     },
     "publicRoute": {
       "type": "string",

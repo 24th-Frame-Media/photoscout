@@ -105,8 +105,8 @@ export default definePlugin({
       label: 'Example places',
       start: (ctx) => {
         const timer = setInterval(() => {
-          const here = ctx.position();
-          if (here) ctx.report([{ id: 'near', point: here, title: 'Example place', glyph: '📍' }]);
+          const fix = ctx.fix();
+          if (fix) ctx.report([{ id: 'near', point: fix.point, title: 'Example place', glyph: '📍' }]);
         }, 5000);
         return () => clearInterval(timer);
       },

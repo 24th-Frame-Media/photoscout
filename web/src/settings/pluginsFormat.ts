@@ -56,6 +56,54 @@ export function permissionLines(permissions: PluginPermission[]): string[] {
   return lines;
 }
 
+/**
+ * Whether a network permission's detail names this computer or the local network: a loopback
+ * address (127/8, ::1), a private address (10/8, 172.16/12, 192.168/16, and IPv6 unique-local
+ * and link-local), `*.local`, or a bare hostname such as `localhost` or `nas`. Installing a plugin
+ * that declares one lets it reach something on the user's own network, so the install dialog says so.
+ * A missing detail is not local: it means "other websites". The detail may carry a port.
+ */
+export function isLocalNetworkDetail(detail: string | undefined): boolean {
+  const host = hostOfDetail(detail ?? '');
+  if (host === null) return false;
+  const name = host.replace(/^\*\./, '').replace(/\.$/, '');
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+  if (name.includes(':')) {
+    return name === '::1' || /^f[cd][0-9a-f]{0,2}:/.test(name) || /^fe[89ab][0-9a-f]:/.test(name);
+  }
+  if (name.endsWith('.local')) return true;
+  return !name.includes('.');
+}
+
+/** The host part of a detail (`host`, `host:port`, `[v6]`, `[v6]:port`, or a bare IPv6 literal), lowercased, or null when empty. */
+function hostOfDetail(detail: string): string | null {
+  const text = detail.trim().toLowerCase();
+  if (text === '') return null;
+  const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(text);
+  if (bracketed) return bracketed[1];
+  if ((text.match(/:/g) ?? []).length > 1) return text; // a bare IPv6 literal has no port
+  return text.replace(/:\d+$/, '');
+}
+
+/**
+ * One warning line per distinct network permission whose detail is local (see isLocalNetworkDetail).
+ * Empty when the plugin asks for nothing local. The install dialog shows these in the permissions review.
+ */
+export function localNetworkLines(permissions: PluginPermission[]): string[] {
+  const lines: string[] = [];
+  for (const p of permissions) {
+    if (p.kind !== 'network' || !isLocalNetworkDetail(p.detail)) continue;
+    const host = (p.detail ?? '').trim();
+    const line = `Installing this grants the plugin access to ${host}, a loopback or local-network address on this computer or your network. Install it only if you trust the plugin to reach that service.`;
+    if (!lines.includes(line)) lines.push(line);
+  }
+  return lines;
+}
+
 /** "Needs a companion service: name (image)", or null when there are none. */
 export function servicesLine(services: PluginService[]): string | null {
   if (services.length === 0) return null;

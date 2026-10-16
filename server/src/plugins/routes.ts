@@ -213,7 +213,7 @@ export function pluginAdminRouter(runtime: PluginRuntime, remoteOpts: Partial<Re
   return router;
 }
 
-const STATIC_TYPES = new Set(['.js', '.css', '.png', '.svg', '.webp', '.jpg', '.json', '.woff2']);
+const STATIC_TYPES = new Set(['.js', '.mjs', '.css', '.png', '.svg', '.webp', '.jpg', '.json', '.woff2']);
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 /** Whether the manifest in this installed folder lets the public route serve the file. False if the manifest cannot be read. */

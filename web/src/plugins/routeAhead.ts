@@ -1,15 +1,11 @@
 /**
- * The road-ahead test behind `DriveSourceContext.routeAhead`, applied to one point.
- * Pure; no DOM, no maplibre.
+ * The road-ahead test behind `DriveSourceContext.routeAhead` and the banner's route-ahead
+ * filter, applied to one point. Pure; no DOM, no maplibre.
  * The fixed cases in web/test/driveHost.test.ts pin its answers.
  */
 import { cumulativeM, snapToPolyline, type LngLat } from '../drive/geometry.js';
-import type { RouteAheadOptions } from './api.js';
+import { DRIVE_TUNING_DEFAULTS, type RouteWindow } from './driveTuning.js';
 
-/** The car must be this close to the route for any answer. Fixed at 100 m. */
-export const ON_ROUTE_M = 100;
-const DEFAULT_AHEAD_M = 1500;
-const DEFAULT_OFF_ROAD_M = 45;
 /** How far behind the car's place on the route an alert is still snapped first. Fixed at 50 m. */
 const BACKTRACK_M = 50;
 
@@ -23,21 +19,20 @@ function cumulative(route: LngLat[]): number[] {
   return c;
 }
 
-const finiteOr = (value: number | undefined, fallback: number): number =>
-  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-
 /**
- * Metres along `route` from the car to `point`, if `point` is on the road ahead:
- * null when the route is unusable, the car is more than 100 m from it, `point` is
- * behind the car, further than `aheadM` along, or further than `offRoadM` from the road.
+ * Metres along `route` from the car to `point`, if `point` is on the road ahead: null when the
+ * route is unusable, the car is more than `onRouteM` from it, `point` is behind the car, further
+ * than `aheadM` along, or further than `offRoadM` from the road. Unset window fields take the
+ * host defaults (100 m, 1500 m, 45 m).
  */
-export function routeAheadM(route: LngLat[], car: LngLat, point: LngLat, opts: RouteAheadOptions = {}): number | null {
+export function routeAheadM(route: LngLat[], car: LngLat, point: LngLat, window: Partial<RouteWindow> = {}): number | null {
   if (route.length < 2) return null;
-  const aheadM = finiteOr(opts.aheadM, DEFAULT_AHEAD_M);
-  const offRoadM = finiteOr(opts.offRoadM, DEFAULT_OFF_ROAD_M);
+  const onRouteM = window.onRouteM ?? DRIVE_TUNING_DEFAULTS.onRouteM;
+  const aheadM = window.aheadM ?? DRIVE_TUNING_DEFAULTS.aheadM;
+  const offRoadM = window.offRoadM ?? DRIVE_TUNING_DEFAULTS.offRoadM;
   const cum = cumulative(route);
   const here = snapToPolyline(route, cum, car);
-  if (here.distM > ON_ROUTE_M) return null;
+  if (here.distM > onRouteM) return null;
   const at = snapToPolyline(route, cum, point, {
     fromAlong: here.along,
     aheadM: Math.max(2000, aheadM + 500),

@@ -1,19 +1,20 @@
 # Web plugin API: design note
 
-Status: first cut, for review. The contract is `web/src/plugins/api.ts` (read it: it is the documentation, with doc comments on every member). This note covers the shape, the lifecycle, how contributions reach the UI, the trust model and what is still open.
+Status: first cut, for review. The contract is `packages/plugin-sdk/src/web.ts`, published in-repo as `@photoscout/plugin-sdk/web` and re-exported by `web/src/plugins/api.ts` (read it: it is the documentation, with doc comments on every member). This note covers the shape, the lifecycle, how contributions reach the UI, the trust model and what is still open.
 
 ## Files
 
 | File | Role |
 |---|---|
-| `web/src/plugins/api.ts` | The contract: `PluginHost`, `definePlugin`, every contribution type. Self-contained (types of `maplibre-gl`, `react`, `geojson` only); moves into `@photoscout/plugin-sdk` unchanged. |
+| `packages/plugin-sdk/src/web.ts` | The contract: `PluginHost`, `definePlugin`, every contribution type. Self-contained (types of `maplibre-gl`, `react`, `geojson` only). `web/src/plugins/api.ts` re-exports it. |
 | `web/src/plugins/registry.ts` | `PluginRegistry`: builds the `host` for each plugin, owns all contributions, publishes an immutable snapshot, binds to the live map. No DOM needed at import, so it is unit-tested in Node. |
 | `web/src/plugins/loader.ts` | `loadWebPlugins()`: `GET /api/plugins-web`, validate, `import()`, `activate`. Never throws. |
 | `web/src/plugins/poll.ts` | `host.data.poll`: a poll cadence without React. |
 | `web/src/plugins/react.tsx` | `usePluginRegistry`, `PluginView` (render-fn or component slot), `PluginCornerPanels`, `PluginSidePanel`, `legendCategory`. |
 | `web/src/plugins/DriveAlerts.tsx` | The Drive slot as drawn: the banner, status lines and the per-source on/off buttons. |
 | `web/src/plugins/driveRunner.ts` | `DriveRunner`: starts and stops each drive source, gives it its `DriveSourceContext`, owns its alerts, status, speech gate and pins. Framework-free. |
-| `web/src/plugins/routeAhead.ts` | `routeAheadM`: the "on the road ahead" rule for one point (1500 m ahead, 45 m off the road, the car within 100 m of the route). |
+| `web/src/plugins/routeAhead.ts` | `routeAheadM`: the "on the road ahead" rule for one point. Its window is a source's `tuning` (defaults 1500 m ahead, 45 m off the road, the car within 100 m of the route). |
+| `web/src/plugins/driveTuning.ts` | The host's Drive defaults and the range each `DriveTuning` option accepts. Pure. |
 | `web/src/plugins/nearestAlert.ts` | The banner's pick: the nearest alert per source filter (`nearby` or `route-ahead`). |
 | `web/src/settings/tabs.ts` | Core tabs + `groupsWith(pluginTabs)` + `tabFromHash(hash, pluginTabIds)`. |
 | `web/test/pluginHost.test.ts`, `web/test/fixtures/example-plugin/web.ts` | The proof: a real bundle (typed against `api.ts`) loaded through the real loader and registry. |
@@ -92,13 +93,17 @@ Views (settings tab, corner widget, side panel) are a `ViewSpec<P>`: either `ren
 - **Click.** One host click router per map; it queries each registration's existing layers (`queryRenderedFeatures`), so hidden layers do not fire. Ignored while `MapPage` is drawing/picking (`isInteractive`). A click that hits no plugin layer closes the open plugin side panel. This is independent of `MapPage`'s own click handler, so ordering does not matter.
 - **Settings.** `groupsWith` appends plugin tabs to the core "Map"/"Events" groups, or a "Plugins" group above "Admin". Tab ids are `<pluginId>:<id>` and double as the URL hash. `Settings.tsx` keeps the *requested* hash and resolves it against the tabs that exist now, showing "Loading plugins…" while a plugin-style hash is still unknown. Tabs are admin-only unless `admin: false`.
 - **Panels.** Corner widgets render in `.mapcorner` while their legend entry is on. A side panel is drawn in the host's `.panel` frame (grab handle, close, sheet size); one is open at a time. Opening one clears the selection and counts toward `mapshell--panel`; selecting a spot/route or starting an editor closes it.
-- **Drive (wired in 1.1.0).** `Drive.tsx` gives one `DriveRunner` per map and syncs it with the drive phase and the registry. A source that is on runs while a drive is on (`runs: 'drive'`, the default), or from the moment the Drive map is ready (`runs: 'always'`, so its pins show while planning). Its cleanup runs when it stops: the drive ends, the driver turns it off, or the screen closes. Turning it on again starts it again. The banner shows only while driving; status lines show in any phase; speech is said only while driving.
-  - *Banner.* The nearest alert that passes the source's `filter`: `nearby` (1.0 behaviour: within 800 m, straight line) or `route-ahead` (core's rule via `ctx.routeAhead`: the car within 100 m of the route, the point on the road ahead, at most 1500 m along, at most 45 m off the road; nothing without a route). A `route-ahead` answer reads "ahead", a `nearby` one "away".
+- **Drive (wired in 1.1.0; 2.0.0 adds `fix()`, `tuning`, `SpeakResult`, `addImage`, the Drive popup).** `Drive.tsx` gives one `DriveRunner` per map and syncs it with the drive phase and the registry. A source that is on runs while a drive is on (`runs: 'drive'`, the default), or from the moment the Drive map is ready (`runs: 'always'`, so its pins show while planning). Its cleanup runs when it stops: the drive ends, the driver turns it off, or the screen closes. Turning it on again starts it again. The banner shows only while driving; status lines show in any phase; speech is said only while driving.
+  - *Banner.* The nearest alert that passes the source's `filter`: `nearby` (within `tuning.nearbyM`, default 800 m, straight line) or `route-ahead` (core's rule via `ctx.routeAhead`: the car within `tuning.onRouteM` (100 m) of the route, the point on the road ahead, at most `tuning.aheadM` (1500 m) along, at most `tuning.offRoadM` (45 m) off the road; nothing without a route). Each source is judged by its own `tuning`; the nearer of the two kinds wins, and a tie goes to `nearby`. A `route-ahead` answer reads "ahead", a `nearby` one "away".
   - *Route and heading.* `ctx.route()` (the route line, or null) and `ctx.heading()` (degrees, or null until the car has moved at about 5 km/h). Both are getters, read live.
-  - *Voice.* `ctx.speak(text, { key? })` goes through the Drive voice, so the Voice button mutes it. The host gates it: voice on, a GPS fix at most 10 s old and at most 75 m loose (core's report-warning rule), and a `key` is said once per drive. What to say and when is the source's call; core's "nearest report within 800 m, once per alert" is the pattern.
+  - *Voice.* `ctx.speak(text, { key? })` goes through the Drive voice, so the Voice button mutes it. It returns `{ spoken: true }` or `{ spoken: false, reason }`, never a bare boolean, so a check must read `spoken`. The reasons: `stopped`, `not-driving`, `duplicate` (the `key` was said this drive), `voice-off`, `no-fix`, `stale`, `inaccurate`, in the order the host checks them. The gate uses the source's `tuning`: a fix at most `speakMaxAgeMs` (10 000 ms) old and at most `speakMaxAccuracyM` (75 m) loose, core's report-warning rule by default. What to say and when is the source's call; core's "nearest report within 800 m, once per alert" is the pattern.
+  - *GPS.* `ctx.fix()` returns `{ point, accuracyM, ageMs }`, or null before the first fix. The source makes its own staleness calls from these; the speech gate uses the same numbers.
+  - *Tuning.* `addAlertSource({ tuning })` takes the host's rules as options: `nearbyM` (800; 1–10 000), `onRouteM` (100; 1–1 000), `aheadM` (1500; 1–20 000), `offRoadM` (45; 1–500), `speakMaxAgeMs` (10 000; 1 000–60 000), `speakMaxAccuracyM` (75; 1–500). Unset options take the defaults. An unknown name or an out-of-range value throws in `addAlertSource`, so a typo is loud. The defaults and limits are `web/src/plugins/driveTuning.ts`.
   - *On/off.* A button per source, "`<label>` on/off", `defaultOn` at the start, state kept in the registry (`setDriveSourceOn`). Like core's "Reports on/off".
   - *Status.* `ctx.setStatus({ state, text })` under the banner: `waiting`, `checking`, `stale`, `error` show their text (errors in red); `ok` shows nothing, the same as `null`.
-  - *Map pins.* `ctx.map` is the Drive map. Ids come from `ctx.scopedId(name)` (`<pluginId>:<sourceId>:<name>`): the host removes every layer and source with that prefix when the source stops. `ctx.mapLayers(ids, { onTap })` declares the pin layers; a tap that lands on one goes to `onTap` and never picks a destination . Images are not removed.
+  - *Map pins.* `ctx.map` is the Drive map. Ids come from `ctx.scopedId(name)` (`<pluginId>:<sourceId>:<name>`): the host removes every layer and source with that prefix when the source stops. `ctx.mapLayers(ids, { onTap })` declares the pin layers; a tap that lands on one goes to `onTap` and never picks a destination.
+  - *Images.* `ctx.addImage(name, image)` adds an image to the Drive map's style under `ctx.scopedId(name)` and returns that id for `icon-image`; the same name replaces it. `ctx.removeImage(name)` removes one. The host removes every image the source added when it stops (2.0.0; before, images were left behind).
+  - *Popups.* `ctx.showPopup(at, content)` shows a popup on the Drive map, as `host.map.showPopup` does on the main map: a string is text, never HTML; one popup per source; a map click closes it, and so does the source stopping (2.0.0).
   - The Waze feed now runs entirely in its own plugin (a separate repo). Its type list and time window are source rules, so they live with the plugin.
 - **Data.** `data.fetch/json` are confined to `/api/plugins/<id>/…`: the path must start with a single `/` and may contain no `.`/`..` segment (also percent-encoded), backslash, `#` or control characters. `json` throws an error with `.status` and the server's message. `poll` runs immediately, then every 30 s, paused while the tab is hidden, 5 s minimum gap, newer request aborts the older one, late answers dropped, optional `retryAfterMs` for "server is still scanning", optional re-poll 600 ms after the map moves, stops if the map is removed.
 
@@ -141,10 +146,27 @@ What makes that acceptable, and what is enforced:
 - Hot reload / disable-without-reload: the registry supports `dispose`, but the page loads bundles once. The admin enabling a plugin needs a reload today.
 - Basemap style change (`setStyle`) would drop plugin layers; the map never does that today. If it starts, re-run `onReady`.
 - Drive: the 1.1 contract covers what core Waze's Drive mode did (route-ahead, heading, speech, status, a per-source toggle, pins with taps), which is what let Waze move out of core into a plugin. Drive has its own `Map`, which `map.onReady` does not cover (only the map page); Drive sources therefore draw through `ctx.map`, not `onReady`.
-- Versions: `WEB_API_VERSION` (`api.ts`, what `host.apiVersion` reports) is 1.1.0. The server's `HOST_API_VERSION` (`server/src/plugins/types.ts`, what a manifest's `photoscout` range is checked against) is a separate constant and is still 1.0.0. The two are not tied together yet.
+- Versions (decided in 2.0.0; see the section "Versions" below).
 - Capability gating: should `host.data` refuse plugins whose manifest lacks a permission, or should the manifest `public` list be mirrored client side to avoid pointless 401s for visitors?
 - Cross-plugin interaction (radio widget in the corner while another plugin's panel is open) is unspecified beyond "one side panel at a time".
 - i18n, theming tokens for plugin UI, and a CSS story for render-function views (today: use the existing global classes).
+
+## Versions
+
+There are two version numbers, and they are independent.
+
+- `WEB_API_VERSION` (`packages/plugin-sdk/src/web.ts`, 2.0.0) is the browser contract. The SPA reports it to every bundle as `host.apiVersion`. Semver: a major breaks bundles built against the previous one, a minor adds, a patch fixes. The template vendors a copy of `web.ts` (`docs/plugins/template/src/sdk/web-api.ts`); `plugin.mjs sdk-check --write` re-copies it when the SDK version moves, and the test suite fails until the template copies match.
+- `HOST_API_VERSION` (`packages/plugin-sdk/src/server.ts`, 1.1.0) is the server contract (`ServerPlugin`, `PluginContext`) and the manifest's own rules. A manifest's `photoscout` range is checked against it, and only against it (`manifest.ts`). The admin list `GET /api/admin/plugins/` reports it as `hostApiVersion`.
+
+Decision: the two do not move together. A change to the browser contract bumps `WEB_API_VERSION` and leaves `HOST_API_VERSION` alone; a change to the server contract or to what a manifest may say bumps `HOST_API_VERSION` and leaves `WEB_API_VERSION` alone. 1.1.0 of the host is an example of the second kind: it accepts a `.mjs` web bundle, which 1.0.0 refused, so a plugin that needs it should say `photoscout: "^1.1"`. A `^1.0` range (radio-garden) still installs everywhere.
+
+What a bundle can and cannot say:
+
+- A bundle that depends on a browser-contract feature checks `host.apiVersion` itself, on activate, and throws (so the registry rolls it back) or does nothing when it is too old. The manifest cannot state a web range; `photoscout` is the server's range.
+- A web-only plugin (no server entry) still declares `photoscout`, and the host checks that range against `HOST_API_VERSION`. Its web contract is `host.apiVersion`, never `photoscout`.
+- A new `WEB_API_VERSION` major does not reach the server, and a new `HOST_API_VERSION` does not reach the browser. Nothing in the manifest connects them, by design.
+
+Breaking changes so far: 2.0.0 removed `DriveSourceContext.position()` (use `fix()`), changed `speak()` from a boolean to a `SpeakResult`, and removed `RouteAheadOptions` (the window is now `DriveTuning`). A 1.x bundle that calls `position()` fails inside its drive source, which the runner catches and logs.
 
 ## For the follow-on agents
 

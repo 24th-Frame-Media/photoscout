@@ -1,21 +1,27 @@
 /**
  * The host side of the Drive plugin slot. It starts each source that is on while a
  * drive runs, gives it a `DriveSourceContext`, and keeps what the source reports
- * (alerts, a status line, pins on the Drive map, spoken prompts) for the Drive
- * screen to show. Framework-free: the React layer in DriveAlerts.tsx reads
+ * (alerts, a status line, pins and images on the Drive map, popups, spoken prompts)
+ * for the Drive screen to show. Framework-free: the React layer in DriveAlerts.tsx reads
  * `getSnapshot`, and the tests drive it with a fake map.
  */
-import type { Map as MapLibreMap } from 'maplibre-gl';
+import type { Map as MapLibreMap, Popup } from 'maplibre-gl';
 import { logActivity } from '../activity.js';
 import type { Fix } from '../drive/camera.js';
-import type { LngLat } from '../drive/geometry.js';
-import type { DriveAlert, DriveSourceContext, DriveSpeakOptions, DriveStatus, PluginMapClick, RouteAheadOptions } from './api.js';
+import type {
+  DriveAlert,
+  DriveImage,
+  DriveSourceContext,
+  DriveSpeakOptions,
+  DriveStatus,
+  LngLat,
+  PluginMapClick,
+  PopupHandle,
+  SpeakRefusal,
+  SpeakResult,
+} from './api.js';
 import { routeAheadM } from './routeAhead.js';
 import { PluginApiError, type DriveSourceItem } from './registry.js';
-
-/** Speech is held back while the GPS fix is this old or this loose: core's rule for its report warnings. */
-export const SPEAK_MAX_AGE_MS = 10_000;
-export const SPEAK_MAX_ACCURACY_M = 75;
 
 const STATUS_STATES: ReadonlySet<string> = new Set(['waiting', 'checking', 'stale', 'error', 'ok']);
 
@@ -31,6 +37,8 @@ export interface DriveRunnerEnv {
   voiceOn(): boolean;
   /** Speak through the Drive voice. */
   speak(text: string): void;
+  /** A maplibre `Popup`, for `showPopup`. Injected (the screen passes `new Popup()`) so this module needs no maplibre at runtime. */
+  createPopup(): Popup;
 }
 
 /** What the running sources have reported, keyed by `<pluginId>:<key>`. Replaced whenever it changes. */
@@ -53,6 +61,9 @@ interface Run {
   alerts: readonly DriveAlert[];
   status: DriveStatus | null;
   cleanup: (() => void) | null;
+  /** Images this source added, by their full id. Removed when the source stops. */
+  images: Set<string>;
+  popup: PopupHandle | null;
   /** Set when the run has ended. A run that failed to start stays in the table, stopped, until the driver toggles it or the drive ends. */
   stopped: boolean;
 }
@@ -128,7 +139,7 @@ export class DriveRunner {
   }
 
   private start(item: DriveSourceItem): void {
-    const run: Run = { item, prefix: `${item.id}:`, claims: [], alerts: [], status: null, cleanup: null, stopped: false };
+    const run: Run = { item, prefix: `${item.id}:`, claims: [], alerts: [], status: null, cleanup: null, images: new Set(), popup: null, stopped: false };
     this.runs.set(item.id, run);
     try {
       const cleanup = item.start(this.contextFor(run));
@@ -157,7 +168,10 @@ export class DriveRunner {
       run.cleanup = null;
       this.guard(run, 'cleanup', cleanup);
     }
+    this.closePopup(run);
     this.clearMap(run);
+    for (const id of run.images) this.dropImage(id);
+    run.images.clear();
     run.claims = [];
     run.alerts = [];
     run.status = null;
@@ -177,22 +191,49 @@ export class DriveRunner {
     }
   }
 
+  /** Remove one image from the Drive map's style, if it is there. Quiet if the map is already gone. */
+  private dropImage(id: string): void {
+    try {
+      if (this.map.hasImage(id)) this.map.removeImage(id);
+    } catch {
+      // The Drive map is being removed with the screen; its images went with it.
+    }
+  }
+
+  private closePopup(run: Run): void {
+    const popup = run.popup;
+    run.popup = null;
+    if (!popup) return;
+    try {
+      popup.close();
+    } catch {
+      // The Drive map is being removed; its popup went with it.
+    }
+  }
+
   // ---- what a source sees -----------------------------------------------------
 
   private contextFor(run: Run): DriveSourceContext {
     const { env, map } = this;
+    /** A full id for `name` on this source, after checking the name the way `scopedId` always has. */
+    const scoped = (name: string): string => {
+      if (typeof name !== 'string' || name.trim() === '' || name.length > 80) {
+        throw new PluginApiError('scopedId name must be a non-empty string of at most 80 characters');
+      }
+      return `${run.prefix}${name}`;
+    };
     return {
       map,
-      position: () => {
+      fix: () => {
         const fix = env.fix();
-        return fix ? [fix.lng, fix.lat] : null;
+        return fix ? { point: [fix.lng, fix.lat], accuracyM: fix.accuracy, ageMs: Math.max(0, Date.now() - fix.t) } : null;
       },
       route: () => env.route(),
       heading: () => env.heading(),
-      routeAhead: (point: LngLat, opts?: RouteAheadOptions) => {
+      routeAhead: (point: LngLat) => {
         const route = env.route();
         const fix = env.fix();
-        return route && fix ? routeAheadM(route, [fix.lng, fix.lat], point, opts) : null;
+        return route && fix ? routeAheadM(route, [fix.lng, fix.lat], point, run.item.tuning) : null;
       },
       report: (alerts) => {
         if (!Array.isArray(alerts)) throw new PluginApiError('report needs a list of alerts');
@@ -206,12 +247,46 @@ export class DriveRunner {
         this.publish();
       },
       speak: (text, opts) => this.speakFor(run, text, opts),
-      scopedId: (name) => {
-        if (typeof name !== 'string' || name.trim() === '' || name.length > 80) {
-          throw new PluginApiError('scopedId name must be a non-empty string of at most 80 characters');
-        }
-        return `${run.prefix}${name}`;
+      addImage: (name, image: DriveImage) => {
+        const id = scoped(name);
+        if (run.stopped) return id;
+        // maplibre reports a second add of the same id as an error event, so replace it explicitly.
+        this.dropImage(id);
+        map.addImage(id, image);
+        run.images.add(id);
+        return id;
       },
+      removeImage: (name) => {
+        const id = scoped(name);
+        if (!run.images.delete(id)) return;
+        this.dropImage(id);
+      },
+      showPopup: (at: LngLat, content) => {
+        if (!Array.isArray(at) || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) {
+          throw new PluginApiError('showPopup needs a [lng, lat] point');
+        }
+        if (typeof content !== 'string' && (typeof content !== 'object' || content === null)) {
+          throw new PluginApiError('showPopup content must be a string or an element');
+        }
+        if (run.stopped) return { close() {} };
+        this.closePopup(run);
+        // A string goes through setText, which never parses HTML.
+        const popup = env.createPopup().setLngLat(at);
+        (typeof content === 'string' ? popup.setText(content) : popup.setDOMContent(content)).addTo(map);
+        const handle: PopupHandle = {
+          close: () => {
+            try {
+              popup.remove();
+            } catch {
+              // The Drive map is being removed; its popup went with it.
+            }
+            if (run.popup === handle) run.popup = null;
+          },
+        };
+        run.popup = handle;
+        return handle;
+      },
+      scopedId: (name) => scoped(name),
       mapLayers: (layerIds, opts) => {
         if (!Array.isArray(layerIds) || layerIds.some((id) => typeof id !== 'string' || id === '')) {
           throw new PluginApiError('mapLayers needs a list of layer ids');
@@ -227,20 +302,28 @@ export class DriveRunner {
     };
   }
 
-  /** The host's gate on speech: voice on, a good fix, and each keyed prompt once per drive. */
-  private speakFor(run: Run, text: string, opts?: DriveSpeakOptions): boolean {
+  /**
+   * The host's gate on speech, in the order it refuses: the source has stopped, no drive is on,
+   * the key was already said, the Voice button is off, no fix, a stale fix, a loose fix. The
+   * fix limits come from the source's own tuning.
+   */
+  private speakFor(run: Run, text: string, opts?: DriveSpeakOptions): SpeakResult {
     if (typeof text !== 'string' || text.trim() === '' || text.length > 200) {
       throw new PluginApiError('speak text must be a non-empty string of at most 200 characters');
     }
-    if (run.stopped || !this.driving) return false;
+    const refused = (reason: SpeakRefusal): SpeakResult => ({ spoken: false, reason });
+    if (run.stopped) return refused('stopped');
+    if (!this.driving) return refused('not-driving');
     const key = opts?.key === undefined ? null : `${run.item.id}\n${String(opts.key)}`;
-    if (key !== null && this.spoken.has(key)) return false;
-    if (!this.env.voiceOn()) return false;
+    if (key !== null && this.spoken.has(key)) return refused('duplicate');
+    if (!this.env.voiceOn()) return refused('voice-off');
     const fix = this.env.fix();
-    if (!fix || Date.now() - fix.t > SPEAK_MAX_AGE_MS || fix.accuracy > SPEAK_MAX_ACCURACY_M) return false;
+    if (!fix) return refused('no-fix');
+    if (Date.now() - fix.t > run.item.tuning.speakMaxAgeMs) return refused('stale');
+    if (fix.accuracy > run.item.tuning.speakMaxAccuracyM) return refused('inaccurate');
     this.env.speak(text);
     if (key !== null) this.spoken.add(key);
-    return true;
+    return { spoken: true };
   }
 
   // ---- internals --------------------------------------------------------------

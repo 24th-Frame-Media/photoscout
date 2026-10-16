@@ -24,6 +24,7 @@ import {
   type WebPlugin,
 } from './api.js';
 import { createPoll } from './poll.js';
+import { DRIVE_TUNING_DEFAULTS, DRIVE_TUNING_LIMITS, type ResolvedDriveTuning } from './driveTuning.js';
 
 /**
  * The host side of the web plugin API: owns every contribution, binds them to
@@ -107,6 +108,8 @@ export interface DriveSourceItem {
   on: boolean;
   filter: DriveAlertFilter;
   runs: 'drive' | 'always';
+  /** The source's tuning, every option resolved to a value (the host's rule where it set none). */
+  tuning: ResolvedDriveTuning;
   start: DriveAlertSourceDef['start'];
 }
 
@@ -258,6 +261,31 @@ function removeScoped(map: MapLibreMap, pluginId: string): void {
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * A drive source's `tuning`, checked and filled with the host's defaults. Throws on an option
+ * name the host does not know (a typo would otherwise be silently ignored) and on a value that
+ * is not a finite number within its range.
+ */
+function tuningOf(value: unknown): ResolvedDriveTuning {
+  const out: ResolvedDriveTuning = { ...DRIVE_TUNING_DEFAULTS };
+  if (value === undefined) return out;
+  if (typeof value !== 'object' || value === null) throw new PluginApiError('drive source tuning must be an object');
+  const given = value as Record<string, unknown>;
+  for (const key of Object.keys(given)) {
+    if (!Object.prototype.hasOwnProperty.call(DRIVE_TUNING_LIMITS, key)) throw new PluginApiError(`drive source tuning has no option "${key}"`);
+  }
+  for (const key of Object.keys(DRIVE_TUNING_LIMITS) as (keyof ResolvedDriveTuning)[]) {
+    const v = given[key];
+    if (v === undefined) continue;
+    const { min, max } = DRIVE_TUNING_LIMITS[key];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) {
+      throw new PluginApiError(`drive tuning ${key} must be a number from ${min} to ${max}`);
+    }
+    out[key] = v;
+  }
+  return out;
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
@@ -745,7 +773,8 @@ export class PluginRegistry {
         if (filter !== 'nearby' && filter !== 'route-ahead') throw new PluginApiError("drive source filter must be 'nearby' or 'route-ahead'");
         const runs = def.runs ?? 'drive';
         if (runs !== 'drive' && runs !== 'always') throw new PluginApiError("drive source runs must be 'drive' or 'always'");
-        const item: DriveRec['item'] = { id: globalId(sourceId), pluginId: id, label: str(def.label, 'drive source label', 60), filter, runs, start: def.start };
+        const tuning = tuningOf(def.tuning);
+        const item: DriveRec['item'] = { id: globalId(sourceId), pluginId: id, label: str(def.label, 'drive source label', 60), filter, runs, tuning, start: def.start };
         if (def.title !== undefined) item.title = str(def.title, 'drive source title', 200);
         scope.drive.set(sourceId, { item, on: def.defaultOn !== false });
         reg.emit();

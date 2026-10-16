@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
+    "@photoscout/plugin-sdk": "*",
     "@types/node": "^22.13.0",
     "esbuild": "^0.28.2",
     "fflate": "^0.8.3",

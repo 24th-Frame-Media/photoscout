@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import type { SidePanelProps } from '../../../../web/src/plugins/api.js';
+import type { SidePanelProps } from '@photoscout/plugin-sdk/web';
 import type { RadioAudioController, RadioPlayerState } from './player.js';
 import type { RadioPlace, RadioStation, RadioStationsResponse } from './types.js';
 

@@ -1,6 +1,6 @@
 # Writing a PhotoScout plugin
 
-A plugin adds to PhotoScout without changing the core app: a server half (routes, a database, background tasks), a web half (map layers, legend toggles, panels, Settings tabs), or both. This guide is written so an agent can follow it step by step. The contracts it cites are `web/src/plugins/api.ts` (web) and `server/src/plugins/types.ts` (server); the manifest rules are in `server/src/plugins/manifest.ts` and `docs/plugins/plugin.schema.json`.
+A plugin adds to PhotoScout without changing the core app: a server half (routes, a database, background tasks), a web half (map layers, legend toggles, panels, Settings tabs), or both. This guide is written so an agent can follow it step by step. The contracts it cites are `@photoscout/plugin-sdk/web` (web) and `@photoscout/plugin-sdk/server` (server), in `packages/plugin-sdk/`; the manifest rules are in `server/src/plugins/manifest.ts` and `docs/plugins/plugin.schema.json`.
 
 ## For agents (start here)
 
@@ -51,6 +51,20 @@ There is no separate "repository" source in this tree. `bundled.ts` mentions one
 
 Copy `docs/plugins/template` to `plugins/<name>/`. The template has `plugin.json`, `src/server.ts`, `src/web.ts`, `src/sdk/` (copies of the two contracts, types only), `build.mjs` and a README. It needs no `package.json`: the repository's CLI bundles it with the repository's esbuild.
 
+### The contract and its copies
+
+The contract is one package, `@photoscout/plugin-sdk` (`packages/plugin-sdk/`). Its web half is `src/web.ts` (`WebPlugin`, `PluginHost`, `WEB_API_VERSION`) and its server half is `src/server.ts` (`ServerPlugin`, `PluginContext`, the manifest types, `HOST_API_VERSION`). The app reads the same code through `web/src/plugins/api.ts` and `server/src/plugins/types.ts`, which only re-export it.
+
+- **Inside this repository**, import from the package: `import type { WebPlugin } from '@photoscout/plugin-sdk/web'` (or `/server`). The workspace link resolves it, and the root build and typecheck build it first. Radio Garden does this.
+- **Outside it** (a plugin repository that cannot use the workspace), vendor the contract: copy `docs/plugins/template/src/sdk/` into the plugin. Each copy is the SDK file byte for byte, behind one header line that names the SDK version. Check the copies against a clone of this repository (run `npm ci` in the clone first, because the CLI imports esbuild and fflate):
+
+  ```sh
+  node /path/to/photoscout/scripts/plugin.mjs sdk-check <plugin folder> --sdk /path/to/photoscout
+  ```
+
+  The check exits 1 and names the line when a copy has drifted, or when it records another SDK version. On a version bump, re-vendor with the same command plus `--write`. Line endings do not count.
+- **In this repository**, the test suite checks that the template's copies match the SDK (`packages/plugin-sdk/test/sdk.test.ts`). After changing the SDK, run `npm run plugin:sdk-check -- docs/plugins/template --write` and commit the copies with it.
+
 ### 2. Manifest (`plugin.json`)
 
 The schema is `docs/plugins/plugin.schema.json`. You may add `"$schema": "<relative path to it>"` for editor hints; the host ignores that field.
@@ -65,7 +79,7 @@ The schema is `docs/plugins/plugin.schema.json`. You may add `"$schema": "<relat
 | `category` | yes | `map`, `feed`, `events`, `ai` or `tools` |
 | `photoscout` | yes | a semver range of the host plugin API, e.g. `^1.0`. The host provides `1.0.0`. |
 | `server` | no | a `.js` path in the package, e.g. `server.js` |
-| `web` | no | a `.js` path in the package, e.g. `web.js` |
+| `web` | no | a `.js` or `.mjs` path in the package, e.g. `web.js` |
 | `icon` | no | a path in the package |
 | `homepage` | no | a string shown to the admin |
 | `permissions` | no | `[{ "kind": ..., "detail": ... }]`. Kinds: `network`, `secrets`, `realtime`, `llm`, `tasks`, `storage`. Shown to the admin; not enforced in the browser. The one the server does act on is `network` with a `detail` of `host` or `host:port` (see `ctx.fetch`). |
@@ -77,7 +91,7 @@ Settings fields: `key` (a letter, then letters, digits or underscores; not `cons
 
 ### 3. Server entry (`src/server.ts`)
 
-Export `definePlugin`-shaped default: an object with `activate(ctx)` (and optional `deactivate()`), typed `ServerPlugin` from `server/src/plugins/types.ts`. Everything `ctx` gives you:
+Export `definePlugin`-shaped default: an object with `activate(ctx)` (and optional `deactivate()`), typed `ServerPlugin` from `@photoscout/plugin-sdk/server`. Everything `ctx` gives you:
 
 - `ctx.router`: an Express router mounted at `/api/plugins/<id>/`. Register routes with `ctx.router.get(path, handler)`.
 - `ctx.auth.requireUser(req, res)` and `ctx.auth.requireAdmin(req, res)`: each returns `false` and sends the error response when the check fails. Use them on routes that need a session.
@@ -91,7 +105,7 @@ Export `definePlugin`-shaped default: an object with `activate(ctx)` (and option
 
 ### 4. Web bundle (`src/web.ts`)
 
-Export a plain object typed `WebPlugin` (from `web/src/plugins/api.ts`, or its copy `src/sdk/web-api.ts`): `{ activate(host) }`. The bundle imports types only, so it needs no runtime code from the app. (`definePlugin` in `api.ts` is an identity function; using it is optional.)
+Export a plain object typed `WebPlugin` (from `@photoscout/plugin-sdk/web`, or its copy `src/sdk/web-api.ts`): `{ activate(host) }`. The bundle imports types only, so it needs no runtime code from the app. (`definePlugin` is an identity function; using it is optional.)
 
 `activate` runs once per page load. Register everything synchronously if you can; the host waits at most 10 seconds for it. If `activate` throws, everything it registered is rolled back. Layers and sources belong to the map: add them inside `host.map.onReady`, which runs once per map page, after its style loads, and again for each later page. Its cleanup runs when that map is removed.
 
@@ -102,18 +116,29 @@ What to register, with the API you call:
 - **A click.** `host.map.onClick([layerIds], (e) => ...)` gives `e.lngLat`, `e.features` and `e.layerId`. `host.map.showPopup(lngLat, text)` shows a popup (text, never HTML).
 - **A side panel.** `host.panel.addSide<T>({ id, label, render })` returns `{ isOpen, open(data), close() }`. The host draws the frame; `render(el, { data, close, size, toggleSize })` draws inside it. At most one side panel is open.
 - **A Settings tab.** `host.settings.addTab({ id, label, group?, admin?, render })`. Tabs are for admins by default (`admin: false` opens them to everyone). `render(el, { isAdmin })`.
-- **Other slots.** `host.panel.addCorner({ id, whileOn?, render })` for a widget in the map's bottom-right corner; `host.drive.addAlertSource({ id, label, filter?, defaultOn?, runs?, title?, start })` for Drive alerts (below).
+- **Other slots.** `host.panel.addCorner({ id, whileOn?, render })` for a widget in the map's bottom-right corner; `host.drive.addAlertSource({ id, label, filter?, defaultOn?, runs?, title?, tuning?, start })` for Drive alerts (below).
 - **Data.** `host.data.json<T>(path, init)` and `host.data.fetch(path, init)` reach only `/api/plugins/<id>/…`. `json` throws with a `status` on a non-2xx answer. `host.assetUrl(path)` gives the URL of a file in `assets/`.
 - **Feedback.** `host.log.*` goes to the console. `host.activity(message, level?)` shows a line in the Activity panel; keep it short, with no URLs, tokens or response bodies.
 
 **Drive sources.** A source feeds the Drive screen while a drive is on: `start(ctx)` runs when a drive begins (and again when the driver turns the source back on), and its cleanup runs when the drive ends or the driver turns it off. The `ctx` (see `DriveSourceContext` in `api.ts`) gives:
 
-- `position()`, `route()` (the route line, or null), `heading()` (degrees, or null until the car moves).
-- `routeAhead(point)`: metres along the route to `point` when it is on the road ahead, else null. The window is 1500 m ahead and 45 m off the road, with the car within 100 m of the route.
-- `report(alerts)`: the banner shows the nearest alert that passes the source's `filter`. `'route-ahead'` uses `routeAhead`; `'nearby'` (the default) uses a 800 m straight line.
+- `fix()`: the car's GPS fix as `{ point, accuracyM, ageMs }`, or null before the first fix. Decide your own staleness from these.
+- `route()` (the route line, or null), `heading()` (degrees, or null until the car moves).
+- `routeAhead(point)`: metres along the route to `point` when it is on the road ahead, else null. Its window is the source's `tuning` (defaults: 1500 m ahead, 45 m off the road, the car within 100 m of the route).
+- `report(alerts)`: the banner shows the nearest alert that passes the source's `filter`. `'route-ahead'` uses `routeAhead`; `'nearby'` (the default) uses a straight line within `tuning.nearbyM` (default 800 m).
 - `setStatus({ state, text })` for a line under the banner (`waiting`, `checking`, `stale`, `error`; `ok` or `null` shows nothing).
-- `speak(text, { key })` for the Drive voice. The host mutes it with the Voice button, holds it back for a stale or loose GPS fix, and says each `key` once per drive. What to say and when is yours.
+- `speak(text, { key })` for the Drive voice. It returns `{ spoken: true }` or `{ spoken: false, reason }`, so check `spoken`: the object is always truthy. The host mutes it with the Voice button, holds it back for a stale or loose fix (`tuning.speakMaxAgeMs`, `tuning.speakMaxAccuracyM`), and says each `key` once per drive. What to say and when is yours.
 - Pins on the Drive map: draw with `ctx.map` using `ctx.scopedId('name')` ids, and declare the layers with `ctx.mapLayers(ids, { onTap })`. A tap on a declared layer goes to `onTap` and never picks a destination.
+- Images: `ctx.addImage(name, image)` returns the id for an `icon-image`; `ctx.removeImage(name)` removes one. Both are cleaned up when the source stops.
+- `showPopup(at, content)`: a popup on the Drive map, as `host.map.showPopup` on the main map. One per source; a map click or the source stopping closes it.
+
+Tune a source's rules with `tuning` on its definition. Every option is optional and defaults to the host's rule; an unknown name or an out-of-range value throws:
+
+```ts
+tuning: { nearbyM: 1500, speakMaxAccuracyM: 40 } // a wider banner radius; speak only on a tight fix
+```
+
+The options are `nearbyM` (800, 1–10 000), `onRouteM` (100, 1–1 000), `aheadM` (1500, 1–20 000), `offRoadM` (45, 1–500), `speakMaxAgeMs` (10 000, 1 000–60 000) and `speakMaxAccuracyM` (75, 1–500).
 
 The driver gets an on/off button per source, "`<label>` on/off", on by default unless `defaultOn: false`. A source runs during a drive by default; `runs: 'always'` starts it with the Drive map instead, so its pins show while the driver plans (its banner and speech still wait for a drive).
 
@@ -124,8 +149,8 @@ host.drive.addAlertSource({
   filter: 'route-ahead',
   start(ctx) {
     const timer = setInterval(async () => {
-      const here = ctx.position();
-      if (!here) return;
+      const fix = ctx.fix();
+      if (!fix) return;
       const reports = await host.data.json<DriveAlert[]>('/reports'); // your own feed
       const ahead = reports
         .flatMap((r) => { const d = ctx.routeAhead(r.point); return d === null ? [] : [{ r, d }]; })
@@ -364,16 +389,17 @@ export default plugin;
 
 | Case | Schema | Host | CLI |
 |---|---|---|---|
-| `photoscout` range the host (1.0.0) cannot meet | accepts | rejects | rejects (host check) |
+| `photoscout` range the host (1.1.0) cannot meet | accepts | rejects | rejects (host check) |
 | duplicate setting `key` | accepts | rejects | rejects (host check) |
 | select `default` not among its `options` | accepts | rejects | rejects (host check) |
 | empty `description`, `author`, setting `label`, or service `image` | rejects | accepts | rejects |
 | `null` for an optional field (`server`, `web`, `icon`, `homepage`, …) | rejects | accepts, as if absent | rejects |
 | a non-string entry in `services[].volumes` | rejects | silently drops the whole list | rejects |
 | an unknown top-level field | accepts | ignores | warns |
-| `.mjs` for `server` or `web` | rejects | rejects | rejects |
+| `.mjs` for `web` | accepts | accepts | accepts |
+| `.mjs` for `server` | rejects | rejects | rejects |
 
-The web side disagrees with the server on one point. `web/src/plugins/loader.ts` (`isBundlePath`) accepts `.mjs` bundle paths, and `docs/plugins/web-api-design.md` says `.js|.mjs`, but the manifest only accepts `.js`. The schema follows the manifest, so ship `web.js`.
+The web bundle may be `.js` or `.mjs`: the manifest, the schema (`webFile`) and the SPA loader (`isBundlePath`) all accept both, and the server serves both as JavaScript. The server entry is `.js` only, because the host copies it to a `.mjs` file and imports that copy. A `.mjs` web bundle needs `photoscout` `^1.1` or later (the 1.0 host refused it); `web.js` still works everywhere.
 
 ## Limits at a glance
 

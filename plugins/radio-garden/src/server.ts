@@ -1,4 +1,4 @@
-import type { PluginContext, ServerPlugin } from '../../../server/src/plugins/types.js';
+import type { PluginContext, ServerPlugin } from '@photoscout/plugin-sdk/server';
 import {
   fetchRadioPlaces,
   fetchRadioStations,

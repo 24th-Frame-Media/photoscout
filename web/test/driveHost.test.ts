@@ -2,13 +2,22 @@ import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { Map as MapLibreMap } from 'maplibre-gl';
+import type { Map as MapLibreMap, Popup } from 'maplibre-gl';
 import type { Fix } from '../src/drive/camera.js';
 import type { LngLat } from '../src/drive/geometry.js';
-import { WEB_API_VERSION, definePlugin, type DriveAlert, type DriveAlertFilter, type DriveSourceContext, type PluginMapClick } from '../src/plugins/api.js';
+import {
+  WEB_API_VERSION,
+  definePlugin,
+  type DriveAlert,
+  type DriveFix,
+  type DriveImage,
+  type DriveSourceContext,
+  type PluginMapClick,
+} from '../src/plugins/api.js';
 import { PluginDriveAlerts, PluginDriveToggles } from '../src/plugins/DriveAlerts.js';
 import { DriveRunner, type DriveRunnerEnv } from '../src/plugins/driveRunner.js';
-import { bannerAlert, nearestAlert } from '../src/plugins/nearestAlert.js';
+import { DRIVE_TUNING_DEFAULTS } from '../src/plugins/driveTuning.js';
+import { bannerAlert, nearestAlert, type BannerSource } from '../src/plugins/nearestAlert.js';
 import { routeAheadM } from '../src/plugins/routeAhead.js';
 import { PluginRegistry, type DriveSourceItem } from '../src/plugins/registry.js';
 
@@ -17,6 +26,9 @@ import { PluginRegistry, type DriveSourceItem } from '../src/plugins/registry.js
 class FakeDriveMap {
   readonly layers = new Map<string, { id: string; layout: Record<string, unknown> }>();
   readonly sources = new Map<string, unknown>();
+  readonly images = new Map<string, unknown>();
+  /** Adds of a name that was already there, and removals of a name that was not: maplibre reports both as errors. */
+  readonly imageErrors: string[] = [];
   /** Layers with a feature under the next tap. */
   hitLayers: string[] = [];
   addLayer(spec: { id: string }) { this.layers.set(spec.id, { id: spec.id, layout: {} }); }
@@ -24,10 +36,27 @@ class FakeDriveMap {
   getLayer(id: string) { return this.layers.get(id); }
   removeLayer(id: string) { if (!this.layers.delete(id)) throw new Error(`no layer ${id}`); }
   removeSource(id: string) { this.sources.delete(id); }
+  addImage(id: string, image: unknown) { if (this.images.has(id)) this.imageErrors.push(id); this.images.set(id, image); }
+  hasImage(id: string) { return this.images.has(id); }
+  removeImage(id: string) { if (!this.images.delete(id)) this.imageErrors.push(id); }
   getStyle() { return { layers: [...this.layers.values()], sources: Object.fromEntries(this.sources) }; }
   queryRenderedFeatures(_point: unknown, opts: { layers: string[] }) {
     return this.hitLayers.filter((id) => opts.layers.includes(id)).map((id) => ({ layer: { id }, properties: {} }));
   }
+}
+
+/** A popup that records what it was given; the host builds one per `showPopup` through `createPopup`. */
+class FakePopup {
+  at: LngLat | null = null;
+  text: string | null = null;
+  dom: unknown = null;
+  added: unknown = null;
+  removed = 0;
+  setLngLat(at: LngLat) { this.at = at; return this; }
+  setText(text: string) { this.text = text; return this; }
+  setDOMContent(el: unknown) { this.dom = el; return this; }
+  addTo(map: unknown) { this.added = map; return this; }
+  remove() { this.removed++; return this; }
 }
 
 const asMap = (m: FakeDriveMap) => m as unknown as MapLibreMap;
@@ -46,6 +75,7 @@ function world() {
     heading: null as number | null,
     voice: true,
     spoken: [] as string[],
+    popups: [] as FakePopup[],
   };
   const env: DriveRunnerEnv = {
     fix: () => state.fix,
@@ -53,15 +83,23 @@ function world() {
     heading: () => state.heading,
     voiceOn: () => state.voice,
     speak: (text) => { state.spoken.push(text); },
+    createPopup: () => {
+      const popup = new FakePopup();
+      state.popups.push(popup);
+      return popup as unknown as Popup;
+    },
   };
   return { state, env };
 }
 
 function item(local: string, start: DriveSourceItem['start'], over: Partial<DriveSourceItem> = {}): DriveSourceItem {
-  return { id: `pl:${local}`, pluginId: 'pl', label: local, on: true, filter: 'nearby', runs: 'drive', start, ...over };
+  return { id: `pl:${local}`, pluginId: 'pl', label: local, on: true, filter: 'nearby', runs: 'drive', tuning: DRIVE_TUNING_DEFAULTS, start, ...over };
 }
 
 const quiet = () => mock.method(console, 'error', () => {});
+
+/** The banner's view of a source: 'pl:route' filters by the road ahead, everything else by straight-line distance. */
+const bannerOf = (id: string): BannerSource => ({ filter: id === 'pl:route' ? 'route-ahead' : 'nearby', tuning: DRIVE_TUNING_DEFAULTS });
 
 // --- route-ahead: the road-ahead rule, pinned by fixed cases -----------------------------
 
@@ -77,13 +115,14 @@ test('routeAhead: a point on the road ahead gets its distance; behind, off the r
   assert.equal(routeAheadM(route, [151.205, -33.88], [151.21, -33.87]), null, 'a car more than 100 m off the route gets no answers');
 });
 
-test('routeAhead: aheadM widens the window, offRoadM narrows the road, and short routes give nothing', () => {
+test('routeAhead: the window widens with aheadM, narrows with offRoadM, and short routes give nothing', () => {
   const route: [number, number][] = [[151.2, -33.87], [151.3, -33.87]];
   const far: LngLat = [151.25, -33.87];
   assert.equal(routeAheadM(route, CAR, far), null, 'core stops at 1500 m');
   const d = routeAheadM(route, CAR, far, { aheadM: 5000 });
   assert.ok(d !== null && d > 4100 && d < 4200, `about 4.1 km ahead, got ${d}`);
   assert.equal(routeAheadM(route, CAR, [151.21, -33.8705], { offRoadM: 20 }), null);
+  assert.equal(routeAheadM(route, CAR, [151.21, -33.8705], { onRouteM: 40 }), null, 'a car 55 m off the route is out of a 40 m window');
   assert.equal(routeAheadM([CAR], CAR, [151.21, -33.87]), null);
 });
 
@@ -92,23 +131,37 @@ test('routeAhead: aheadM widens the window, offRoadM narrows the road, and short
 test('the banner: a nearby source is judged in a straight line, a route-ahead source by the road ahead', () => {
   const sideStreet: DriveAlert = { id: 'side', point: [151.2075, -33.871], title: 'Side street' };
   const onRoad: DriveAlert = { id: 'road', point: [151.21, -33.87], title: 'Ahead' };
-  const routeOnly = (id: string): DriveAlertFilter => (id === 'pl:route' ? 'route-ahead' : 'nearby');
 
-  assert.equal(bannerAlert({ 'pl:route': [sideStreet] }, routeOnly, ROUTE, CAR), null, 'a side street is not on the road ahead');
-  const ahead = bannerAlert({ 'pl:route': [sideStreet, onRoad] }, routeOnly, ROUTE, CAR);
+  assert.equal(bannerAlert({ 'pl:route': [sideStreet] }, bannerOf, ROUTE, CAR), null, 'a side street is not on the road ahead');
+  const ahead = bannerAlert({ 'pl:route': [sideStreet, onRoad] }, bannerOf, ROUTE, CAR);
   assert.equal(ahead?.alert.id, 'road');
   assert.equal(ahead?.ahead, true);
   assert.equal(ahead?.sourceId, 'pl:route');
 
-  const nearby = bannerAlert({ 'pl:nearby': [sideStreet] }, () => 'nearby', ROUTE, CAR);
+  const nearby = bannerAlert({ 'pl:nearby': [sideStreet] }, () => bannerOf('pl:nearby'), ROUTE, CAR);
   assert.equal(nearby?.alert.id, 'side');
   assert.equal(nearby?.ahead, false);
   assert.equal(nearestAlert({ x: [sideStreet] }, CAR)?.sourceId, 'x');
 });
 
-// --- the registry: on/off, filter, title -----------------------------------------------
+test('the banner uses each source\'s own tuning: nearbyM widens one source, onRouteM narrows another', () => {
+  // About 1.4 km east of the car: past the 800 m default, inside 2000 m.
+  const far: DriveAlert = { id: 'far', point: [151.22, -33.87], title: 'Far' };
+  const wide: BannerSource = { filter: 'nearby', tuning: { ...DRIVE_TUNING_DEFAULTS, nearbyM: 2000 } };
+  assert.equal(bannerAlert({ 'pl:n': [far] }, () => ({ filter: 'nearby', tuning: DRIVE_TUNING_DEFAULTS }), ROUTE, CAR), null);
+  assert.equal(bannerAlert({ 'pl:n': [far] }, () => wide, ROUTE, CAR)?.alert.id, 'far');
 
-test('a drive source is on by default, may start off, carries its filter and title, and the button flips it', async () => {
+  // The car sits 55 m off the route: a route-ahead source with the default 100 m window still counts; one with 40 m does not.
+  const offRoute: LngLat = [151.205, -33.8705];
+  const onRoad: DriveAlert = { id: 'road', point: [151.21, -33.87], title: 'Ahead' };
+  const narrow: BannerSource = { filter: 'route-ahead', tuning: { ...DRIVE_TUNING_DEFAULTS, onRouteM: 40 } };
+  assert.equal(bannerAlert({ 'pl:route': [onRoad] }, bannerOf, ROUTE, offRoute)?.alert.id, 'road');
+  assert.equal(bannerAlert({ 'pl:route': [onRoad] }, () => narrow, ROUTE, offRoute), null);
+});
+
+// --- the registry: on/off, filter, title, tuning -----------------------------------------
+
+test('a drive source is on by default, may start off, carries its filter, title and tuning, and the button flips it', async () => {
   const registry = new PluginRegistry({ storage: null });
   await registry.activate({ id: 'pl', name: 'P', version: '1.0.0' }, definePlugin({
     activate(host) {
@@ -117,16 +170,24 @@ test('a drive source is on by default, may start off, carries its filter and tit
       assert.throws(() => host.drive.addAlertSource({ id: 'c', label: 'C', filter: 'sideways' as never, start: () => {} }), /filter/);
       assert.throws(() => host.drive.addAlertSource({ id: 'c', label: 'C', runs: 'sometimes' as never, start: () => {} }), /runs/);
       host.drive.addAlertSource({ id: 'd', label: 'Delta', runs: 'always', start: () => {} });
+      host.drive.addAlertSource({ id: 'e', label: 'Echo', tuning: { nearbyM: 2000, speakMaxAccuracyM: 30 }, start: () => {} });
+      assert.throws(() => host.drive.addAlertSource({ id: 'f', label: 'F', tuning: { nearbym: 2000 } as never, start: () => {} }), /no option "nearbym"/);
+      assert.throws(() => host.drive.addAlertSource({ id: 'f', label: 'F', tuning: { speakMaxAgeMs: 500 }, start: () => {} }), /speakMaxAgeMs/);
+      assert.throws(() => host.drive.addAlertSource({ id: 'f', label: 'F', tuning: { nearbyM: Number.NaN }, start: () => {} }), /nearbyM/);
+      assert.throws(() => host.drive.addAlertSource({ id: 'f', label: 'F', tuning: 'wide' as never, start: () => {} }), /tuning must be an object/);
+      assert.throws(() => host.drive.addAlertSource({ id: 'f', label: 'F', tuning: { toString: 1 } as never, start: () => {} }), /no option "toString"/);
     },
   }));
-  const [a, b, d] = registry.getSnapshot().driveSources;
+  const [a, b, d, e] = registry.getSnapshot().driveSources;
   assert.deepEqual([a.id, a.on, a.filter, a.runs], ['pl:a', true, 'nearby', 'drive']);
+  assert.deepEqual(a.tuning, DRIVE_TUNING_DEFAULTS, 'a source that sets no tuning gets the host rules');
   assert.deepEqual([b.on, b.filter, b.title], [false, 'route-ahead', 'Beta warnings']);
   assert.equal(d.runs, 'always');
+  assert.deepEqual(e.tuning, { ...DRIVE_TUNING_DEFAULTS, nearbyM: 2000, speakMaxAccuracyM: 30 }, 'set options replace the defaults, the rest keep them');
   registry.setDriveSourceOn('pl:b', true);
   assert.equal(registry.getSnapshot().driveSources[1].on, true);
   registry.setDriveSourceOn('pl:missing', false);
-  assert.equal(WEB_API_VERSION, '1.1.0');
+  assert.equal(WEB_API_VERSION, '2.0.0');
 });
 
 // --- the runner ----------------------------------------------------------------------
@@ -139,20 +200,35 @@ test('the runner starts the sources that are on, and their context reads the liv
   let changes = 0;
   runner.subscribe(() => { changes++; });
   const seen: unknown[] = [];
+  const got: { fix: DriveFix | null } = { fix: null };
   runner.sync([
     item('on', (ctx) => {
-      seen.push([ctx.position(), ctx.route()?.length, ctx.heading()]);
+      seen.push([ctx.route()?.length, ctx.heading()]);
+      got.fix = ctx.fix();
       ctx.report([{ id: 'a', point: [151.21, -33.87], title: 'Hazard' }]);
     }),
     item('off', () => assert.fail('an off source must not start'), { on: false }),
   ]);
-  assert.deepEqual(seen, [[CAR, 2, 90]]);
+  assert.deepEqual(seen, [[2, 90]]);
+  const fixSeen = got.fix;
+  assert.ok(fixSeen !== null, 'the fix is there');
+  assert.deepEqual({ point: fixSeen.point, accuracyM: fixSeen.accuracyM }, { point: CAR, accuracyM: 5 });
+  assert.ok(fixSeen.ageMs >= 0 && fixSeen.ageMs < 5_000, 'the fix carries its age');
   assert.equal(runner.getSnapshot().alerts['pl:on']?.[0].id, 'a');
   assert.equal(runner.getSnapshot().alerts['pl:off'], undefined);
   assert.ok(changes > 0, 'subscribers hear about the report');
 
   runner.stopAll();
   assert.equal(runner.getSnapshot().alerts['pl:on'], undefined, 'the drive ends and the alerts go');
+});
+
+test('fix() is null before the first fix', () => {
+  const { state, env } = world();
+  state.fix = null;
+  const runner = new DriveRunner(asMap(new FakeDriveMap()), env);
+  let got: DriveFix | null | undefined;
+  runner.sync([item('x', (ctx) => { got = ctx.fix(); })]);
+  assert.equal(got, null);
 });
 
 test("runs 'always': the source starts with the map, so its pins show while planning; speech and drive-only sources wait for a drive", () => {
@@ -174,11 +250,11 @@ test("runs 'always': the source starts with the map, so its pins show while plan
   assert.equal(tripStarts, 0, 'a drive-only source waits for a drive');
   assert.ok(map.layers.has('pl:plan:pins'), 'the always source draws while planning');
   assert.equal(runner.getSnapshot().alerts['pl:plan']?.[0].id, 'p');
-  assert.equal(ctx.speak('Planning'), false, 'nothing is said outside a drive');
+  assert.deepEqual(ctx.speak('Planning'), { spoken: false, reason: 'not-driving' }, 'nothing is said outside a drive');
 
   runner.sync([plan, trip], true);
   assert.equal(tripStarts, 1);
-  assert.equal(ctx.speak('Driving'), true, 'once a drive is on, the always source may speak too');
+  assert.deepEqual(ctx.speak('Driving'), { spoken: true }, 'once a drive is on, the always source may speak too');
   runner.sync([plan, trip], false);
   assert.equal(tripStarts, 1);
   assert.ok(map.layers.has('pl:plan:pins'), 'the always source keeps its pins when the drive ends');
@@ -187,7 +263,7 @@ test("runs 'always': the source starts with the map, so its pins show while plan
   assert.equal(map.layers.has('pl:plan:pins'), false, 'closing the Drive screen takes them off');
 });
 
-test('routeAhead in the context needs a route and a fix', () => {
+test('routeAhead in the context needs a route and a fix; the source\'s aheadM applies to it', () => {
   const { state, env } = world();
   const runner = new DriveRunner(asMap(new FakeDriveMap()), env);
   const answers: (number | null)[] = [];
@@ -200,37 +276,66 @@ test('routeAhead in the context needs a route and a fix', () => {
   assert.equal(answers[0], null, 'no route yet');
   assert.ok(answers[1] !== null && answers[1] > 450 && answers[1] < 470, `about 460 m ahead, got ${answers[1]}`);
   assert.equal(answers[2], null, 'behind the car');
+
+  const far: LngLat = [151.25, -33.87];
+  const seen: Record<string, number | null> = {};
+  runner.sync([
+    item('default', (ctx) => { seen.default = ctx.routeAhead(far); }),
+    item('wide', (ctx) => { seen.wide = ctx.routeAhead(far); }, { tuning: { ...DRIVE_TUNING_DEFAULTS, aheadM: 5000 } }),
+  ]);
+  assert.equal(seen.default, null, 'the host window stops at 1500 m');
+  assert.ok(seen.wide !== null && seen.wide > 4100 && seen.wide < 4200, `about 4.1 km ahead for aheadM 5000, got ${seen.wide}`);
 });
 
-test('speech goes through the Drive voice, is gated by voice and fix, and each key speaks once per drive', () => {
+test('speech goes through the Drive voice, is gated by voice and fix, and says why it did not', () => {
   const { state, env } = world();
   const runner = new DriveRunner(asMap(new FakeDriveMap()), env);
   let ctx!: DriveSourceContext;
   runner.sync([item('talk', (c) => { ctx = c; })]);
 
-  assert.equal(ctx.speak('Police ahead', { key: 'a1' }), true);
-  assert.equal(ctx.speak('Police ahead', { key: 'a1' }), false, 'a keyed prompt is said once');
-  assert.equal(ctx.speak('Plain'), true);
+  assert.deepEqual(ctx.speak('Police ahead', { key: 'a1' }), { spoken: true });
+  assert.deepEqual(ctx.speak('Police ahead', { key: 'a1' }), { spoken: false, reason: 'duplicate' }, 'a keyed prompt is said once');
+  assert.deepEqual(ctx.speak('Plain'), { spoken: true });
   assert.deepEqual(state.spoken, ['Police ahead', 'Plain']);
 
   state.voice = false;
-  assert.equal(ctx.speak('Muted', { key: 'a2' }), false);
+  assert.deepEqual(ctx.speak('Muted', { key: 'a2' }), { spoken: false, reason: 'voice-off' });
   state.voice = true;
-  assert.equal(ctx.speak('Unmuted', { key: 'a2' }), true, 'a muted key is not recorded, so it can still be said');
+  assert.deepEqual(ctx.speak('Unmuted', { key: 'a2' }), { spoken: true }, 'a muted key is not recorded, so it can still be said');
 
   state.fix = fixAt(CAR[0], CAR[1], { t: Date.now() - 11_000 });
-  assert.equal(ctx.speak('Stale', { key: 'a3' }), false, 'older than 10 s');
+  assert.deepEqual(ctx.speak('Stale', { key: 'a3' }), { spoken: false, reason: 'stale' }, 'older than 10 s');
   state.fix = fixAt(CAR[0], CAR[1], { accuracy: 80 });
-  assert.equal(ctx.speak('Loose', { key: 'a3' }), false, 'worse than 75 m');
+  assert.deepEqual(ctx.speak('Loose', { key: 'a3' }), { spoken: false, reason: 'inaccurate' }, 'worse than 75 m');
   state.fix = null;
-  assert.equal(ctx.speak('No fix'), false);
+  assert.deepEqual(ctx.speak('No fix'), { spoken: false, reason: 'no-fix' });
   state.fix = fixAt(CAR[0], CAR[1]);
 
+  assert.throws(() => ctx.speak(''), /speak text/);
   runner.stopAll();
+  assert.deepEqual(ctx.speak('Late'), { spoken: false, reason: 'stopped' }, 'a stopped source may not speak');
   let ctx2!: DriveSourceContext;
   runner.sync([item('talk', (c) => { ctx2 = c; })]);
-  assert.equal(ctx2.speak('Police ahead', { key: 'a1' }), true, 'a new drive says it again');
-  assert.throws(() => ctx2.speak(''), /speak text/);
+  assert.deepEqual(ctx2.speak('Police ahead', { key: 'a1' }), { spoken: true }, 'a new drive says it again');
+});
+
+test('tuning sets the speech gate for one source; a source with none keeps the host rules', () => {
+  const { state, env } = world();
+  const runner = new DriveRunner(asMap(new FakeDriveMap()), env);
+  let lax!: DriveSourceContext;
+  let strict!: DriveSourceContext;
+  runner.sync([
+    item('lax', (c) => { lax = c; }, { tuning: { ...DRIVE_TUNING_DEFAULTS, speakMaxAgeMs: 30_000, speakMaxAccuracyM: 100 } }),
+    item('strict', (c) => { strict = c; }),
+  ]);
+  state.fix = fixAt(CAR[0], CAR[1], { t: Date.now() - 11_000, accuracy: 80 });
+  assert.deepEqual(lax.speak('Lax'), { spoken: true });
+  assert.deepEqual(strict.speak('Strict'), { spoken: false, reason: 'stale' });
+  state.fix = fixAt(CAR[0], CAR[1], { accuracy: 120 });
+  assert.deepEqual(lax.speak('Loose'), { spoken: false, reason: 'inaccurate' });
+  state.fix = fixAt(CAR[0], CAR[1], { t: Date.now() - 40_000 });
+  assert.deepEqual(lax.speak('Old'), { spoken: false, reason: 'stale' });
+  assert.deepEqual(state.spoken, ['Lax']);
 });
 
 test('status: shown for states other than ok, cleared with null, and checked', () => {
@@ -271,6 +376,82 @@ test('pins: scoped ids are removed when the source stops, and another source kee
   assert.equal(cleaned, 1, 'the cleanup ran');
   assert.deepEqual([...map.layers.keys()], ['pl:other:dots']);
   assert.deepEqual([...map.sources.keys()], ['pl:other:src']);
+});
+
+test('images: a source adds one under its scopedId, replaces it by name, removes it by name, and loses the rest when it stops', () => {
+  const { env } = world();
+  const map = new FakeDriveMap();
+  const runner = new DriveRunner(asMap(map), env);
+  let ctx!: DriveSourceContext;
+  const a = { width: 1, height: 1, data: new Uint8Array(4) } as unknown as DriveImage;
+  const b = { width: 2, height: 2, data: new Uint8Array(16) } as unknown as DriveImage;
+  runner.sync([
+    item('img', (c) => { ctx = c; assert.equal(c.addImage('pin', a), 'pl:img:pin'); }),
+    item('other', (c) => { c.addImage('pin', a); }),
+  ]);
+  assert.deepEqual([...map.images.keys()].sort(), ['pl:img:pin', 'pl:other:pin']);
+
+  assert.equal(ctx.addImage('pin', b), 'pl:img:pin', 'the same name gives the same id');
+  assert.equal(map.images.get('pl:img:pin'), b, 'and replaces the image');
+  assert.deepEqual(map.imageErrors, [], 'a replacement is not a duplicate add');
+
+  ctx.removeImage('pin');
+  assert.deepEqual([...map.images.keys()], ['pl:other:pin'], 'removed by name; the other source keeps its own');
+  ctx.removeImage('pin');
+  assert.deepEqual(map.imageErrors, [], 'removing a removed name is quiet');
+
+  ctx.addImage('kept', b);
+  runner.stopAll();
+  assert.deepEqual([...map.images.keys()], [], 'closing the Drive screen takes every image off');
+  assert.deepEqual(map.imageErrors, []);
+  assert.throws(() => ctx.addImage('', a), /scopedId name/);
+});
+
+test('showPopup: a popup on the Drive map, one per source; the next one closes the last; the source stopping closes it', () => {
+  const { state, env } = world();
+  const map = new FakeDriveMap();
+  const runner = new DriveRunner(asMap(map), env);
+  let ctx!: DriveSourceContext;
+  runner.sync([item('pop', (c) => { ctx = c; })]);
+
+  const first = ctx.showPopup([151.2, -33.87], 'Hello');
+  const p1 = state.popups[0];
+  assert.deepEqual(p1.at, [151.2, -33.87]);
+  assert.equal(p1.text, 'Hello', 'a string is shown as text');
+  assert.equal(p1.added, asMap(map), 'the popup belongs to the Drive map');
+
+  const el = { tag: 'div' } as unknown as HTMLElement;
+  ctx.showPopup([151.3, -33.87], el);
+  const p2 = state.popups[1];
+  assert.equal(p1.removed, 1, 'showing another popup closes the first');
+  assert.equal(p2.dom, el, 'an element is shown as the content');
+  assert.equal(p2.text, null);
+
+  const second = ctx.showPopup([151.25, -33.87], 'Again');
+  assert.equal(p2.removed, 1, 'and so on, one at a time');
+  second.close();
+  assert.equal(state.popups[2].removed, 1, 'the close handle closes it');
+  first.close();
+
+  ctx.showPopup([151.22, -33.87], 'Left open');
+  const open = state.popups[3];
+  runner.stopAll();
+  assert.equal(open.removed, 1, 'the source stopping closes its popup');
+
+  assert.throws(() => ctx.showPopup([Number.NaN, 0], 'x'), /showPopup needs/);
+  assert.throws(() => ctx.showPopup([151.2, -33.87], 42 as never), /string or an element/);
+});
+
+test('routeAhead, fix and speak keep the same answers after a source stops (no throw, no stale state)', () => {
+  const { state, env } = world();
+  state.route = ROUTE;
+  const runner = new DriveRunner(asMap(new FakeDriveMap()), env);
+  let ctx!: DriveSourceContext;
+  runner.sync([item('late', (c) => { ctx = c; })]);
+  runner.stopAll();
+  assert.deepEqual(ctx.fix()?.point, CAR, 'the fix is the screen\'s, still readable');
+  assert.equal(typeof ctx.routeAhead([151.21, -33.87]), 'number');
+  assert.deepEqual(ctx.speak('after'), { spoken: false, reason: 'stopped' });
 });
 
 test('a tap on a plugin pin goes to its onTap and is not a destination pick; unclaimed taps fall through', () => {

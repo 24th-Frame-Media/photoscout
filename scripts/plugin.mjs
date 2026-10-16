@@ -4,6 +4,7 @@
  *
  *   node scripts/plugin.mjs validate <dir> [<dir> ...] [--json]
  *   node scripts/plugin.mjs build <dir> [--json]
+ *   node scripts/plugin.mjs sdk-check <dir> [<dir> ...] [--sdk <repo root>] [--write] [--json]
  *
  * validate  Reads <dir>/plugin.json and checks it three ways: against
  *           docs/plugins/plugin.schema.json, against the host's own
@@ -15,8 +16,15 @@
  *           checks that each bundle default-exports an object with activate(),
  *           and writes dist/<id>-<version>.zip. It reads the zip back and runs
  *           the host check on it before the build counts as done.
+ * sdk-check Checks a plugin's vendored contract (src/sdk/web-api.ts and
+ *           src/sdk/server-api.ts) against @photoscout/plugin-sdk. Each copy must
+ *           equal its SDK source (packages/plugin-sdk/src/web.ts, server.ts) apart
+ *           from one header line that records the SDK version. Line endings do not
+ *           count. --sdk names another clone of the repository to compare against
+ *           (default: this one). --write re-copies the files instead of failing.
  *
- * Exit status: 0 ok, 1 the plugin has errors or the build failed, 2 bad usage.
+ * Exit status: 0 ok, 1 the plugin has errors, the build failed or a copy drifted,
+ * 2 bad usage.
  * Dependencies: esbuild and fflate, resolved from the repository root.
  */
 import fs from 'node:fs';
@@ -31,7 +39,8 @@ const HOST_MANIFEST = path.join(ROOT, 'server', 'src', 'plugins', 'manifest.ts')
 const SOURCE_EXTENSIONS = ['.ts', '.mjs', '.js'];
 const USAGE = `usage:
   node scripts/plugin.mjs validate <dir> [<dir> ...] [--json]
-  node scripts/plugin.mjs build <dir> [--json]`;
+  node scripts/plugin.mjs build <dir> [--json]
+  node scripts/plugin.mjs sdk-check <dir> [<dir> ...] [--sdk <repo root>] [--write] [--json]`;
 
 const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isFile = (p) => {
@@ -364,6 +373,81 @@ export async function buildPackage(dir) {
 }
 
 // ---------------------------------------------------------------------------
+// The SDK drift check. A plugin that cannot use the workspace vendors the
+// contract as src/sdk/ (docs/plugins/authoring.md, "The contract and its copies").
+// Each vendored copy is the SDK source byte for byte, behind one header line
+// that names the SDK version.
+// ---------------------------------------------------------------------------
+
+/** Each vendored copy a plugin carries, and the SDK source it copies. Both paths are relative to packages/plugin-sdk. */
+export const SDK_COPIES = [
+  { copy: 'src/sdk/web-api.ts', source: 'src/web.ts' },
+  { copy: 'src/sdk/server-api.ts', source: 'src/server.ts' },
+];
+const SDK_HEADER = /^\/\/ Vendored from @photoscout\/plugin-sdk (\S+) \(/;
+const lf = (text) => text.replace(/\r\n/g, '\n');
+
+/** The copy of one SDK source at `version`: the header line, then the source. The header takes the source's line endings. */
+function expectedCopy(sdkText, version, source) {
+  const eol = sdkText.includes('\r\n') ? '\r\n' : '\n';
+  const header = `// Vendored from @photoscout/plugin-sdk ${version} (${source}). Do not edit: re-copy with plugin.mjs sdk-check --write.`;
+  return header + eol + sdkText;
+}
+
+/** Why `have` is not the copy `want` is, or null when it is. Line endings do not count. */
+export function sdkDrift(have, want, version) {
+  const h = lf(have).split('\n');
+  const w = lf(want).split('\n');
+  if (h.join('\n') === w.join('\n')) return null;
+  const copied = SDK_HEADER.exec(h[0])?.[1];
+  if (copied !== undefined && copied !== version) {
+    return `is a copy of @photoscout/plugin-sdk ${copied}; the SDK is ${version}. Re-copy it with sdk-check --write.`;
+  }
+  let i = 0;
+  while (i < h.length && i < w.length && h[i] === w[i]) i += 1;
+  const sdkLine = w[i] === undefined ? '(end of file)' : w[i].length > 90 ? `${w[i].slice(0, 87)}...` : w[i];
+  return `differs from the SDK at line ${i + 1} (the SDK has ${JSON.stringify(sdkLine)}). Re-copy it with sdk-check --write, or do not edit the copy.`;
+}
+
+/**
+ * Check a plugin folder's vendored contract against the SDK, or with `write` re-copy it.
+ * `sdkRoot` is the repository that holds packages/plugin-sdk (default: this one).
+ * Returns { dir, version, errors: [{ file, message }], written: [copy paths] }.
+ */
+export function checkPluginSdk(dir, { sdkRoot = ROOT, write = false } = {}) {
+  const result = { dir, version: null, errors: [], written: [] };
+  const error = (file, message) => result.errors.push({ file, message });
+  const sdkDir = path.join(path.resolve(sdkRoot), 'packages', 'plugin-sdk');
+  const sdkManifest = path.join(sdkDir, 'package.json');
+  if (!isFile(sdkManifest)) {
+    error(path.resolve(sdkRoot), 'has no packages/plugin-sdk; pass --sdk <the repository root that holds the SDK>');
+    return result;
+  }
+  const abs = path.resolve(dir);
+  if (!isDir(abs)) {
+    error(dir, 'is not a folder');
+    return result;
+  }
+  const { version } = JSON.parse(fs.readFileSync(sdkManifest, 'utf8'));
+  result.version = version;
+  for (const { copy, source } of SDK_COPIES) {
+    const want = expectedCopy(fs.readFileSync(path.join(sdkDir, source), 'utf8'), version, source);
+    const file = path.join(abs, copy);
+    if (write) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, want);
+      result.written.push(copy);
+    } else if (!isFile(file)) {
+      error(copy, 'is missing; copy it from the SDK with sdk-check --write');
+    } else {
+      const drift = sdkDrift(fs.readFileSync(file, 'utf8'), want, version);
+      if (drift) error(copy, drift);
+    }
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Output and entry point
 // ---------------------------------------------------------------------------
 
@@ -390,22 +474,56 @@ function toJson(r) {
   };
 }
 
+function printSdk(r) {
+  console.log(`${r.errors.length > 0 ? 'FAILED' : 'OK'}  ${r.dir}${r.version ? `  (@photoscout/plugin-sdk ${r.version})` : ''}`);
+  for (const w of r.written) console.log(`  wrote    ${w}`);
+  for (const e of r.errors) console.log(`  error    ${e.file}: ${e.message}`);
+  console.log(`  ${r.errors.length} error(s)`);
+}
+
+function toJsonSdk(r) {
+  return { dir: r.dir, ok: r.errors.length === 0, version: r.version, errors: r.errors, written: r.written };
+}
+
 async function main(argv) {
   if (argv[0] === 'help' || argv.includes('--help')) {
     console.log(USAGE);
     return 0;
   }
+  // --sdk <root> (or --sdk=<root>) names the repository whose SDK sdk-check compares against.
+  let sdkRoot = ROOT;
+  const sdkAt = argv.findIndex((a) => a === '--sdk' || a.startsWith('--sdk='));
+  if (sdkAt >= 0) {
+    const inline = argv[sdkAt].startsWith('--sdk=');
+    const value = inline ? argv[sdkAt].slice('--sdk='.length) : argv[sdkAt + 1];
+    if (!value || value.startsWith('--')) {
+      console.error(USAGE);
+      return 2;
+    }
+    sdkRoot = path.resolve(value);
+    const drop = inline ? [sdkAt] : [sdkAt, sdkAt + 1];
+    argv = argv.filter((_, i) => !drop.includes(i));
+  }
   const flags = argv.filter((a) => a.startsWith('--'));
   const [cmd, ...targets] = argv.filter((a) => !a.startsWith('--'));
-  const usable = flags.every((f) => f === '--json')
-    && ['validate', 'build'].includes(cmd)
+  const allowed = cmd === 'sdk-check' ? ['--json', '--write'] : ['--json'];
+  const usable = flags.every((f) => allowed.includes(f))
+    && ['validate', 'build', 'sdk-check'].includes(cmd)
     && targets.length > 0
-    && (cmd === 'validate' || targets.length === 1);
+    && (cmd !== 'build' || targets.length === 1)
+    && (sdkAt < 0 || cmd === 'sdk-check');
   if (!usable) {
     console.error(USAGE);
     return 2;
   }
   const json = flags.includes('--json');
+  if (cmd === 'sdk-check') {
+    const write = flags.includes('--write');
+    const checks = targets.map((dir) => checkPluginSdk(dir, { sdkRoot, write }));
+    if (json) console.log(JSON.stringify(checks.map(toJsonSdk), null, 2));
+    else for (const r of checks) printSdk(r);
+    return checks.some((r) => r.errors.length > 0) ? 1 : 0;
+  }
   const results = [];
   for (const dir of targets) results.push(cmd === 'validate' ? await inspect(dir) : await buildPackage(dir));
   if (json) console.log(JSON.stringify(results.map(toJson), null, 2));

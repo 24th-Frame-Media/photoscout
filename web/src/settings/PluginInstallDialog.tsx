@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import Modal from '../components/Modal.js';
 import { pluginsApi, type PluginStatus, type RemotePreview } from './pluginsApi.js';
-import { categoryLabel, permissionLines, safeHttpUrl, sizeLabel } from './pluginsFormat.js';
+import { categoryLabel, localNetworkLines, permissionLines, safeHttpUrl, sizeLabel } from './pluginsFormat.js';
 import './plugins.css';
 
 /**
@@ -21,6 +21,7 @@ export default function PluginInstallDialog({ registryUrl, preview, installed, o
   const updating = installed !== undefined;
   const title = updating ? `Update ${preview.name} to v${preview.version}` : `Install ${preview.name}`;
   const permissions = permissionLines(preview.permissions);
+  const localNetwork = localNetworkLines(preview.permissions);
   const homepage = safeHttpUrl(preview.homepage);
   const meta = [preview.author, categoryLabel(preview.category)].filter((part) => part !== '').join(' · ');
 
@@ -54,6 +55,11 @@ export default function PluginInstallDialog({ registryUrl, preview, installed, o
           ) : (
             <p className="plugins__note">No special access.</p>
           )}
+          {localNetwork.map((line) => (
+            <div key={line} className="banner plugins__warn" role="note">
+              <p><strong>Local network access.</strong> {line}</p>
+            </div>
+          ))}
         </Section>
 
         {preview.services.length > 0 && (

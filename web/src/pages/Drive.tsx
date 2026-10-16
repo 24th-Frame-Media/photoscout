@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { LngLatBounds, Map as MlMap, Marker, type GeoJSONSource } from 'maplibre-gl';
+import { LngLatBounds, Map as MlMap, Marker, Popup, type GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { api, type User } from '../api.js';
 import { STYLE_URL } from '../map/layers.js';
@@ -122,6 +122,7 @@ function DriveScreen({ children }: { children?: ReactNode }) {
       heading: () => heading.current,
       voiceOn: () => live.current.voiceOn,
       speak: (text) => live.current.speak(text),
+      createPopup: () => new Popup(),
     });
     runnerRef.current = r;
     setRunner(r);

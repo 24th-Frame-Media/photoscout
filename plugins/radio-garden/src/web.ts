@@ -1,6 +1,6 @@
 import type { FeatureCollection, Point } from 'geojson';
 import type { GeoJSONSource } from 'maplibre-gl';
-import type { LegendEntry, PluginHost, WebPlugin } from '../../../web/src/plugins/api.js';
+import type { LegendEntry, PluginHost, WebPlugin } from '@photoscout/plugin-sdk/web';
 import { RadioAudioController, type RadioPlayerState } from './web/player.js';
 import type { RadioPlace, RadioPlacesResponse, RadioStationsResponse } from './web/types.js';
 import { createPlayerWidget, createStationsPanel, type PlayerStore } from './web/view.js';
@@ -8,8 +8,8 @@ import { createPlayerWidget, createStationsPanel, type PlayerStore } from './web
 /**
  * Radio Garden's web half: the "Radio" toggle, the clustered station map, the
  * stations panel and the persistent player. It was hardcoded in the app; it now
- * uses only the plugin web API (web/src/plugins/api.ts), and imports only types
- * from it. This bundle ships no React: the views use `host.ui.react`.
+ * uses only the plugin web API (`@photoscout/plugin-sdk/web`), and imports only
+ * types from it. This bundle ships no React: the views use `host.ui.react`.
  *
  * The data comes from this plugin's own server routes (`/places`,
  * `/places/:id/stations`), read through `host.data`.

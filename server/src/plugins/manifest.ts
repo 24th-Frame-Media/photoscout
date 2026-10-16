@@ -56,9 +56,17 @@ function relativePath(value: unknown, what: string): string {
   return p;
 }
 
+/** The server entry: always a .js file. The host copies it to a .mjs file and imports that copy. */
 function jsEntry(value: unknown, what: string): string {
   const p = relativePath(value, what);
   if (!p.endsWith('.js')) throw new PluginError(`${what} must be a .js file`);
+  return p;
+}
+
+/** The web bundle: a .js or .mjs file, the same two the SPA loader imports (web/src/plugins/loader.ts, isBundlePath). */
+function webEntry(value: unknown, what: string): string {
+  const p = relativePath(value, what);
+  if (!/\.m?js$/.test(p)) throw new PluginError(`${what} must be a .js or .mjs file`);
   return p;
 }
 
@@ -328,7 +336,7 @@ export function parseManifest(json: unknown): PluginManifest {
   }
 
   const server = json.server === undefined || json.server === null ? undefined : jsEntry(json.server, 'server');
-  const web = json.web === undefined || json.web === null ? undefined : jsEntry(json.web, 'web');
+  const web = json.web === undefined || json.web === null ? undefined : webEntry(json.web, 'web');
   const icon = json.icon === undefined || json.icon === null ? undefined : relativePath(json.icon, 'icon');
   const homepage = optionalText(json.homepage, 'homepage');
 

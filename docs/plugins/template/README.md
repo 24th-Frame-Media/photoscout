@@ -21,7 +21,7 @@ A minimal PhotoScout plugin. It has a public `/places` route on the server, a ma
 - `plugin.json`: the manifest. Checked against `docs/plugins/plugin.schema.json`.
 - `src/server.ts`: the server entry, a `ServerPlugin` (`src/sdk/server-api.ts`).
 - `src/web.ts`: the web bundle, a `WebPlugin` (`src/sdk/web-api.ts`).
-- `src/sdk/`: verbatim copies of `web/src/plugins/api.ts` and `server/src/plugins/types.ts`, with a one-line header. They hold types only. Re-copy them when the host API changes.
+- `src/sdk/`: verbatim copies of the contract in `packages/plugin-sdk/src/` (`@photoscout/plugin-sdk`), each behind a one-line header that names the SDK version. They hold types only. A repository plugin can drop this folder and import `@photoscout/plugin-sdk/web` or `/server` instead. A copy outside the repository is checked with `plugin.mjs sdk-check <folder> --sdk <clone>`, and re-copied with `--write` on a version bump (`docs/plugins/authoring.md`, "The contract and its copies").
 - `build.mjs`: runs the repository's plugin CLI (`scripts/plugin.mjs build`).
 
 No `package.json` is needed: the CLI bundles with the repository's esbuild.

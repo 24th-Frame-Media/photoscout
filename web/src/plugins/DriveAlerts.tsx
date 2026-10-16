@@ -3,6 +3,7 @@ import type { Fix } from '../drive/camera.js';
 import type { LngLat } from '../drive/geometry.js';
 import { formatDistance } from '../drive/format.js';
 import type { DriveRunner } from './driveRunner.js';
+import { DRIVE_TUNING_DEFAULTS } from './driveTuning.js';
 import { bannerAlert } from './nearestAlert.js';
 import { usePluginRegistry } from './react.js';
 import { pluginRegistry, type PluginRegistry } from './registry.js';
@@ -17,8 +18,11 @@ export function PluginDriveAlerts({ runner, fix, route, driving, registry = plug
   const snap = useSyncExternalStore(runner.subscribe, runner.getSnapshot, runner.getSnapshot);
   const sources = usePluginRegistry(registry).driveSources;
   const position: LngLat | null = fix ? [fix.lng, fix.lat] : null;
-  const filterOf = (sourceId: string) => sources.find((s) => s.id === sourceId)?.filter ?? 'nearby';
-  const near = driving ? bannerAlert(snap.alerts, filterOf, route, position) : null;
+  const sourceOf = (sourceId: string) => {
+    const s = sources.find((item) => item.id === sourceId);
+    return s ? { filter: s.filter, tuning: s.tuning } : { filter: 'nearby' as const, tuning: DRIVE_TUNING_DEFAULTS };
+  };
+  const near = driving ? bannerAlert(snap.alerts, sourceOf, route, position) : null;
   const lines = sources.filter((s) => s.on && snap.status[s.id]);
   return (
     <>

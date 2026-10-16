@@ -66,6 +66,18 @@ test('package paths that escape the folder, are absolute, or are not .js are ref
   rejects({ ...good, server: 'server.ts' }, /\.js file/);
 });
 
+test('a web bundle may be .js or .mjs; the server entry stays .js only', () => {
+  assert.equal(parseManifest({ ...good, web: 'dist/web.mjs' }).web, 'dist/web.mjs');
+  assert.equal(parseManifest({ ...good, web: 'web.js' }).web, 'web.js');
+  rejects({ ...good, web: 'web.ts' }, /web must be a \.js or \.mjs file/);
+  rejects({ ...good, server: 'server.mjs' }, /server must be a \.js file/);
+  rejects({ ...good, web: '../web.mjs' }, /must not contain/);
+});
+
+test('a manifest with photoscout ^1.0 still parses on this host (the 1.1 minor adds, it does not break)', () => {
+  assert.equal(parseManifest({ ...good, photoscout: '^1.0' }).photoscout, '^1.0');
+});
+
 test('an unknown permission kind is refused, and known kinds are kept', () => {
   rejects({ ...good, permissions: [{ kind: 'root' }] }, /unknown permission "root"/);
   const m = parseManifest({ ...good, permissions: [{ kind: 'network', detail: '*.waze.com' }, { kind: 'llm' }] });

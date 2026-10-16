@@ -1,0 +1,27 @@
+{
+  "name": "@photoscout/plugin-sdk",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The PhotoScout plugin contract: the web API (WebPlugin, PluginHost) and the server API (ServerPlugin, PluginContext, manifest types), with their version constants.",
+  "sideEffects": false,
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./web": { "types": "./dist/web.d.ts", "default": "./dist/web.js" },
+    "./server": { "types": "./dist/server.d.ts", "default": "./dist/server.js" }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.13.0",
+    "@types/react": "^19.0.8",
+    "maplibre-gl": "^6.11.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
