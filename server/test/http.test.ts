@@ -21,7 +21,7 @@ test('a visitor can read the public map and nothing that costs anything', async 
   const anon = app.client();
   assert.equal((await anon('GET', '/api/version')).status, 200);
   const status = await anon('GET', '/api/auth/status');
-  assert.deepEqual(status.json, { authed: false, user: null, account: null, providers: ['google', 'discord'] });
+  assert.deepEqual(status.json, { authed: false, user: null, account: null, providers: ['google', 'discord'], publicReads: true });
   assert.equal((await anon('GET', '/api/spots')).status, 200);
   for (const closed of ['/api/weather?lat=1&lng=1', '/api/geocode?q=x', '/api/buildings?lat=1&lng=1', '/api/tasks',
     '/api/users', '/api/remotes', '/api/shares', '/api/export.geojson', '/api/export.gpx', '/api/planes', '/api/nope']) {
