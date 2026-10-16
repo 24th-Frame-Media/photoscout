@@ -264,4 +264,3 @@ test('drone assessment: notamProviderSlot provides interface slot for future aut
   assert.equal(typeof notamProviderSlot, 'object');
   assert.equal(notamProviderSlot.provider, null);
 });
-

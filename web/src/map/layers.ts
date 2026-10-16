@@ -351,269 +351,6 @@ export function initFeedLayers(map: MlMap) {
       'circle-stroke-width': 1.5,
     },
   });
-}
-
-/** Layers the user has switched off (legend/chips); code that toggles visibility itself must respect this. */
-/** Point the radar layer at a frame's tile URL, or hide it (null). `on` is the legend/chip state. */
-export function setRadarFrame(map: MlMap, tileUrl: string | null, on: boolean) {
-  const source = map.getSource('radar') as RasterTileSource | undefined;
-  if (!source) return;
-  if (tileUrl && radarUrl !== tileUrl) { source.setTiles([tileUrl]); radarUrl = tileUrl; }
-  setLayerVisible(map, ['radar'], on && !!tileUrl);
-}
-let radarUrl = '';
-
-export const hiddenLayers = new Set<string>();
-
-export function setLayerVisible(map: MlMap, layerIds: string[], on: boolean) {
-  for (const id of layerIds) {
-    if (on) hiddenLayers.delete(id); else hiddenLayers.add(id);
-    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
-  }
-  if (layerIds.includes('terrain-shadow') || layerIds.includes('shadows')) syncShadowRaster(map);
-}
-
-export function updateRail(map: MlMap, fc: GeoJSON.FeatureCollection) {
-  setData(map, 'rail', fc);
-}
-
-/** Every layer under the legend's Planes toggle. */
-export const PLANE_LAYERS = ['planes', 'planes-proj', 'planes-ghost', 'planes-shadow', 'planes-label', 'planes-3d'];
-let planes3d: Planes3dLayer | null = null;
-
-/** Cross-fade flat ✈ (pitch ~0) and the 3D marker, shadow and label (pitched). Opacity only, so legend visibility stands. */
-export function applyPlanePitch(map: MlMap) {
-  const t = pitchBlend(map.getPitch());
-  if (map.getLayer('planes')) map.setPaintProperty('planes', 'text-opacity', 1 - t);
-  if (map.getLayer('planes-shadow')) map.setPaintProperty('planes-shadow', 'text-opacity', 0.35 * t);
-  if (map.getLayer('planes-label')) map.setPaintProperty('planes-label', 'text-opacity', t);
-}
-
-type PlaneIn = { hex: string; flight?: string; lat: number; lon: number; track: number | null; alt_baro?: number | 'ground' | null };
-
-export function updatePlanes(
-  map: MlMap,
-  planes: PlaneIn[],
-  projections: { hex: string; coords: [number, number][] }[],
-  ghosts: { hex: string; lat: number; lon: number }[],
-  sun?: { azimuth: number; altitude: number },
-) {
-  setData(map, 'planes-proj', { type: 'FeatureCollection',
-    features: projections.map((p) => ({ type: 'Feature', properties: { id: p.hex }, geometry: { type: 'LineString', coordinates: p.coords } })) });
-  setData(map, 'planes-ghost', { type: 'FeatureCollection', features: ghosts.map((g) => ({ type: 'Feature', properties: { id: g.hex }, geometry: { type: 'Point', coordinates: [g.lon, g.lat] } })) });
-  updatePlanePositions(map, planes, sun);
-}
-
-/** The parts of the planes layers that move with each plane: marker, 3D marker, label and shadow (called per animation frame). */
-export function updatePlanePositions(map: MlMap, planes: PlaneIn[], sun?: { azimuth: number; altitude: number }) {
-  setData(map, 'planes', { type: 'FeatureCollection', features: planes.map((p) => ({
-    type: 'Feature', properties: { id: p.hex, rotation: flatPlaneRotation(p.track) }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-  })) });
-  // 3D: planes with a known altitude. Shadow from the sun at map time (none at night).
-  const withAlt = planes.map((p) => ({ p, alt: altitudeM(p.alt_baro) }));
-  planes3d?.setPlanes(withAlt.filter((x) => x.alt != null).map(({ p, alt }) => ({ lng: p.lon, lat: p.lat, altM: alt!, track: p.track ?? 0 })));
-  setData(map, 'planes-label', { type: 'FeatureCollection', features: withAlt.map(({ p, alt }) => ({
-    type: 'Feature', properties: { id: p.hex, label: planeLabel(p.flight ?? '', p.hex, alt) }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-  })) });
-  const shadows: GeoJSON.Feature[] = [];
-  if (sun) for (const { p, alt } of withAlt) {
-    if (alt == null || alt <= 0) continue;
-    const pos = planeShadowPos(p.lon, p.lat, alt, sun);
-    if (pos) shadows.push({ type: 'Feature', properties: { id: p.hex, rotation: flatPlaneRotation(p.track) }, geometry: { type: 'Point', coordinates: pos } });
-  }
-  setData(map, 'planes-shadow', { type: 'FeatureCollection', features: shadows });
-}
-
-/** Every layer under the legend's Trains toggle. */
-export const TRAIN_LAYERS = ['trains', 'trains-3d'];
-let trains3d: Trains3dLayer | null = null;
-export function setTrains3d(trains: Train3d[]) { trains3d?.setTrains(trains); }
-
-/** Fade the flat train markers out as the 3D carriages fade in (they stay clickable at opacity 0). */
-export function applyTrainPitch(map: MlMap) {
-  if (!map.getLayer('trains')) return;
-  // Flat markers fade out as the 3D chains fade in; a train still waiting on terrain height stays flat.
-  const k = 1 - pitchBlend(map.getPitch()) * zoomBlend(map.getZoom());
-  const op = ['case', ['get', 'no3d'], 1, k] as unknown as number;
-  map.setPaintProperty('trains', 'circle-opacity', ['case', ['==', ['get', 'status'], 'live'], op, ['*', 0.25, op]]);
-  map.setPaintProperty('trains', 'circle-stroke-opacity', op);
-}
-
-export function updateTrains(map: MlMap, positions: { tripId: string; route: string; headsign: string; serviceName?: string; status: string; delaySec: number; lat: number; lng: number }[]) {
-  setData(map, 'trains', { type: 'FeatureCollection', features: positions.map((p) => ({
-    type: 'Feature', properties: { id: p.tripId, route: p.route, headsign: p.headsign, serviceName: p.serviceName ?? '', status: p.status, delaySec: p.delaySec, no3d: trainsNo3d.has(p.tripId) }, geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-  })) });
-}
-
-/** Ring the marker hovered in the Nearby list; null clears it. */
-export function setNearbyHighlight(map: MlMap, at: [number, number] | null) {
-  setData(map, 'nearby-hl', { type: 'FeatureCollection', features: at ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: at } }] : [] });
-}
-
-export function updateCandidates(map: MlMap, candidates: { id: string; name: string; lat: number; lng: number }[]) {
-  setData(map, 'candidates', { type: 'FeatureCollection', features: candidates.map((c) => ({
-    type: 'Feature', properties: { id: c.id, name: c.name }, geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
-  })) });
-}
-
-export const ROADS_MIN_ZOOM = 13;
-
-export function updateRoads(map: MlMap, roads: GeoJSON.FeatureCollection) {
-  setData(map, 'road-quality', roads);
-}
-
-export const FIRE_LAYERS = ['fires-polys-fill', 'fires-polys-line', 'fires-pts'];
-
-export function extractFireGeometries(geom: GeoJSON.Geometry): { point: GeoJSON.Point | null; polygons: (GeoJSON.Polygon | GeoJSON.MultiPolygon)[] } {
-  let point: GeoJSON.Point | null = null;
-  const polygons: (GeoJSON.Polygon | GeoJSON.MultiPolygon)[] = [];
-  function walk(g: GeoJSON.Geometry) {
-    if (g.type === 'Point' && !point) point = g;
-    else if (g.type === 'Polygon' || g.type === 'MultiPolygon') polygons.push(g);
-    else if (g.type === 'GeometryCollection') g.geometries.forEach(walk);
-  }
-  walk(geom);
-  return { point, polygons };
-}
-
-export function firesGeoJSON(incidents: FireIncident[]): GeoJSON.FeatureCollection {
-  const features: GeoJSON.Feature[] = [];
-  for (const inc of incidents) {
-    const p = {
-      id: inc.id,
-      title: inc.title,
-      category: inc.category,
-      status: inc.status,
-      sizeHa: inc.sizeHa,
-      updated: inc.updated,
-      link: inc.link,
-    };
-    const { point, polygons } = extractFireGeometries(inc.geometry);
-    if (point) {
-      features.push({
-        type: 'Feature',
-        id: `${inc.id}-pt`,
-        properties: p,
-        geometry: point,
-      });
-    }
-    polygons.forEach((poly, i) => {
-      features.push({
-        type: 'Feature',
-        id: `${inc.id}-poly-${i}`,
-        properties: p,
-        geometry: poly,
-      });
-    });
-  }
-  return { type: 'FeatureCollection', features };
-}
-
-export function updateFires(map: MlMap, fires: FireIncident[]) {
-  setData(map, 'fires', firesGeoJSON(fires));
-}
-
-const EVENT_COLOR = '#c084fc';
-export const EVENT_LAYERS = ['event-clusters', 'event-cluster-count', 'event-points'];
-
-/** Only events with a position are drawn, and not ones that are over or that this person has hidden. */
-export function eventsGeoJSON(events: EventItem[], now = Date.now()): GeoJSON.FeatureCollection {
-  const features: GeoJSON.Feature[] = [];
-  for (const ev of events) {
-    if (ev.lat == null || ev.lng == null || ev.hidden || isOver(ev, now)) continue;
-    features.push({
-      type: 'Feature',
-      id: ev.group,
-      properties: { group: ev.group, title: ev.title, category: ev.category },
-      geometry: { type: 'Point', coordinates: [ev.lng, ev.lat] },
-    });
-  }
-  return { type: 'FeatureCollection', features };
-}
-
-export function updateEvents(map: MlMap, events: EventItem[]) {
-  setData(map, 'events', eventsGeoJSON(events));
-}
-
-export function camerasGeoJSON(cameras: TrafficCamera[]): GeoJSON.FeatureCollection {
-  return {
-    type: 'FeatureCollection',
-    features: cameras.map((c) => ({
-      type: 'Feature',
-      id: c.id,
-      properties: {
-        id: c.id,
-        title: c.title,
-        view: c.view,
-        direction: c.direction,
-        ...(bearingOf(c) != null ? { bearing: bearingOf(c) } : {}),
-        region: c.region,
-        imageUrl: c.imageUrl,
-      },
-      geometry: {
-        type: 'Point',
-        coordinates: c.point,
-      },
-    })),
-  };
-}
-
-const bearingOf = (c: TrafficCamera) => cameraBearing(c.direction ?? '', c.view ?? '');
-
-export function updateCameras(map: MlMap, cameras: TrafficCamera[]) {
-  setData(map, 'cameras', camerasGeoJSON(cameras));
-}
-
-export const RADIO_LAYERS = ['radio-clusters', 'radio-cluster-count', 'radio-points'];
-
-export function radioGeoJSON(places: RadioPlace[]): GeoJSON.FeatureCollection {
-  return {
-    type: 'FeatureCollection',
-    features: places.map((p) => ({
-      type: 'Feature',
-      id: p.id,
-      geometry: {
-        type: 'Point',
-        coordinates: [p.lng, p.lat],
-      },
-      properties: {
-        id: p.id,
-        title: p.title,
-        country: p.country,
-        stationCount: p.stationCount,
-      },
-    })),
-  };
-}
-
-export function updateRadioPlaces(map: MlMap, places: RadioPlace[]) {
-  setData(map, 'radio', radioGeoJSON(places));
-}
-
-/** A 60° wedge pointing up from the image centre (the camera), fading out over 32 px; drawn at 2x. */
-function cameraConeIcon(): ImageData {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d')!;
-  const fade = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  fade.addColorStop(0, 'rgba(56,189,248,0.55)');
-  fade.addColorStop(1, 'rgba(56,189,248,0)');
-  g.fillStyle = fade;
-  g.beginPath(); g.moveTo(64, 64); g.arc(64, 64, 64, -Math.PI / 2 - Math.PI / 6, -Math.PI / 2 + Math.PI / 6); g.closePath(); g.fill();
-  return g.getImageData(0, 0, 128, 128);
-}
-
-/** Sky-blue camera on a dark disc, drawn at 2x. */
-function cameraIcon(): ImageData {
-  const c = document.createElement('canvas');
-  c.width = c.height = 44;
-  const g = c.getContext('2d')!;
-  const disc = (r: number, y = 22) => { g.beginPath(); g.arc(22, y, r, 0, Math.PI * 2); g.fill(); };
-  g.fillStyle = '#0e1014'; disc(21);
-  g.fillStyle = '#38bdf8'; g.beginPath(); g.roundRect(9, 15, 26, 17, 3); g.fill(); g.fillRect(16, 11, 10, 5);
-  g.fillStyle = '#0e1014'; disc(5.5, 23.5);
-  g.fillStyle = '#38bdf8'; disc(3, 23.5);
-  return g.getImageData(0, 0, 44, 44);
   // Drone planning overlay: flight radius circle, airspaces, controlled aerodrome buffers, airports, fire hazards
   map.addSource('drone-flight-radius', { type: 'geojson', data: empty() });
   map.addLayer({
@@ -809,7 +546,7 @@ export function updatePlanes(
 /** The parts of the planes layers that move with each plane: marker, 3D marker, label and shadow (called per animation frame). */
 export function updatePlanePositions(map: MlMap, planes: PlaneIn[], sun?: { azimuth: number; altitude: number }) {
   setData(map, 'planes', { type: 'FeatureCollection', features: planes.map((p) => ({
-    type: 'Feature', properties: { id: p.hex, track: p.track ?? 0 }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+    type: 'Feature', properties: { id: p.hex, rotation: flatPlaneRotation(p.track) }, geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
   })) });
   // 3D: planes with a known altitude. Shadow from the sun at map time (none at night).
   const withAlt = planes.map((p) => ({ p, alt: altitudeM(p.alt_baro) }));
@@ -821,7 +558,7 @@ export function updatePlanePositions(map: MlMap, planes: PlaneIn[], sun?: { azim
   if (sun) for (const { p, alt } of withAlt) {
     if (alt == null || alt <= 0) continue;
     const pos = planeShadowPos(p.lon, p.lat, alt, sun);
-    if (pos) shadows.push({ type: 'Feature', properties: { id: p.hex, track: p.track ?? 0 }, geometry: { type: 'Point', coordinates: pos } });
+    if (pos) shadows.push({ type: 'Feature', properties: { id: p.hex, rotation: flatPlaneRotation(p.track) }, geometry: { type: 'Point', coordinates: pos } });
   }
   setData(map, 'planes-shadow', { type: 'FeatureCollection', features: shadows });
 }
@@ -841,9 +578,9 @@ export function applyTrainPitch(map: MlMap) {
   map.setPaintProperty('trains', 'circle-stroke-opacity', op);
 }
 
-export function updateTrains(map: MlMap, positions: { tripId: string; route: string; headsign: string; status: string; delaySec: number; lat: number; lng: number }[]) {
+export function updateTrains(map: MlMap, positions: { tripId: string; route: string; headsign: string; serviceName?: string; status: string; delaySec: number; lat: number; lng: number }[]) {
   setData(map, 'trains', { type: 'FeatureCollection', features: positions.map((p) => ({
-    type: 'Feature', properties: { id: p.tripId, route: p.route, headsign: p.headsign, status: p.status, delaySec: p.delaySec, no3d: trainsNo3d.has(p.tripId) }, geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+    type: 'Feature', properties: { id: p.tripId, route: p.route, headsign: p.headsign, serviceName: p.serviceName ?? '', status: p.status, delaySec: p.delaySec, no3d: trainsNo3d.has(p.tripId) }, geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
   })) });
 }
 
@@ -916,6 +653,8 @@ export function updateFires(map: MlMap, fires: FireIncident[]) {
 }
 
 export const DRONE_LAYERS = [
+  'drone-flight-radius-fill',
+  'drone-flight-radius-line',
   'drone-airspace-prohibited-fill',
   'drone-airspace-prohibited-line',
   'drone-airspace-restricted-fill',
@@ -937,6 +676,10 @@ export const DRONE_LAYERS = [
   'drone-fire-hazard-buffer-fill',
   'drone-fire-hazard-buffer-line',
 ];
+
+export function updateDroneFlightRadius(map: MlMap, fc: GeoJSON.FeatureCollection) {
+  setData(map, 'drone-flight-radius', fc);
+}
 
 export function updateDroneAirspaces(map: MlMap, fc: GeoJSON.FeatureCollection) {
   setData(map, 'drone-airspaces', fc);
@@ -1014,6 +757,32 @@ const bearingOf = (c: TrafficCamera) => cameraBearing(c.direction ?? '', c.view 
 
 export function updateCameras(map: MlMap, cameras: TrafficCamera[]) {
   setData(map, 'cameras', camerasGeoJSON(cameras));
+}
+
+export const RADIO_LAYERS = ['radio-clusters', 'radio-cluster-count', 'radio-points'];
+
+export function radioGeoJSON(places: RadioPlace[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: places.map((p) => ({
+      type: 'Feature',
+      id: p.id,
+      geometry: {
+        type: 'Point',
+        coordinates: [p.lng, p.lat],
+      },
+      properties: {
+        id: p.id,
+        title: p.title,
+        country: p.country,
+        stationCount: p.stationCount,
+      },
+    })),
+  };
+}
+
+export function updateRadioPlaces(map: MlMap, places: RadioPlace[]) {
+  setData(map, 'radio', radioGeoJSON(places));
 }
 
 /** A 60° wedge pointing up from the image centre (the camera), fading out over 32 px; drawn at 2x. */
