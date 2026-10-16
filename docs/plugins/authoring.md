@@ -68,7 +68,7 @@ The schema is `docs/plugins/plugin.schema.json`. You may add `"$schema": "<relat
 | `web` | no | a `.js` path in the package, e.g. `web.js` |
 | `icon` | no | a path in the package |
 | `homepage` | no | a string shown to the admin |
-| `permissions` | no | `[{ "kind": ..., "detail": ... }]`. Kinds: `network`, `secrets`, `realtime`, `llm`, `tasks`, `storage`. Shown to the admin; not enforced in the browser. |
+| `permissions` | no | `[{ "kind": ..., "detail": ... }]`. Kinds: `network`, `secrets`, `realtime`, `llm`, `tasks`, `storage`. Shown to the admin; not enforced in the browser. The one the server does act on is `network` with a `detail` of `host` or `host:port` (see `ctx.fetch`). |
 | `services` | no | named external services; see "Services" below |
 | `settings` | no | fields the admin fills in on the plugin's settings page; see below |
 | `public` | no | route patterns a signed-out visitor may GET or HEAD, relative to the plugin: `"/places"`, `"/stations/*"` (`*` matches any run of characters, slashes included; at most 4 per pattern). Every other route needs a signed-in session. |
@@ -83,7 +83,7 @@ Export `definePlugin`-shaped default: an object with `activate(ctx)` (and option
 - `ctx.auth.requireUser(req, res)` and `ctx.auth.requireAdmin(req, res)`: each returns `false` and sends the error response when the check fails. Use them on routes that need a session.
 - `ctx.settings.get()` returns the admin's settings; `ctx.settings.onChange(fn)` is called when they change.
 - `ctx.tasks.register({ id, name, description?, intervalMinutes, run(log) })`: `intervalMinutes: null` for a task run only by hand; `run` resolves to `{ ok, message }`.
-- `ctx.fetch(url, init?)`: public internet only. Private and loopback addresses are refused, and every redirect is checked.
+- `ctx.fetch(url, init?)`: public internet only. Private and loopback addresses are refused, and every redirect is checked. To reach one private host (a local model server, a sidecar), declare it: `"permissions": [{ "kind": "network", "detail": "127.0.0.1:11434" }]`. Only that exact host is allowed, and only that port if you give one (no port: any port on that host); a redirect hop is allowed if it is public or another declared host. `detail` is a bare host or `host:port` (no scheme or path; an IP or hostname written in plain lower-case form, IPv6 as `[::1]`); `*.example.com` is accepted for documentation but opens nothing. Every other address stays public-only.
 - `ctx.db`: the plugin's own SQLite database (`data/plugins/<id>/data/plugin.db`). Never the core database.
 - `ctx.dataDir`: the plugin's data folder.
 - `ctx.log.info|warn|error(msg)`.
@@ -318,7 +318,7 @@ export default plugin;
 - **Bundles are public, so no secrets in them.** `/plugins/<id>/<version>/web.js` and `assets/` are served without sign-in, even on a private instance. Never put API keys, tokens or private URLs in `web.ts`, in `assets/`, or in `plugin.json`. Keep keys in a `secret` setting, read on the server.
 - **Route access.** Only the `public` patterns are open to signed-out visitors, and only for GET and HEAD. Every other route needs a session: check it with `ctx.auth.requireUser` or `requireAdmin`.
 - **Data calls from the web bundle stay on the plugin's routes.** `host.data` refuses paths that leave `/api/plugins/<id>/`. Do not fetch third-party hosts from the bundle; have the server route make the call. The CSP still allows `connect-src https:`, so a bundle can send data anywhere it can reach: do not add code that sends user data out.
-- **Permissions are a declaration.** `permissions` tell the admin what the plugin says it needs. Nothing enforces them in the browser; the server does not police them either.
+- **Permissions are mostly a declaration.** `permissions` tell the admin what the plugin says it needs. Nothing enforces them in the browser, and the server polices none of them except `network` with a host: that widens `ctx.fetch` to that one host (even if private) and nothing else. Treat it as the admin approving that host.
 - **Logs and messages.** Never put URLs, tokens or response bodies in `host.activity` messages.
 
 ## Services

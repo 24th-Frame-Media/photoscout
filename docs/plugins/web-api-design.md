@@ -109,7 +109,7 @@ What makes that acceptable, and what is enforced:
 - The server serves only the running version's declared `web` file, icon and `assets/`, with fixed file types, `nosniff`, immutable cache keyed by version.
 - CSP (`script-src 'self'`) means a bundle cannot load third-party script or `eval`, but `connect-src https:` still lets it send data anywhere.
 - SPA-side checks: list rows must have a valid id/version; the `web` path must be exactly `/plugins/<id>/<version>/<file>.js|.mjs` (no scheme, host, `..`, query, hidden file), so the loader never imports another origin or another plugin's file; the module must default-export `{ activate }`; ids are lowercase `[a-z0-9-]` and namespaced; swatch colours reject `url(`; string popups use `setText`; Activity messages are capped; use after disposal throws.
-- Not enforced: that a plugin only touches its own layers or routes (raw `Map`, raw `fetch`); that it stays inside the permissions its manifest declares (those are for the admin to read, not for the browser to police).
+- Not enforced: that a plugin only touches its own layers or routes (raw `Map`, raw `fetch`); that it stays inside the permissions its manifest declares (those are for the admin to read, not for the browser to police). Server side, a `network` permission with a `host[:port]` detail is the one that is enforced: it lets that plugin's `ctx.fetch` reach that exact host even if private; every other address stays public-only.
 
 ## Decisions I want confirmed
 

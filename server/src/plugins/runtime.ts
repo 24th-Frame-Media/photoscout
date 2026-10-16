@@ -8,6 +8,7 @@ import { requireAdmin as defaultRequireAdmin, requireUser as defaultRequireUser 
 import { publicFetch } from '../events/nethost.js';
 import type { TaskDef, TaskRegistry } from '../tasks/registry.js';
 import { PluginError, publicRouteAllowed } from './manifest.js';
+import { createPluginFetch, type Send } from './netscope.js';
 import { createPluginStore, readManifestDir, readZipManifest, type PluginRow, type PluginSource, type PluginStore } from './store.js';
 import { effectiveSettings, mergeSettings, redactedSettings } from './settings.js';
 import {
@@ -116,6 +117,11 @@ export interface PluginRuntimeOptions {
   requireAdmin?: (req: Request, res: ExpressResponse) => boolean;
   /** SSRF-guarded fetch behind ctx.fetch. Default: events/nethost publicFetch. */
   guardedFetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  /**
+   * One redirect-free request on a given lookup, for plugins that declare a `network` host (see netscope.ts).
+   * Plugins without one use `guardedFetch`. Default: events/shared/pinnedFetch. Tests inject a fake.
+   */
+  send?: Send;
   /** Default: PHOTOSCOUT_SAFE_MODE=1 in the environment. */
   safeMode?: boolean;
   /** Default: PHOTOSCOUT_PLUGIN_DEV=1 in the environment. */
@@ -374,6 +380,8 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
     const { id, manifest } = lv;
     const fields = manifest.settings ?? [];
     const level = (lvl: PluginLogEntry['level']) => (msg: string) => record(id, lvl, msg);
+    // Public-only, plus the exact hosts this manifest declares under a `network` permission.
+    const pluginFetch = createPluginFetch(manifest, { publicFetch: guardedFetch, send: opts.send });
     return {
       manifest,
       router: lv.router,
@@ -391,7 +399,7 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
         },
       },
       tasks: { register: (def) => registerTask(lv, def) },
-      fetch: (url, init) => (lv.closed ? Promise.reject(new PluginError('This plugin is no longer active')) : guardedFetch(url, init)),
+      fetch: (url, init) => (lv.closed ? Promise.reject(new PluginError('This plugin is no longer active')) : pluginFetch(url, init)),
       db: lv.db as DatabaseSync,
       dataDir: store.dataDir(id),
       log: { info: level('info'), warn: level('warn'), error: level('error') },

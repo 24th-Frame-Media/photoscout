@@ -60,7 +60,7 @@
       "required": ["kind"],
       "properties": {
         "kind": { "enum": ["network", "secrets", "realtime", "llm", "tasks", "storage"] },
-        "detail": { "type": "string", "description": "What the permission is for, e.g. the host it calls." }
+        "detail": { "type": "string", "description": "What the permission is for, e.g. the host it calls. For kind \"network\" it must be a host or host:port (no scheme or path); that exact host is then reachable from ctx.fetch even if private." }
       }
     },
     "serviceName": {

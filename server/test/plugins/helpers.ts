@@ -11,6 +11,7 @@ import { createRegistry, type KvStore, type TaskRegistry } from '../../src/tasks
 import { createPluginRuntime, type PluginRuntime } from '../../src/plugins/runtime.js';
 import { mountPlugins } from '../../src/plugins/routes.js';
 import type { RemoteDeps } from '../../src/plugins/remote.js';
+import type { Send } from '../../src/plugins/netscope.js';
 
 /**
  * Shared scaffolding for the plugin tests. Nothing here imports the app's
@@ -57,6 +58,8 @@ export interface PackageOpts {
   photoscout?: string;
   /** Routes a visitor may read without signing in (plugin.json "public"). */
   public?: string[];
+  /** plugin.json "permissions". */
+  permissions?: unknown[];
   extraFiles?: Record<string, string | Uint8Array>;
 }
 
@@ -77,6 +80,7 @@ export function pluginPackage(opts: PackageOpts = {}): Uint8Array {
   if (opts.settings) manifest.settings = opts.settings;
   if (opts.services) manifest.services = opts.services;
   if (opts.public) manifest.public = opts.public;
+  if (opts.permissions) manifest.permissions = opts.permissions;
   const files: Record<string, string | Uint8Array> = { 'plugin.json': JSON.stringify(manifest), ...(opts.extraFiles ?? {}) };
   if (opts.server !== null) files['server.js'] = opts.server ?? PING_SERVER;
   if (opts.web) files['web.js'] = 'export default {};';
@@ -92,7 +96,17 @@ export interface Harness {
 }
 
 /** A runtime over an in-memory database, a temp root and a task registry. */
-export function makeRuntime(opts: { root?: string; safeMode?: boolean; devMode?: boolean; devRoot?: string; guardedFetch?: (url: string, init?: RequestInit) => Promise<Response> } = {}): Harness {
+export function makeRuntime(
+  opts: {
+    root?: string;
+    safeMode?: boolean;
+    devMode?: boolean;
+    devRoot?: string;
+    guardedFetch?: (url: string, init?: RequestInit) => Promise<Response>;
+    /** Fake transport for plugins that declare a `network` host. Defaults to the guardedFetch fake, so a stubbed upstream also answers for them. */
+    send?: Send;
+  } = {},
+): Harness {
   const root = opts.root ?? tempRoot();
   const kv = new Map<string, string>();
   const kvStore: KvStore = {
@@ -111,6 +125,7 @@ export function makeRuntime(opts: { root?: string; safeMode?: boolean; devMode?:
     safeMode: opts.safeMode ?? false,
     devMode: opts.devMode ?? false,
     guardedFetch: opts.guardedFetch,
+    send: opts.send ?? (opts.guardedFetch ? (url, init) => opts.guardedFetch!(url, init) : undefined),
   });
   return {
     runtime,

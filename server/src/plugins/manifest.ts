@@ -1,3 +1,4 @@
+import net from 'node:net';
 import semver from 'semver';
 import {
   HOST_API_VERSION,
@@ -144,6 +145,47 @@ export function isPublicFile(manifest: PluginManifest, rel: string): boolean {
   return rel.startsWith('assets/');
 }
 
+/** A host a plugin says it reaches: an exact host (and optionally one port), or a "*.suffix" wildcard (informational only). */
+export interface NetworkTarget {
+  /** Lower-case hostname or IP as URL.hostname spells it (IPv6 keeps its brackets). */
+  host: string;
+  /** null: any port. */
+  port: number | null;
+  wildcard: boolean;
+}
+
+const NETWORK_DETAIL = /^(\*\.)?(\[[0-9a-f:.]+\]|[a-z0-9][a-z0-9.-]*)(?::(\d{1,5}))?$/;
+
+/**
+ * Parse a `network` permission detail: "host", "host:port", "ip", "ip:port",
+ * "[v6]", "[v6]:port", or "*.suffix" with an optional port. No scheme, path,
+ * query, credentials or whitespace. The host must be written the way a URL
+ * would normalise it (lower case, dotted-quad IPv4, compressed IPv6), so what
+ * the admin reads is what the runtime matches. Returns null when it does not fit.
+ */
+export function parseNetworkDetail(detail: string): NetworkTarget | null {
+  if (detail.length === 0 || detail.length > 255) return null;
+  const m = NETWORK_DETAIL.exec(detail);
+  if (!m) return null;
+  const wildcard = m[1] !== undefined;
+  const rawHost = m[2];
+  let port: number | null = null;
+  if (m[3] !== undefined) {
+    port = Number(m[3]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  }
+  let canonical: string;
+  try {
+    canonical = new URL(`http://${rawHost}/`).hostname;
+  } catch {
+    return null;
+  }
+  if (canonical !== rawHost) return null; // "0x7f.1", "2130706433", "LOCALHOST", long-form IPv6
+  if (rawHost.startsWith('.') || rawHost.endsWith('.') || rawHost.includes('..')) return null;
+  if (wildcard && (rawHost.startsWith('[') || net.isIP(rawHost) !== 0 || !rawHost.includes('.'))) return null;
+  return { host: rawHost, port, wildcard };
+}
+
 function permissionsOf(value: unknown): { kind: PermissionKind; detail?: string }[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw new PluginError('permissions must be a list');
@@ -154,6 +196,11 @@ function permissionsOf(value: unknown): { kind: PermissionKind; detail?: string 
       throw new PluginError(`unknown permission "${String(kind)}"; allowed: ${PERMISSION_KINDS.join(', ')}`);
     }
     const detail = optionalText(raw.detail, 'permission detail');
+    if (kind === 'network' && detail !== undefined && parseNetworkDetail(detail) === null) {
+      throw new PluginError(
+        `network permission detail "${detail}" must be a host or host:port, like "api.example.com", "192.168.1.20:8080" or "*.example.com" (no scheme, path or spaces)`,
+      );
+    }
     return detail === undefined ? { kind: kind as PermissionKind } : { kind: kind as PermissionKind, detail };
   });
 }

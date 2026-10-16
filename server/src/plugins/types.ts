@@ -74,7 +74,13 @@ export interface PluginContext {
     onChange(fn: (s: Record<string, unknown>) => void): () => void;
   };
   tasks: { register(def: PluginTaskDef): void };
-  /** Public internet only: private and loopback addresses are refused, and every redirect hop is checked. */
+  /**
+   * Public internet only: private and loopback addresses are refused, and every redirect hop is checked.
+   * One exception, opt-in: a manifest `permissions` entry `{ kind: 'network', detail: '<host>' | '<host>:<port>' }`
+   * lets this fetch reach that exact host even when it is private or loopback (a local model server, a sidecar).
+   * The host must match exactly, and the port too when one is given; a redirect hop is allowed only if it is
+   * public or another declared host. A "*.example.com" detail is informational and never opens anything.
+   */
   fetch(url: string, init?: RequestInit): Promise<Response>;
   /** The plugin's own SQLite file, data/plugins/<id>/data/plugin.db. Never the core database. */
   db: DatabaseSync;
