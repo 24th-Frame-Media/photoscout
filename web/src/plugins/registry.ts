@@ -3,6 +3,7 @@ import type { Map as MapLibreMap, MapMouseEvent, Popup } from 'maplibre-gl';
 import { logActivity, type ActivityLevel } from '../activity.js';
 import {
   WEB_API_VERSION,
+  type DriveAlertFilter,
   type DriveAlertSourceDef,
   type LegendEntry,
   type LegendEntryDef,
@@ -97,9 +98,15 @@ export interface SidePanelItem {
 }
 
 export interface DriveSourceItem {
+  /** `<pluginId>:<key>`: the key the Drive button and the host use. */
   id: string;
   pluginId: string;
   label: string;
+  title?: string;
+  /** The Drive button's state: whether the driver has the source on right now. */
+  on: boolean;
+  filter: DriveAlertFilter;
+  runs: 'drive' | 'always';
   start: DriveAlertSourceDef['start'];
 }
 
@@ -156,6 +163,10 @@ interface ClickReg {
   layers: readonly string[];
   cb: (e: PluginMapClick) => void;
 }
+interface DriveRec {
+  item: Omit<DriveSourceItem, 'on'>;
+  on: boolean;
+}
 
 class Scope {
   disposed = false;
@@ -165,7 +176,7 @@ class Scope {
   readonly tabs = new Map<string, SettingsTabItem>();
   readonly corners = new Map<string, CornerPanelItem>();
   readonly sides = new Map<string, SideRec>();
-  readonly drive = new Map<string, DriveSourceItem>();
+  readonly drive = new Map<string, DriveRec>();
   readonly ready = new Set<ReadyReg>();
   readonly clicks = new Set<ClickReg>();
   readonly polls = new Set<PollHandle>();
@@ -313,6 +324,19 @@ export class PluginRegistry {
       for (const cb of [...found.rec.listeners]) this.guard(found.scope, 'legend onChange', () => cb(on));
     }
     this.emit();
+  }
+
+  /** Turn a Drive source on or off, from its Drive button. The host starts or stops it to match. */
+  setDriveSourceOn(globalKey: string, on: boolean): void {
+    for (const scope of this.scopes.values()) {
+      for (const rec of scope.drive.values()) {
+        if (rec.item.id === globalKey && rec.on !== on) {
+          rec.on = on;
+          this.emit();
+          return;
+        }
+      }
+    }
   }
 
   /** Close whichever side panel is open (the core panels opened, or the map was clicked). */
@@ -548,7 +572,7 @@ export class PluginRegistry {
       settingsTabs.push(...scope.tabs.values());
       cornerPanels.push(...scope.corners.values());
       for (const rec of scope.sides.values()) sidePanels.push({ ...rec.item, open: rec.open, data: rec.data });
-      driveSources.push(...scope.drive.values());
+      for (const rec of scope.drive.values()) driveSources.push({ ...rec.item, on: rec.on });
     }
     return {
       phase: this.phase,
@@ -717,7 +741,13 @@ export class PluginRegistry {
         const sourceId = localId(def.id, 'drive source id');
         if (scope.drive.has(sourceId)) throw new PluginApiError(`drive source "${sourceId}" is already registered`);
         if (typeof def.start !== 'function') throw new PluginApiError('drive source start must be a function');
-        scope.drive.set(sourceId, { id: globalId(sourceId), pluginId: id, label: str(def.label, 'drive source label', 60), start: def.start });
+        const filter = def.filter ?? 'nearby';
+        if (filter !== 'nearby' && filter !== 'route-ahead') throw new PluginApiError("drive source filter must be 'nearby' or 'route-ahead'");
+        const runs = def.runs ?? 'drive';
+        if (runs !== 'drive' && runs !== 'always') throw new PluginApiError("drive source runs must be 'drive' or 'always'");
+        const item: DriveRec['item'] = { id: globalId(sourceId), pluginId: id, label: str(def.label, 'drive source label', 60), filter, runs, start: def.start };
+        if (def.title !== undefined) item.title = str(def.title, 'drive source title', 200);
+        scope.drive.set(sourceId, { item, on: def.defaultOn !== false });
         reg.emit();
         return remove(scope.drive, sourceId);
       },

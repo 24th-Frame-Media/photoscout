@@ -37,7 +37,7 @@ test('needsAuth: with public reads on, a visitor may read the public map and not
     '/api/profiles/Alice', '/api/Profiles/Alice/', '/api/community-events', '/api/community-events/abc', '/api/kit/photos/abc/file', '/api/kit/photos/abc/thumb',
     '/api/events/solo-12/rsvp', '/api/community-events/abc/rsvp',
     '/api/feed', '/api/feed?scope=all&before=2030-01-01T00:00:00Z', '/api/posts/abc/comments',
-    '/api/waze/status', '/api/waze/alerts', '/api/waze/heatmap', '/api/plugins-web']) {
+    '/api/plugins-web']) {
     assert.equal(needsAuth('GET', open, noPlugins, PUBLIC), false, open);
     assert.equal(needsAuth('HEAD', open, noPlugins, PUBLIC), false, `HEAD ${open}`);
   }
@@ -63,7 +63,7 @@ test('needsAuth: with public reads on, a visitor may read the public map and not
     '/api/profiles', '/api/profiles?q=al', '/api/profiles/Alice/extra', '/api/follows', '/api/follows/Alice', '/api/gear/catalog', '/api/kit/rides', '/api/kit/gear',
     '/api/kit/photos/abc', '/api/kit/photos/abc/other', '/api/community-events/abc/extra', '/api/events/solo-12/rsvp/extra',
     '/api/chat', '/api/chat/abc', '/api/reports', '/api/posts/abc', '/api/posts/abc/vote', '/api/feed/extra', '/api/posts/abc/comments/x', '/api/comments/abc',
-    '/api/waze/other', '/api/waze/heatmap/extra']) {
+    '/api/plugins-web/extra']) {
     assert.equal(needsAuth('GET', closed, noPlugins, PUBLIC), true, closed);
   }
 });
@@ -82,7 +82,7 @@ const PUBLIC_MAP_READS = ['/api/spots', '/api/spots/abc', '/api/places', '/api/p
   '/api/spots/abc/photos', '/api/photos/abc/file', '/api/photos/abc/thumb', '/api/settings', '/api/rail', '/api/fires', '/api/aurora',
   '/api/events', '/api/events/solo-12', '/api/events/solo-12/rsvp', '/api/flyer/abc/def', '/api/profiles/Alice', '/api/community-events',
   '/api/community-events/abc', '/api/community-events/abc/rsvp', '/api/kit/photos/abc/file', '/api/kit/photos/abc/thumb', '/api/feed', '/api/posts/abc/comments',
-  '/api/waze/status', '/api/waze/alerts', '/api/waze/heatmap', '/api/plugins-web'];
+  '/api/plugins-web'];
 
 test('needsAuth: private is the default, and then even the public map needs a session', () => {
   for (const path of PUBLIC_MAP_READS) {
@@ -92,7 +92,7 @@ test('needsAuth: private is the default, and then even the public map needs a se
     assert.equal(needsAuth('GET', path, noPlugins, PUBLIC), false, `public: ${path}`);
   }
   // Casing, a trailing slash and a query string give no way round it.
-  for (const path of ['/api/Spots/', '/api/spots?bbox=1,2,3,4', '/api/PLACES', '/api/Waze/Heatmap?minLng=1']) {
+  for (const path of ['/api/Spots/', '/api/spots?bbox=1,2,3,4', '/api/PLACES', '/api/Plugins-Web/']) {
     assert.equal(needsAuth('GET', path, noPlugins, PRIVATE), true, path);
   }
   // Nothing outside the open routes is open, by any method, even if a plugin claims a route is public.
@@ -108,17 +108,6 @@ test('needsAuth: only a literal true opens the public map', () => {
     assert.equal(needsAuth('GET', '/api/places', noPlugins, loose as boolean), true, String(loose));
   }
   assert.equal(needsAuth('GET', '/api/places', noPlugins, true), false);
-});
-
-test('needsAuth: the heatmap follows the mode like the pins beside it', () => {
-  const box = '?minLng=1&minLat=2&maxLng=3&maxLat=4';
-  assert.equal(needsAuth('GET', `/api/waze/heatmap${box}`, noPlugins, PUBLIC), false);
-  assert.equal(needsAuth('GET', `/api/waze/heatmap${box}`, noPlugins, PRIVATE), true);
-  assert.equal(needsAuth('GET', `/api/waze/alerts${box}`, noPlugins, PUBLIC), false);
-  assert.equal(needsAuth('GET', `/api/waze/alerts${box}`, noPlugins, PRIVATE), true);
-  // Setting the feed up is an admin's write, in either mode.
-  assert.equal(needsAuth('POST', '/api/waze/setup', noPlugins, PUBLIC), true);
-  assert.equal(needsAuth('POST', '/api/waze/setup', noPlugins, PRIVATE), true);
 });
 
 test('needsAuth: a plugin route is private in private mode, even one the plugin declares public', () => {

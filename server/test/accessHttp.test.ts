@@ -12,9 +12,8 @@ const admin = app.client();
 await app.signIn(member, 'google', { id: 'm1', name: 'Member' });
 await app.signIn(admin, 'google', { id: 'admin1', name: 'Admin' });
 
-const box = 'minLng=151.1&minLat=-33.95&maxLng=151.3&maxLat=-33.8';
 /** What a visitor may read when public reads are on, and what the gate refuses when they are not. */
-const MAP_READS = ['/api/places', '/api/spots', '/api/routes', '/api/settings', '/api/events', '/api/feed', '/api/plugins-web', `/api/waze/heatmap?${box}`, `/api/waze/alerts?${box}`];
+const MAP_READS = ['/api/places', '/api/spots', '/api/routes', '/api/settings', '/api/events', '/api/feed', '/api/plugins-web'];
 
 /** Put the environment back however a test leaves it. */
 function withEnv<T>(value: string, fn: () => Promise<T>): Promise<T> {
@@ -63,9 +62,9 @@ test('an admin can open the public map and close it again, and bad input changes
   assert.deepEqual(open.json, { publicReads: true, source: 'stored' });
   assert.deepEqual((await admin('GET', '/api/settings/access')).json, { publicReads: true, source: 'stored' });
 
-  // Not every one of these has data to answer with (the Waze alerts need the bridge), but none asks for a sign-in.
+  // Not every one of these has data to answer with, but none asks for a sign-in.
   for (const path of MAP_READS) assert.notEqual((await anon('GET', path)).status, 401, `public: ${path}`);
-  for (const path of ['/api/places', '/api/spots', '/api/routes', '/api/settings', `/api/waze/heatmap?${box}`]) {
+  for (const path of ['/api/places', '/api/spots', '/api/routes', '/api/settings']) {
     assert.equal((await anon('GET', path)).status, 200, `public: ${path}`);
   }
   // What was never public stays behind sign-in, and so does the setting itself.

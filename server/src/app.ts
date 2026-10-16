@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, photosDir, prunePoliceSightings, queryPoliceHeatmap, recordPoliceSightings, WAZE_SIGHTING_RETENTION_MS } from './db.js';
+import { db, photosDir } from './db.js';
 import helmet from 'helmet';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import {
@@ -33,8 +33,6 @@ import { fetchAurora } from './feeds/spaceWeather.js';
 import { fetchBuildings } from './sources/osm.js';
 import { fetchRoadCell, parseCell } from './sources/roads.js';
 import { fetchCameras } from './feeds/cameras.js';
-import { fetchWazeAlerts, fetchWazeAlertsCached, validateWazeBounds } from './feeds/waze.js';
-import { startWazeSetup, wazeSetupStatus, loadWazeRuntime } from './wazeRuntime.js';
 import {
   buildPointPassesResponse, combinedFeedData, combinedRealtime, emptyFeedData, nextPasses, parsePointPassRequest, predictTrainPositions, tripCount, TRAIN_FEEDS,
 } from './feeds/trains.js';
@@ -188,7 +186,7 @@ const writeLimit = limit(MINUTE, 90, 'changes');
 // third party one, so they are counted on their own and kept low.
 const upstreamLimit = limit(MINUTE, 60, 'lookups');
 app.use(
-  ['/api/geocode', '/api/route', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates', '/api/plugins/media.24thframe.radio-garden', '/api/waze'],
+  ['/api/geocode', '/api/route', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates', '/api/plugins/media.24thframe.radio-garden'],
   upstreamLimit
 );
 app.use(/^\/api\/(spots|places)\/[^/]+\/(nearby|commons|trains)$/, upstreamLimit);
@@ -1131,111 +1129,6 @@ app.get('/api/cameras/:id/image', async (req, res, next) => {
       clearTimeout(timer);
     }
   } catch (err) { next(err); }
-});
-
-// --- Waze feed status and alerts ----------------------------------------------
-
-app.get('/api/waze/status', async (req, res) => {
-  loadWazeRuntime();
-  let liveCode: number | null = null;
-  let liveMsg = 'Alert feed not checked';
-  let alertCount: number | null = null;
-  let coverage: 'route' | 'viewport' | null = null;
-  let observedAt: number | null = null;
-
-  if (req.query.check === '1') {
-    try {
-      const result = await fetchWazeAlerts({ minLng: -180, minLat: -90, maxLng: 180, maxLat: 90 }, fetch, false);
-      liveCode = 200;
-      alertCount = result.alerts.length;
-      coverage = result.coverage;
-      observedAt = result.observedAt;
-      liveMsg = `${alertCount} reports returned (${coverage === 'route' ? 'active Waze route only' : 'areas loaded by Waze'})`;
-    } catch (e) {
-      liveMsg = e instanceof Error ? e.message : 'Alert feed check failed';
-      const match = /HTTP (\d{3})/.exec(liveMsg);
-      liveCode = match ? Number(match[1]) : null;
-    }
-  }
-
-  res.json({
-    configured: Boolean(process.env.WAZE_ALERT_SERVICE_URL),
-    liveMapStatus: {
-      endpoint: 'Android police/hazard report bridge',
-      accessible: liveCode === 200,
-      status: liveCode,
-      message: liveMsg,
-    },
-    checked: req.query.check === '1',
-    alertCount, coverage, observedAt,
-    canDisplayOnMap: liveCode === 200,
-    attribution: 'Waze / Google',
-    setup: wazeSetupStatus({ admin: req.user?.role === 'admin' }),
-  });
-});
-
-app.post('/api/waze/setup', (req, res) => {
-  if (!requireAdmin(req, res)) return;
-  try { res.status(202).json(startWazeSetup()); }
-  catch (err) { res.status(503).json({ error: err instanceof Error ? err.message : 'Setup could not start' }); }
-});
-
-app.get('/api/waze/alerts', async (req, res, next) => {
-  try {
-    if (![req.query.minLng, req.query.minLat, req.query.maxLng, req.query.maxLat].every(v => typeof v === 'string' && v.trim())) {
-      return res.status(400).json({ error: 'minLng, minLat, maxLng and maxLat must be non-empty coordinates' });
-    }
-    const minLng = Number(req.query.minLng);
-    const minLat = Number(req.query.minLat);
-    const maxLng = Number(req.query.maxLng);
-    const maxLat = Number(req.query.maxLat);
-    try { validateWazeBounds({ minLng, minLat, maxLng, maxLat }); }
-    catch { return res.status(400).json({ error: 'A valid minLng, minLat, maxLng, maxLat bounding box is required' }); }
-    let result: Awaited<ReturnType<typeof fetchWazeAlertsCached>>;
-    try {
-      result = await fetchWazeAlertsCached({ minLng, minLat, maxLng, maxLat }, { priority: req.query.priority === 'navigation' && req.user ? 'navigation' : 'map' });
-    } catch (err: any) {
-      return res.status(503).json({ configured: false, error: err.message, alerts: [] });
-    }
-    // Only fresh harvester data is recorded: a cache hit would count the same reports again.
-    if (!result.fromCache && (result.state === 'fresh' || result.state === 'stale')) {
-      const now = Date.now();
-      recordPoliceSightings(db, result.alerts.filter(alert => alert.type === 'POLICE'), now);
-      if (now - lastWazePrune >= WAZE_PRUNE_EVERY_MS) {
-        lastWazePrune = now;
-        prunePoliceSightings(db, now, WAZE_SIGHTING_RETENTION_MS);
-      }
-    }
-    res.json({ configured: true, ...result });
-  } catch (err) {
-    next(err);
-  }
-});
-
-let lastWazePrune = 0;
-const WAZE_PRUNE_EVERY_MS = 60000;
-
-/** Police reports from the database alone, so it answers even while the live feed is queued. */
-app.get('/api/waze/heatmap', (req, res, next) => {
-  try {
-    if (![req.query.minLng, req.query.minLat, req.query.maxLng, req.query.maxLat].every(v => typeof v === 'string' && v.trim())) {
-      return res.status(400).json({ error: 'minLng, minLat, maxLng and maxLat must be non-empty coordinates' });
-    }
-    const bbox = { minLng: Number(req.query.minLng), minLat: Number(req.query.minLat), maxLng: Number(req.query.maxLng), maxLat: Number(req.query.maxLat) };
-    try { validateWazeBounds(bbox); }
-    catch { return res.status(400).json({ error: 'A valid minLng, minLat, maxLng, maxLat bounding box is required' }); }
-    const asked = typeof req.query.windowMs === 'string' && req.query.windowMs.trim() ? Number(req.query.windowMs) : NaN;
-    const windowMs = Number.isFinite(asked) ? Math.min(WAZE_SIGHTING_RETENTION_MS, Math.max(3600000, asked)) : 7200000;
-    const now = Date.now();
-    res.json({
-      configured: Boolean(process.env.WAZE_ALERT_SERVICE_URL),
-      windowMs,
-      observedAt: now,
-      points: queryPoliceHeatmap(db, bbox, windowMs, now),
-    });
-  } catch (err) {
-    next(err);
-  }
 });
 
 // The Radio Garden layer is the media.24thframe.radio-garden plugin (plugins/radio-garden), served under /api/plugins/.

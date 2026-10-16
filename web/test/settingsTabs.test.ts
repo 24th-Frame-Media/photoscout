@@ -20,5 +20,5 @@ test('every tab is in exactly one group, and a visitor still has somewhere to go
   const ids = GROUPS.flatMap((g) => g.tabs.map((t) => t.id));
   assert.equal(new Set(ids).size, ids.length);
   const open = GROUPS.flatMap((g) => g.tabs.filter((t) => !t.admin).map((t) => t.id));
-  assert.deepEqual(open.sort(), ['account', 'areas', 'feeds', 'waze']);
+  assert.deepEqual(open.sort(), ['account', 'areas', 'feeds']);
 });

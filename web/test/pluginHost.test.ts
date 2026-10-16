@@ -361,7 +361,7 @@ test('plugin settings tabs join the menu groups, and their hashes resolve once t
   const own = { id: `${ID}:other`, label: 'Other', group: 'Plugins' as const, admin: false };
   const groups = groupsWith([tab, own]);
   assert.deepEqual(groups.map((g) => g.label), ['You', 'Map', 'Events', 'Busy places', 'Plugins', 'Admin']);
-  assert.deepEqual(groups[1].tabs.map((t) => t.id), ['areas', 'feeds', 'waze', `${ID}:main`]);
+  assert.deepEqual(groups[1].tabs.map((t) => t.id), ['areas', 'feeds', `${ID}:main`]);
   assert.deepEqual(groups[4].tabs, [{ id: `${ID}:other`, label: 'Other', admin: false }]);
 
   assert.equal(tabFromHash(`#${ID}:main`), 'areas', 'unknown until the plugin has loaded');

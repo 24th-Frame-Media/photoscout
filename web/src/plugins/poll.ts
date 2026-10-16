@@ -2,8 +2,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { Bbox, PollHandle, PollOptions } from './api.js';
 
 /**
- * The poll helper behind `host.data.poll`. Same cadence as the core Waze feed
- * (map/useWazeReports.ts) without React, so a plugin gets it for free:
+ * The poll helper behind `host.data.poll`, usable without React, so a plugin gets it for free:
  * first poll at once, then every `intervalMs`, never while the tab is hidden,
  * at most one request per 5 s, a newer request aborts the one in flight and a
  * late answer to a superseded request is dropped.

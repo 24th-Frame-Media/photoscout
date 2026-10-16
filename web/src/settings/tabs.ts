@@ -6,7 +6,7 @@
  * render time with `groupsWith`; their ids are `<pluginId>:<tabId>`.
  */
 
-export type CoreTab = 'areas' | 'account' | 'instance' | 'events' | 'sources' | 'crawler' | 'density' | 'venues' | 'busy' | 'conditions' | 'model' | 'notify' | 'feeds' | 'waze' | 'tasks' | 'users' | 'signin' | 'plugins';
+export type CoreTab = 'areas' | 'account' | 'instance' | 'events' | 'sources' | 'crawler' | 'density' | 'venues' | 'busy' | 'conditions' | 'model' | 'notify' | 'feeds' | 'tasks' | 'users' | 'signin' | 'plugins';
 /** A core tab id, or a plugin's `<pluginId>:<tabId>`. */
 export type Tab = string;
 export interface TabDef { id: Tab; label: string; admin?: boolean }
@@ -14,7 +14,7 @@ export interface TabGroup { label: string; tabs: TabDef[] }
 
 export const GROUPS: TabGroup[] = [
   { label: 'You', tabs: [{ id: 'account', label: 'Account' }] },
-  { label: 'Map', tabs: [{ id: 'areas', label: 'Areas' }, { id: 'feeds', label: 'Trains' }, { id: 'waze', label: 'Police & hazards' }] },
+  { label: 'Map', tabs: [{ id: 'areas', label: 'Areas' }, { id: 'feeds', label: 'Trains' }] },
   { label: 'Events', tabs: [
     { id: 'events', label: 'Events', admin: true }, { id: 'sources', label: 'Sources', admin: true }, { id: 'crawler', label: 'Crawler', admin: true },
     { id: 'notify', label: 'Notifications', admin: true }, { id: 'model', label: 'AI models', admin: true },

@@ -250,51 +250,6 @@ export interface CamerasResponse {
   cameras: TrafficCamera[];
 }
 
-export interface WazeStatus {
-  setup: { state: string; message: string; updatedAt: number | null };
-  checked: boolean;
-  alertCount: number | null;
-  coverage: 'route' | 'bbox' | 'viewport' | null;
-  observedAt: number | null;
-  configured: boolean;
-  liveMapStatus: {
-    endpoint: string;
-    accessible: boolean;
-    status: number | null;
-    message: string;
-  };
-  canDisplayOnMap: boolean;
-  attribution: string;
-}
-
-export interface WazeAlert {
-  id: string;
-  uuid?: string;
-  type: string;
-  subType?: string;
-  reportTime: number | null;
-  point: [number, number];
-  street?: string;
-  city?: string;
-  reliability?: number;
-  confidence?: number;
-  thumbsUp?: number;
-  description?: string;
-}
-
-/** One weighted report for the police heatmap; point is [lng, lat]. */
-export interface WazeHeatPoint {
-  point: [number, number];
-  weight: number;
-}
-
-export interface WazeHeatmap {
-  configured: boolean;
-  windowMs: number;
-  observedAt: number | null;
-  points: WazeHeatPoint[];
-}
-
 export interface ScoutEvent {
   group: string; title: string; description: string; startTime: string; endTime: string; venueName: string;
   address: string; locality: string; lat: number; lng: number; imageUrl: string | null; category: string; goodDuring: boolean;
@@ -629,14 +584,6 @@ export const api = {
   spotTrains: (spotId: string, hours = 6) => fetch(`/api/spots/${spotId}/trains?hours=${hours}`).then((r) => json<{ configured: boolean; passes: TrainPass[] }>(r)),
   // --- traffic cameras (TfNSW) ---
   cameras: () => fetch('/api/cameras').then((r) => json<CamerasResponse>(r)),
-  // --- Waze feed ---
-  wazeStatus: (check?: boolean) => fetch(`/api/waze/status${check ? '?check=1' : ''}`).then((r) => json<WazeStatus>(r)),
-  wazeSetup: () => fetch('/api/waze/setup', { method: 'POST', headers: jsonHeaders, body: '{}' }).then(r => json<WazeStatus['setup']>(r)),
-  wazeAlerts: (bbox: { minLng: number; minLat: number; maxLng: number; maxLat: number }, signal?: AbortSignal, priority: 'map' | 'navigation' = 'map') =>
-    fetch(`/api/waze/alerts?minLng=${bbox.minLng}&minLat=${bbox.minLat}&maxLng=${bbox.maxLng}&maxLat=${bbox.maxLat}&priority=${priority}`, { signal }).then((r) => json<{ configured: boolean; alerts: WazeAlert[]; coverage: 'route' | 'viewport' | 'bbox'; observedAt: number | null; state: 'fresh' | 'queued' | 'scanning' | 'stale'; retryAfterMs: number }>(r)),
-  wazeHeatmap: (bbox: { minLng: number; minLat: number; maxLng: number; maxLat: number }, windowMs: number, signal?: AbortSignal) =>
-    fetch(`/api/waze/heatmap?minLng=${bbox.minLng}&minLat=${bbox.minLat}&maxLng=${bbox.maxLng}&maxLat=${bbox.maxLat}&windowMs=${windowMs}`, { signal }).then((r) => json<WazeHeatmap>(r)),
-
   // --- Event Scout ---
   spotNearby: (spotId: string) => fetch(`/api/spots/${spotId}/nearby`).then((r) => json<NearbyResult>(r)),
   placeNearby: (placeId: string) => fetch(`/api/places/${placeId}/nearby`).then((r) => json<NearbyResult>(r)),

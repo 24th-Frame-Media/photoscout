@@ -2,7 +2,7 @@
 
 This bridge runs Waze on a controlled Android emulator and reads its realtime police and hazard reports. It exposes only report locations, types, descriptions and times; reporter identity and session credentials are not returned. It does not mint or require a Firebase App Check token.
 
-For a native PhotoScout install, start Docker with Linux containers or Podman, then run `npm run waze:setup` from the repository root, or use the admin setup button in Settings → Waze. The helper builds the self-contained image, creates its persistent Android volume, generates an API key in `data/waze/runtime.json`, and saves the connection. That file is private and ignored by Git. The existing-emulator option requires a rooted test emulator with Waze and the matching Frida server already installed; it does not modify a physical phone.
+For a native PhotoScout install, start Docker with Linux containers or Podman, then run `npm run waze:setup` from the repository root, or use the admin setup button in the Waze plugin's Settings tab, which runs the same helper. The helper builds the self-contained image, creates its persistent Android volume, generates an API key in `data/waze/runtime.json`, and saves the connection. That file is private and ignored by Git. The existing-emulator option requires a rooted test emulator with Waze and the matching Frida server already installed; it does not modify a physical phone.
 
 `Dockerfile.emulator` targets x86-64 Linux and uses software emulation without KVM, privileged mode or a Docker socket. Docker Desktop on Windows provides the Linux runtime. Reserve about 6 GB RAM, several GB disk and 4 CPUs for Android; the emulator uses `WAZE_EMULATOR_CORES` (default 4) and `WAZE_EMULATOR_MEMORY_MB` (default 3072), which must fit the container's limits. First software boot can take 15–30 minutes on a slow VM. With `/dev/kvm` the emulator uses KVM automatically (`WAZE_EMULATOR_ACCEL=auto|on|off`); setup passes the device through, and Compose users add `docker-compose.waze-kvm.yml`. If the kernel logs `SVM disabled (by BIOS)` or `VMX disabled`, enable AMD SVM / Intel VT-x in firmware; a VM host also needs nested virtualization. ARM hosts need an x86-64 Linux worker; a native ARM software-emulator image is not provided. Fresh software boot and app onboarding are still under verification; setup reports failures rather than supplying mock alerts.
 
@@ -16,7 +16,7 @@ The default image is `system-images;android-36;google_apis;x86_64`, the newest s
 
 Waze shows welcome screens the first time it runs on a new Android volume. The server operator completes them once, and the result is kept on the volume. The worker detects this read-only: every 60 seconds while no reports arrive, it dumps the screen layout with `uiautomator` and looks for Waze's welcome-screen identifiers. It never sends taps, text or swipes. When it finds the welcome screen, `/health` reports `setup_stage: needs_first_run` with `first_run.how`; setup prints the same steps, and Settings → Waze shows them to admins. Reports start after the screens are complete, and the state clears itself.
 
-To complete the screens, enable screen access and re-run setup (`npm run waze:setup -- --screen-access`, or set `WAZE_SCREEN_ACCESS=1` in the server environment for the Settings button):
+To complete the screens, enable screen access and re-run setup (`npm run waze:setup -- --screen-access`, or set `WAZE_SCREEN_ACCESS=1` in the server environment for the plugin's Settings button):
 
 ```sh
 adb connect 127.0.0.1:5556 && scrcpy -s 127.0.0.1:5556

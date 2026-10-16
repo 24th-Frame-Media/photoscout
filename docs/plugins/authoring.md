@@ -102,9 +102,42 @@ What to register, with the API you call:
 - **A click.** `host.map.onClick([layerIds], (e) => ...)` gives `e.lngLat`, `e.features` and `e.layerId`. `host.map.showPopup(lngLat, text)` shows a popup (text, never HTML).
 - **A side panel.** `host.panel.addSide<T>({ id, label, render })` returns `{ isOpen, open(data), close() }`. The host draws the frame; `render(el, { data, close, size, toggleSize })` draws inside it. At most one side panel is open.
 - **A Settings tab.** `host.settings.addTab({ id, label, group?, admin?, render })`. Tabs are for admins by default (`admin: false` opens them to everyone). `render(el, { isAdmin })`.
-- **Other slots.** `host.panel.addCorner({ id, whileOn?, render })` for a widget in the map's bottom-right corner; `host.drive.addAlertSource({ id, label, start })` for Drive alerts (partly stubbed, see `api.ts`).
+- **Other slots.** `host.panel.addCorner({ id, whileOn?, render })` for a widget in the map's bottom-right corner; `host.drive.addAlertSource({ id, label, filter?, defaultOn?, runs?, title?, start })` for Drive alerts (below).
 - **Data.** `host.data.json<T>(path, init)` and `host.data.fetch(path, init)` reach only `/api/plugins/<id>/…`. `json` throws with a `status` on a non-2xx answer. `host.assetUrl(path)` gives the URL of a file in `assets/`.
 - **Feedback.** `host.log.*` goes to the console. `host.activity(message, level?)` shows a line in the Activity panel; keep it short, with no URLs, tokens or response bodies.
+
+**Drive sources.** A source feeds the Drive screen while a drive is on: `start(ctx)` runs when a drive begins (and again when the driver turns the source back on), and its cleanup runs when the drive ends or the driver turns it off. The `ctx` (see `DriveSourceContext` in `api.ts`) gives:
+
+- `position()`, `route()` (the route line, or null), `heading()` (degrees, or null until the car moves).
+- `routeAhead(point)`: metres along the route to `point` when it is on the road ahead, else null. The window is 1500 m ahead and 45 m off the road, with the car within 100 m of the route.
+- `report(alerts)`: the banner shows the nearest alert that passes the source's `filter`. `'route-ahead'` uses `routeAhead`; `'nearby'` (the default) uses a 800 m straight line.
+- `setStatus({ state, text })` for a line under the banner (`waiting`, `checking`, `stale`, `error`; `ok` or `null` shows nothing).
+- `speak(text, { key })` for the Drive voice. The host mutes it with the Voice button, holds it back for a stale or loose GPS fix, and says each `key` once per drive. What to say and when is yours.
+- Pins on the Drive map: draw with `ctx.map` using `ctx.scopedId('name')` ids, and declare the layers with `ctx.mapLayers(ids, { onTap })`. A tap on a declared layer goes to `onTap` and never picks a destination.
+
+The driver gets an on/off button per source, "`<label>` on/off", on by default unless `defaultOn: false`. A source runs during a drive by default; `runs: 'always'` starts it with the Drive map instead, so its pins show while the driver plans (its banner and speech still wait for a drive).
+
+```ts
+host.drive.addAlertSource({
+  id: 'police',
+  label: 'Police',
+  filter: 'route-ahead',
+  start(ctx) {
+    const timer = setInterval(async () => {
+      const here = ctx.position();
+      if (!here) return;
+      const reports = await host.data.json<DriveAlert[]>('/reports'); // your own feed
+      const ahead = reports
+        .flatMap((r) => { const d = ctx.routeAhead(r.point); return d === null ? [] : [{ r, d }]; })
+        .sort((a, b) => a.d - b.d);
+      ctx.report(ahead.map((x) => x.r));
+      const next = ahead[0];
+      if (next && next.d <= 800) ctx.speak(`${next.r.title} ahead`, { key: next.r.id });
+    }, 30_000);
+    return () => clearInterval(timer);
+  },
+});
+```
 
 Ids you choose (legend `key`, tab `id`, panel `id`) use lowercase letters, digits and hyphens. Every callback the host calls is wrapped: a throw is logged and does not break the app or other plugins.
 

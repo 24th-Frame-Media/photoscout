@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { LngLatBounds, Map as MlMap, Marker, type GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -16,11 +16,9 @@ import { fetchNavRoute, parseTo, stopsAhead, stopsForSavedRoute, type NavRoute }
 import type { LngLat } from '../drive/geometry.js';
 import { ManeuverBanner } from '../components/ManeuverBanner.js';
 import DriveSearch from '../components/DriveSearch.js';
-import { useWazeReports } from '../map/useWazeReports.js';
-import { reportLabel } from '../map/waze.js';
-import { WazeReportIcon } from '../components/WazeReportIcon.js';
-import { upcomingReports } from '../drive/reports.js';
-import { PluginDriveAlerts } from '../plugins/DriveAlerts.js';
+import { PluginDriveAlerts, PluginDriveToggles } from '../plugins/DriveAlerts.js';
+import { DriveRunner } from '../plugins/driveRunner.js';
+import { usePluginRegistry } from '../plugins/react.js';
 
 /** Where the drive is going: a place, or a saved route to follow through its stops. */
 type Target =
@@ -64,19 +62,6 @@ function DriveScreen({ children }: { children?: ReactNode }) {
   const [target, setTarget] = useState<Target | null>(null);
   const [route, setRoute] = useState<NavRoute | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
-  const [reportsOn, setReportsOn] = useState(true);
-  const waze = useWazeReports(map, reportsOn, 'navigation');
-  const warnedReports = useRef(new Set<string>());
-  const upcoming = useMemo(() => fix && route && phase === 'driving'
-    ? upcomingReports(waze.alerts, route.coords, [fix.lng, fix.lat], now) : [], [fix, route, phase, waze.alerts, now]);
-  useEffect(() => {
-    if (phase !== 'driving') { warnedReports.current.clear(); return; }
-    if (!reportsOn || !speech.supported || speech.muted) return;
-    const report = upcoming[0];
-    if (!report || report.distanceM > 800 || warnedReports.current.has(report.alert.id) || !fix || now - fix.t > STALE_MS || fix.accuracy > 75) return;
-    warnedReports.current.add(report.alert.id);
-    speech.speak(`${reportLabel(report.alert)} ahead, in ${formatDistance(report.distanceM)}.`);
-  }, [upcoming, phase, speech.speak, speech.supported, speech.muted, reportsOn, fix, now]);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [rerouting, setRerouting] = useState(false);
   const [message, setMessage] = useState('');
@@ -87,11 +72,15 @@ function DriveScreen({ children }: { children?: ReactNode }) {
   const bar = useRef<HTMLDivElement>(null);
 
   // The newest of everything, for the map's and the GPS's callbacks, which outlive a render.
-  const live = useRef({ phase, target, route, fix, following, speak: speech.speak });
-  live.current = { phase, target, route, fix, following, speak: speech.speak };
+  const live = useRef({ phase, target, route, fix, following, speak: speech.speak, voiceOn: speech.supported && !speech.muted });
+  live.current = { phase, target, route, fix, following, speak: speech.speak, voiceOn: speech.supported && !speech.muted };
   const session = useRef<DriveSession>(newSession());
   const lastFix = useRef<Fix | null>(null);
   const heading = useRef<number | null>(null);
+  // Plugin drive sources: one runner per map, running only while a drive is on (see the effects below).
+  const [runner, setRunner] = useState<DriveRunner | null>(null);
+  const runnerRef = useRef<DriveRunner | null>(null);
+  const pluginSources = usePluginRegistry().driveSources;
   const car = useRef<Marker | null>(null);
   const pin = useRef<Marker | null>(null);
   const asking = useRef<AbortController | null>(null);
@@ -116,12 +105,34 @@ function DriveScreen({ children }: { children?: ReactNode }) {
     for (const type of ['dragstart', 'rotatestart', 'pitchstart', 'zoomstart'] as const) m.on(type, pause);
     // A tap picks a destination, but never while driving: a thumb on the way past is not a new trip.
     m.on('click', (e) => {
-      if (m.getLayer('waze-reports') && m.queryRenderedFeatures(e.point, { layers: ['waze-reports'] }).length) return;
+      // A pin a plugin source declared (DriveSourceContext.mapLayers) is the plugin's to handle.
+      if (runnerRef.current?.tap(e)) return;
       if (live.current.phase === 'driving' || live.current.phase === 'routing') return;
       void choose({ kind: 'point', lat: e.lngLat.lat, lng: e.lngLat.lng, name: 'Dropped pin' });
     });
     return () => { m.remove(); car.current = null; pin.current = null; };
   }, []);
+
+  // --- plugin drive sources ---
+  useEffect(() => {
+    if (!map) return;
+    const r = new DriveRunner(map, {
+      fix: () => live.current.fix,
+      route: () => live.current.route?.coords ?? null,
+      heading: () => heading.current,
+      voiceOn: () => live.current.voiceOn,
+      speak: (text) => live.current.speak(text),
+    });
+    runnerRef.current = r;
+    setRunner(r);
+    return () => { r.stopAll(); runnerRef.current = null; setRunner(null); };
+  }, [map]);
+
+  // A source runs while a drive is on (or from the map's start, if it asks to), and stops when the drive ends.
+  useEffect(() => {
+    if (!runner) return;
+    runner.sync(pluginSources, phase === 'driving');
+  }, [runner, phase, pluginSources]);
 
   // The map's credit line sits above the readouts, whatever height they are.
   useEffect(() => {
@@ -304,18 +315,14 @@ function DriveScreen({ children }: { children?: ReactNode }) {
             <DriveSearch onPick={(r) => void choose({ kind: 'point', lat: r.lat, lng: r.lng, name: r.displayName.split(',')[0] })} onClose={() => setSearchOpen(false)} />
           )}
           {phase === 'driving' && route && progress && !searchOpen && <ManeuverBanner route={route} progress={progress} rerouting={rerouting} />}
-          {phase === 'driving' && upcoming[0] && <div className="drive__report" role="status">
-            <strong><WazeReportIcon type={upcoming[0].alert.type} subType={upcoming[0].alert.subType} /> {reportLabel(upcoming[0].alert)}</strong> · {formatDistance(upcoming[0].distanceM)} ahead
-            {upcoming[0].alert.street && <span className="drive__report-street">{upcoming[0].alert.street}</span>}
-          </div>}
-          {phase === 'driving' && <PluginDriveAlerts />}
+          {runner && <PluginDriveAlerts runner={runner} fix={fix} route={route?.coords ?? null} driving={phase === 'driving'} />}
           {phase === 'arrived' && <div className="drive__arrived" role="status">You have arrived{target ? ` at ${target.name}` : ''}</div>}
         </div>
 
         <div className="drive__tools">
           {!following && phase !== 'preview' && <button type="button" className="primary" onClick={() => setFollowing(true)}>Recentre</button>}
           <Link className="drivebtn" to="/" aria-label="Leave Drive">Exit</Link>
-          <button type="button" className={`drivebtn${reportsOn ? '' : ' is-off'}`} aria-pressed={reportsOn} title="Warn about police and hazard reports ahead" onClick={() => setReportsOn(!reportsOn)}>Reports {reportsOn ? 'on' : 'off'}</button>
+          <PluginDriveToggles />
           {speech.supported && (
             <button type="button" className={`drivebtn${speech.muted ? ' is-off' : ''}`} aria-pressed={speech.muted} onClick={() => speech.setMuted(!speech.muted)}>
               {speech.muted ? 'Voice off' : 'Voice on'}
@@ -336,10 +343,6 @@ function DriveScreen({ children }: { children?: ReactNode }) {
           </div>
 
           <div className="drive__trip">
-            {reportsOn && waze.error && <p className="drive__hint" role="status">Police and hazard reports can't load right now</p>}
-            {reportsOn && waze.state === 'queued' && <p className="drive__hint" role="status">Waiting to check reports for this area…</p>}
-            {reportsOn && waze.state === 'scanning' && <p className="drive__hint" role="status">Checking reports for this area…</p>}
-            {reportsOn && waze.state === 'stale' && <p className="drive__hint" role="status">Showing older reports while they refresh…</p>}
             {message && <p className="drive__msg" role="alert">{message}</p>}
             {phase === 'idle' && !message && <p className="drive__hint">Search for a place, or tap the map.</p>}
             {phase === 'routing' && <p className="drive__hint">Finding the way…</p>}

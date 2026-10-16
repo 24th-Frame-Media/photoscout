@@ -7,7 +7,7 @@ const read = (path: string, origin: string | undefined = MAP) => ({ origin, meth
 const preflight = (path: string) => ({ origin: MAP, method: 'OPTIONS', path, requestMethod: 'GET' });
 
 test('cors: with public reads on, another origin may read the public map and the sign-in routes', () => {
-  for (const path of ['/api/places', '/api/spots/abc', '/api/waze/heatmap', '/api/auth/status', '/api/version']) {
+  for (const path of ['/api/places', '/api/spots/abc', '/api/auth/status', '/api/version']) {
     const decision = corsDecision(read(path), [MAP], true);
     assert.equal(decision?.headers['Access-Control-Allow-Origin'], MAP, path);
   }
@@ -15,7 +15,7 @@ test('cors: with public reads on, another origin may read the public map and the
 });
 
 test('cors: on a private instance only the routes that stay open are offered to another origin', () => {
-  for (const path of ['/api/places', '/api/spots/abc', '/api/waze/heatmap', '/api/waze/alerts', '/api/plugins-web', '/api/settings']) {
+  for (const path of ['/api/places', '/api/spots/abc', '/api/plugins-web', '/api/settings']) {
     assert.equal(corsDecision(read(path), [MAP], false), null, path);
     assert.equal(corsDecision(preflight(path), [MAP], false), null, `preflight ${path}`);
   }

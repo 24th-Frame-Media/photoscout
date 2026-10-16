@@ -73,8 +73,6 @@ const ANONYMOUS_READS = [
   // The feed (scope=following is refused to a visitor by the handler: the query is not seen here) and a post's comments.
   /^\/api\/feed$/,
   /^\/api\/posts\/[^/]+\/comments$/,
-  // Waze status, alerts and the police heatmap (a week of history, from this server's own database)
-  /^\/api\/waze\/(status|alerts|heatmap)$/,
   // The web bundles of the active plugins: the map loads them before anyone signs in.
   /^\/api\/plugins-web$/,
 ];

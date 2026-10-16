@@ -1,9 +1,6 @@
 import { loadRoads, type RoadsStatus } from '../map/roadQuality';
 import ActivityLog from '../components/ActivityLog.js';
 import { logActivity, logSuccessIfNews } from '../activity.js';
-import { useWazeReports } from '../map/useWazeReports.js';
-import { usePoliceHeat } from '../map/usePoliceHeat.js';
-import { POLICE_HEAT_DEFAULT_MS, POLICE_HEAT_WINDOWS } from '../map/policeHeat.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { GeoJSONSource, LngLatBounds, Map as MlMap, MapMouseEvent, Marker, NavigationControl, Point, Popup, ScaleControl, setWorkerUrl } from 'maplibre-gl';
@@ -85,7 +82,7 @@ const newSpot = (lat: number, lng: number, placeId: string | null = null): SpotD
 });
 
 /** Legend keys whose visibility is applied by their own effect below. */
-const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events', 'waze', 'police-heat'];
+const FEED_KEYS = ['imagery', 'planes', 'rail', 'trains', 'candidates', 'road-quality', 'weather', 'fires', 'cameras', 'events'];
 const RADAR_POLL_MS = 10 * 60_000;
 
 type RouteHistoryEntry = { draft: RouteDraft; duration: number | null; ready: boolean };
@@ -142,10 +139,6 @@ export default function MapPage({ user }: { user: User | null }) {
   // Phase 3: live feeds, each behind its own toggle so nothing polls unasked.
   // Layer visibility: one source of truth for the legend and the chips.
   const [vis, setVis] = useState<Visibility>(loadVisibility);
-  const wazeReports = useWazeReports(map, !!vis.waze);
-  const heatOn = !!vis['police-heat'];
-  const [heatWindowMs, setHeatWindowMs] = useState<number>(POLICE_HEAT_DEFAULT_MS);
-  const policeHeat = usePoliceHeat(map, heatOn, heatWindowMs);
   useEffect(() => saveVisibility(vis), [vis]);
   const toggle = (key: string, on = !vis[key]) => setVis((v) => ({ ...v, [key]: on }));
   // Plugin contributions (web/src/plugins). Their toggles join the legend and the menus below; their layers,
@@ -197,20 +190,6 @@ export default function MapPage({ user }: { user: User | null }) {
     if (!roadsStatus) return;
     logActivity('Road quality', { loading: 'Loading roads…', failed: 'Road data unavailable; move the map to retry', zoom: 'Zoom in to see road quality' }[roadsStatus], roadsStatus === 'failed' ? 'error' : 'info');
   }, [roadsStatus]);
-  useEffect(() => {
-    if (!vis.waze) return;
-    if (wazeReports.error) { logActivity('Police and hazards', 'Reports unavailable; check Police & hazards in Settings', 'error'); return; }
-    const state = wazeReports.state;
-    // No reports is not the same as a clear road: the log says so rather than implying all-clear.
-    if (state) logActivity('Police and hazards', {
-      queued: 'Waiting to check reports for this area', scanning: 'Checking reports for this area…',
-      stale: 'Showing older reports while they refresh…',
-      fresh: wazeReports.alerts.length ? `${wazeReports.alerts.length} reports for this area` : 'No reports for this area right now; that does not mean the roads are clear',
-    }[state], state === 'fresh' && wazeReports.alerts.length ? 'success' : 'info');
-  }, [vis.waze, wazeReports.state, wazeReports.error, wazeReports.alerts.length]);
-  useEffect(() => {
-    if (heatOn && policeHeat.error) logActivity('Police heatmap', 'Heatmap unavailable; check Police & hazards in Settings', 'error');
-  }, [heatOn, policeHeat.error]);
 
   const canEdit = (ownerId: string) => !!user && (user.role === 'admin' || user.id === ownerId);
 
@@ -1264,14 +1243,6 @@ export default function MapPage({ user }: { user: User | null }) {
       )}
       <Legend map={map} vis={legendVis} onToggle={toggleAny} extra={pluginCategories} />
       <div className="mapcorner">
-        {heatOn && (
-          <div className="seg" role="group" aria-label="Police heatmap time window">
-            {POLICE_HEAT_WINDOWS.map((w) => (
-              <button key={w.ms} type="button" className={heatWindowMs === w.ms ? 'active' : ''} aria-pressed={heatWindowMs === w.ms}
-                onClick={() => setHeatWindowMs(w.ms)}>{w.label}</button>
-            ))}
-          </div>
-        )}
         <PluginCornerPanels />
         <div className="mapcorner__row">
         <ActivityLog admin={user?.role === 'admin'} open={activityOpen}
@@ -1308,8 +1279,6 @@ export default function MapPage({ user }: { user: User | null }) {
             { key: 'weather', label: category('weather').label, swatch: <Swatch cat={category('weather')} />, on: weatherOn, title: 'Rain radar (RainViewer, recent past only) and the forecast at the map centre for the map time', onSelect: () => toggle('weather') },
             { key: 'cameras', label: category('cameras').label, swatch: <Swatch cat={category('cameras')} />, on: camerasOn, title: 'NSW live traffic cameras (TfNSW)', onSelect: () => toggle('cameras') },
             { key: 'fires', label: category('fires').label, swatch: <Swatch cat={category('fires')} />, on: !!vis.fires, onSelect: () => toggle('fires') },
-            { key: 'waze', label: category('waze').label, swatch: <Swatch cat={category('waze')} />, on: !!vis.waze, title: 'Community police and hazard reports from Waze', onSelect: () => toggle('waze') },
-            { key: 'police-heat', label: category('police-heat').label, swatch: <Swatch cat={category('police-heat')} />, on: heatOn, title: 'Where police reports from Waze cluster over the chosen time window; pick the window in the bottom-right corner', onSelect: () => toggle('police-heat') },
             ...pluginMenuItems('live'),
           ] },
           { label: 'Scout', items: [
