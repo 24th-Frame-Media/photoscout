@@ -2324,7 +2324,7 @@ app.get('/api/calendar/:file', (req, res) => {
 
 // --- plugins: their routes, the admin API and their static files ------------------
 
-mountPlugins(app, pluginRuntime);
+mountPlugins(app, pluginRuntime, { kv: { get: (k) => db.getKv(k), set: (k, v) => db.setKv(k, v) } });
 
 // --- 404 + error handling, then the built frontend -------------------------------
 

@@ -77,6 +77,7 @@ export function statusBadge(p: Pick<PluginStatus, 'status' | 'enabled'>): { labe
 export function originTag(source: PluginSource): { label: string; title: string } | null {
   if (source === 'bundled') return { label: 'Bundled', title: 'Ships with PhotoScout and updates with it' };
   if (source === 'dev') return { label: 'Dev', title: 'Loaded from a development folder' };
+  if (source === 'repository') return { label: 'Registry', title: 'Installed from a plugin registry' };
   return null;
 }
 
@@ -97,6 +98,72 @@ export function iconUrl(p: Pick<PluginStatus, 'id' | 'version' | 'icon'>): strin
 /** The server records log lines oldest first; the page shows the newest at the top. */
 export function newestFirst(entries: PluginLogEntry[]): PluginLogEntry[] {
   return [...entries].reverse();
+}
+
+// --- registries -----------------------------------------------------------------
+
+/**
+ * Compare two plain semver versions (1.2.3, 1.2.3-rc.1, build metadata ignored).
+ * Negative when `a` is older than `b`, positive when newer, 0 when they are the same.
+ */
+export function compareVersions(a: string, b: string): number {
+  const x = parseSemver(a);
+  const y = parseSemver(b);
+  for (let i = 0; i < 3; i++) {
+    const d = (x.core[i] ?? 0) - (y.core[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  // A release outranks a pre-release of the same numbers.
+  if (x.pre.length === 0 || y.pre.length === 0) return (x.pre.length === 0 ? 1 : 0) - (y.pre.length === 0 ? 1 : 0);
+  const n = Math.max(x.pre.length, y.pre.length);
+  for (let i = 0; i < n; i++) {
+    const p = x.pre[i];
+    const q = y.pre[i];
+    if (p === undefined) return -1;
+    if (q === undefined) return 1;
+    const pNum = /^\d+$/.test(p);
+    const qNum = /^\d+$/.test(q);
+    if (pNum && qNum) {
+      const d = Number(p) - Number(q);
+      if (d !== 0) return d < 0 ? -1 : 1;
+    } else if (pNum !== qNum) {
+      return pNum ? -1 : 1; // numeric identifiers sort before text ones
+    } else if (p !== q) {
+      return p < q ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+function parseSemver(version: string): { core: number[]; pre: string[] } {
+  const noBuild = version.split('+')[0];
+  const dash = noBuild.indexOf('-');
+  const core = (dash < 0 ? noBuild : noBuild.slice(0, dash)).split('.').map((n) => Number.parseInt(n, 10) || 0);
+  const pre = dash < 0 ? [] : noBuild.slice(dash + 1).split('.');
+  return { core, pre };
+}
+
+/** What a registry card offers: install it, update the copy installed, or nothing (already at the latest or newer). */
+export function registryStatus(latest: string, installedVersion: string | null): 'install' | 'update' | 'current' {
+  if (installedVersion === null) return 'install';
+  return compareVersions(installedVersion, latest) < 0 ? 'update' : 'current';
+}
+
+/**
+ * The link target for a text the registry supplied (a homepage), or null. A registry is not trusted to
+ * supply a javascript: or other non-web link, so only http and https survive.
+ */
+export function safeHttpUrl(text: string | null | undefined): string | null {
+  if (text === null || text === undefined) return null;
+  const trimmed = text.trim();
+  return isHttpUrl(trimmed) ? trimmed : null;
+}
+
+/** A byte count for a person: "812 B", "240 KB", "1.5 MB". */
+export function sizeLabel(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // --- settings forms -------------------------------------------------------------

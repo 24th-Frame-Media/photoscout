@@ -86,8 +86,8 @@ export interface PluginRuntime {
   deactivate(id: string): Promise<PluginStatus>;
   reload(id: string): Promise<PluginStatus>;
   setEnabled(id: string, enabled: boolean): Promise<PluginStatus>;
-  /** Install an uploaded package and start it. If it does not start, the earlier version comes back. Throws PluginError. */
-  installPackage(zip: Uint8Array): Promise<InstalledPackage>;
+  /** Install a package and start it. If it does not start, the earlier version comes back. `source` is where it came from ('upload' by default). Throws PluginError. */
+  installPackage(zip: Uint8Array, source?: PluginSource): Promise<InstalledPackage>;
   /** Swap back to the earlier version, and start it if the plugin is on. Throws PluginError. */
   rollback(id: string): Promise<PluginStatus>;
   uninstall(id: string, opts: { keepData: boolean }): Promise<void>;
@@ -614,10 +614,10 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
    * queue, so an enable, a rollback or another upload cannot land in between. The
    * queue is keyed by the id, which is only known once the manifest is read.
    */
-  async function installPackage(zip: Uint8Array): Promise<InstalledPackage> {
+  async function installPackage(zip: Uint8Array, source: PluginSource = 'upload'): Promise<InstalledPackage> {
     const { id } = readZipManifest(zip);
     return serial(id, async () => {
-      const install = store.installFromZip(zip, { source: 'upload' });
+      const install = store.installFromZip(zip, { source });
       const row = store.get(id);
       if (!row) throw new PluginError('The plugin could not be recorded', 500);
       const created = !install.prior;

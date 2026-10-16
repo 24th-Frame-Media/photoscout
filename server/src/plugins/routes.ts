@@ -9,6 +9,7 @@ import { MAX_PACKAGE_BYTES } from './archive.js';
 import { isPublicFile, PluginError } from './manifest.js';
 import type { PluginRuntime } from './runtime.js';
 import { readManifestDir } from './store.js';
+import { addRegistry, createRemoteDeps, fetchRegistry, fetchVerifiedPackage, installRemote, listRegistries, previewOf, removeRegistry, type RemoteDeps } from './remote.js';
 
 /**
  * The HTTP side of the plugin host:
@@ -81,11 +82,59 @@ function isFile(p: string): boolean {
 }
 
 /** The admin API, to be mounted at /api/admin/plugins. Every route needs an admin. */
-export function pluginAdminRouter(runtime: PluginRuntime): express.Router {
+export function pluginAdminRouter(runtime: PluginRuntime, remoteOpts: Partial<RemoteDeps> = {}): express.Router {
   const router = express.Router();
+  const remote = createRemoteDeps(remoteOpts);
   router.use((req, res, next) => {
     if (requireAdmin(req, res)) next();
   });
+
+  // Distribution: registries and install-from-registry. Declared before the /:id routes, so DELETE /registries is not read as an id.
+  const body = (req: Request): Record<string, unknown> => (typeof req.body === 'object' && req.body !== null ? (req.body as Record<string, unknown>) : {});
+
+  router.get(
+    '/registries',
+    route((_req, res) => {
+      res.json({ registries: listRegistries(remote) });
+    }),
+  );
+
+  router.post(
+    '/registries',
+    route(async (req, res) => {
+      res.json({ registries: await addRegistry(remote, body(req).url) });
+    }),
+  );
+
+  router.delete(
+    '/registries',
+    route((req, res) => {
+      res.json({ registries: removeRegistry(remote, body(req).url) });
+    }),
+  );
+
+  router.get(
+    '/registry',
+    route(async (req, res) => {
+      const { plugins } = await fetchRegistry(remote, typeof req.query.url === 'string' ? req.query.url : undefined);
+      res.json({ plugins });
+    }),
+  );
+
+  router.post(
+    '/preview-remote',
+    route(async (req, res) => {
+      res.json(previewOf(await fetchVerifiedPackage(remote, body(req) as { registryUrl: unknown; id: unknown; version?: unknown })));
+    }),
+  );
+
+  router.post(
+    '/install-remote',
+    route(async (req, res) => {
+      const { created, id, version, status } = await installRemote(runtime, remote, body(req) as { registryUrl: unknown; id: unknown; version?: unknown });
+      res.status(created ? 201 : 200).json({ ok: true, id, version, status });
+    }),
+  );
 
   router.get(
     '/',
@@ -206,11 +255,11 @@ export function pluginStaticRouter(runtime: PluginRuntime): express.Router {
 }
 
 /** Mount everything the plugin host serves. Call before the /api 404 handler and the SPA fallback. */
-export function mountPlugins(app: express.Express, runtime: PluginRuntime): void {
+export function mountPlugins(app: express.Express, runtime: PluginRuntime, remote: Partial<RemoteDeps> = {}): void {
   app.get('/api/plugins-web', (_req, res) => {
     res.json(runtime.webEntries());
   });
   app.use('/api/plugins', runtime.dispatcher);
-  app.use('/api/admin/plugins', pluginAdminRouter(runtime));
+  app.use('/api/admin/plugins', pluginAdminRouter(runtime, remote));
   app.use('/plugins', pluginStaticRouter(runtime));
 }

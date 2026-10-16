@@ -18,7 +18,7 @@ import type { PluginManifest } from './types.js';
  * the active and the previous version are kept on disk.
  */
 
-export type PluginSource = 'upload' | 'dev' | 'bundled';
+export type PluginSource = 'upload' | 'dev' | 'bundled' | 'repository';
 
 export interface PluginRow {
   id: string;

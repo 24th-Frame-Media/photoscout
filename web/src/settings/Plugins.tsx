@@ -12,17 +12,17 @@ import {
   servicesLine,
   statusBadge,
 } from './pluginsFormat.js';
+import PluginBrowse from './PluginBrowse.js';
 import PluginSettingsForm from './PluginSettingsForm.js';
 import './plugins.css';
 
-/** Settings → Admin → Plugins: upload, switch on or off, update, roll back, configure, read the log, remove. */
+type View = 'installed' | 'browse' | 'manual';
+
+/** Settings → Admin → Plugins: the installed plugins (switch on or off, update, roll back, configure, read the log, remove), browsing registries, and installing a .zip by hand. */
 export default function Plugins() {
   const [list, setList] = useState<PluginList | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState('');
-  const [uploadNote, setUploadNote] = useState('');
-  const fileInput = useRef<HTMLInputElement>(null);
+  const [view, setView] = useState<View>('installed');
 
   const load = () =>
     pluginsApi
@@ -43,29 +43,6 @@ export default function Plugins() {
     void load();
   };
 
-  async function upload(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const file = fileInput.current?.files?.[0];
-    setUploadError('');
-    setUploadNote('');
-    if (!file) {
-      setUploadError('Choose a plugin .zip file first.');
-      return;
-    }
-    setUploading(true);
-    try {
-      const done = await pluginsApi.upload(file);
-      const running = done.status.status === 'active';
-      setUploadNote(`${done.status.name} ${done.version} is installed${running ? ' and running' : ''}.`);
-      if (fileInput.current) fileInput.current.value = '';
-      await load();
-    } catch (err) {
-      setUploadError((err as Error).message);
-    } finally {
-      setUploading(false);
-    }
-  }
-
   if (!list) {
     return (
       <section>
@@ -85,6 +62,67 @@ export default function Plugins() {
       {list.restartRecommended && <div className="banner plugins__banner" role="status">{RESTART_MESSAGE}</div>}
       {loadError && <p className="status-line error" role="alert">{loadError}</p>}
 
+      <div className="seg plugins__views" role="group" aria-label="Which plugins to show">
+        <button type="button" aria-pressed={view === 'installed'} onClick={() => setView('installed')}>
+          Installed ({list.plugins.length})
+        </button>
+        <button type="button" aria-pressed={view === 'browse'} onClick={() => setView('browse')}>Browse</button>
+        <button type="button" aria-pressed={view === 'manual'} onClick={() => setView('manual')}>Install manually</button>
+      </div>
+
+      {view === 'installed' &&
+        (list.plugins.length === 0 ? (
+          <p className="hint">No plugins installed yet.</p>
+        ) : (
+          <ul className="plugins__list">
+            {list.plugins.map((plugin) => (
+              <li key={plugin.id}>
+                <PluginCard plugin={plugin} onChange={changed} onRemoved={() => void load()} />
+              </li>
+            ))}
+          </ul>
+        ))}
+
+      {view === 'browse' && <PluginBrowse installed={list.plugins} onInstalled={() => void load()} />}
+
+      {view === 'manual' && <ManualUpload onInstalled={() => void load()} />}
+    </section>
+  );
+}
+
+/** Install a plugin from a .zip the admin already has. Registry plugins are on the Browse tab. */
+function ManualUpload({ onInstalled }: { onInstalled: () => void }) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [uploadNote, setUploadNote] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  async function upload(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const file = fileInput.current?.files?.[0];
+    setUploadError('');
+    setUploadNote('');
+    if (!file) {
+      setUploadError('Choose a plugin .zip file first.');
+      return;
+    }
+    setUploading(true);
+    try {
+      const done = await pluginsApi.upload(file);
+      const running = done.status.status === 'active';
+      setUploadNote(`${done.status.name} ${done.version} is installed${running ? ' and running' : ''}.`);
+      if (fileInput.current) fileInput.current.value = '';
+      onInstalled();
+    } catch (err) {
+      setUploadError((err as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <>
+      <p className="hint">Have a plugin as a .zip file? Install it here. Plugins from a registry are on the Browse tab.</p>
       <form className="plugins__upload" onSubmit={(e) => void upload(e)}>
         <label className="plugins__file">
           <span>Plugin package (.zip)</span>
@@ -105,19 +143,7 @@ export default function Plugins() {
       </form>
       {uploadNote && <p className="status-line ok" role="status">{uploadNote}</p>}
       {uploadError && <p className="status-line error" role="alert">{uploadError}</p>}
-
-      {list.plugins.length === 0 ? (
-        <p className="hint">No plugins installed yet.</p>
-      ) : (
-        <ul className="plugins__list">
-          {list.plugins.map((plugin) => (
-            <li key={plugin.id}>
-              <PluginCard plugin={plugin} onChange={changed} onRemoved={() => void load()} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    </>
   );
 }
 

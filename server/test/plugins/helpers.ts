@@ -10,6 +10,7 @@ import { needsAuth, type SessionUser } from '../../src/auth.js';
 import { createRegistry, type KvStore, type TaskRegistry } from '../../src/tasks/registry.js';
 import { createPluginRuntime, type PluginRuntime } from '../../src/plugins/runtime.js';
 import { mountPlugins } from '../../src/plugins/routes.js';
+import type { RemoteDeps } from '../../src/plugins/remote.js';
 
 /**
  * Shared scaffolding for the plugin tests. Nothing here imports the app's
@@ -132,7 +133,7 @@ export interface Caller {
  * An Express app with the plugin routes mounted, a host route for comparison,
  * and a fake signed-in user taken from `caller` for each request.
  */
-export function pluginApp(runtime: PluginRuntime, caller: Caller = { user: { id: 'admin-1', role: 'admin' } }): express.Express {
+export function pluginApp(runtime: PluginRuntime, caller: Caller = { user: { id: 'admin-1', role: 'admin' } }, remote: Partial<RemoteDeps> = {}): express.Express {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.use((req, _res, next) => {
@@ -142,7 +143,7 @@ export function pluginApp(runtime: PluginRuntime, caller: Caller = { user: { id:
   app.get('/health', (_req, res) => {
     res.json({ ok: true });
   });
-  mountPlugins(app, runtime);
+  mountPlugins(app, runtime, remote);
   app.use('/api', (req, res) => {
     res.status(404).json({ error: `Unknown endpoint: ${req.method} ${req.originalUrl}` });
   });

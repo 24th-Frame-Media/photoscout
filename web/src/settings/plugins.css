@@ -137,6 +137,30 @@
 .plugins__log--warn { color: var(--accent); }
 .plugins__log--error { color: var(--red); }
 
+/* Which plugins to show: the segmented switch wraps on a phone rather than running off the edge. */
+.plugins__views { margin: 14px 0 0; flex-wrap: wrap; max-width: 100%; }
+.plugins__views button { white-space: nowrap; }
+
+/* Browse: the registries, then the plugins they list. */
+.plugins__registries { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 0; min-width: 0; }
+.plugins__registries h3 { margin: 0; font-size: 15px; }
+.plugins__reg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.plugins__reg { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.plugins__reg-pick { flex: 1 1 240px; min-width: 0; text-align: left; font-size: 13px; overflow-wrap: anywhere; }
+.plugins__reg-add { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.plugins__reg-add .plugins__file { flex: 1 1 260px; min-width: 0; }
+.plugins__reg-add input[type="text"] { width: 100%; min-width: 0; }
+.plugins__retry { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+
+/* The install confirm: the modal's panel holds this. The title keeps clear of the close button. */
+.plugins__dialog { display: flex; flex-direction: column; gap: 12px; padding: 20px 22px 18px; font-size: 13.5px; min-width: 0; }
+.plugins__dialog h3 { margin: 0; padding-right: 48px; font-size: 18px; overflow-wrap: anywhere; }
+.plugins__dialog-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.plugins__dialog code { font-size: 12px; overflow-wrap: anywhere; }
+.plugins__dialog a { overflow-wrap: anywhere; }
+.plugins__warn { margin: 0; border: 2px solid var(--red); }
+.plugins__warn p { margin: 0; }
+
 @media (max-width: 600px) {
   .plugins__badges { margin-left: 0; justify-content: flex-start; }
   .plugins__card { padding: var(--sp-3); }

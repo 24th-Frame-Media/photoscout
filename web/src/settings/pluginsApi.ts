@@ -6,7 +6,7 @@ const BASE = '/api/admin/plugins';
 
 export type PermissionKind = 'network' | 'secrets' | 'realtime' | 'llm' | 'tasks' | 'storage';
 export type PluginState = 'active' | 'inactive' | 'error' | 'disabled';
-export type PluginSource = 'upload' | 'dev' | 'bundled';
+export type PluginSource = 'upload' | 'dev' | 'bundled' | 'repository';
 
 export interface PluginPermission {
   kind: PermissionKind;
@@ -72,6 +72,53 @@ export interface UploadResult {
   status: PluginStatus;
 }
 
+/** A registry this instance reads. The default one ships with PhotoScout; the rest were added by an admin. */
+export interface RegistryEntry {
+  url: string;
+  isDefault: boolean;
+}
+
+export interface RegistryVersion {
+  version: string;
+  zip: string;
+  sha256: string;
+  minCore?: string;
+  size?: number;
+}
+
+/** One plugin as a registry lists it. `latest` is the version Install and Update take. */
+export interface RegistryPlugin {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  homepage?: string;
+  category?: string;
+  latest: string;
+  versions: RegistryVersion[];
+}
+
+/** What a plugin will be before it is installed, from its own package (checksum already checked by the server). */
+export interface RemotePreview {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  homepage: string | null;
+  category: string;
+  permissions: PluginPermission[];
+  services: PluginService[];
+  hasServer: boolean;
+  hasWeb: boolean;
+  /** Routes the plugin declares as open without sign-in. */
+  publicRoutes: string[];
+  sha256: string;
+  size: number;
+}
+
+export type RemoteInstallResult = UploadResult;
+
 /** The server's reason, as a plain Error. A refusal carries { error } in its body. */
 async function read<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -111,4 +158,32 @@ export const pluginsApi = {
     fetch(`${idPath(id)}/settings`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(values) }).then((r) => read<PluginSettings>(r)),
 
   logs: (id: string) => fetch(`${idPath(id)}/logs`).then((r) => read<{ logs: PluginLogEntry[] }>(r)),
+
+  // Registries: the places plugins are listed. The server only fetches https addresses it has been given here.
+  listRegistries: () => fetch(`${BASE}/registries`).then((r) => read<{ registries: RegistryEntry[] }>(r)),
+
+  addRegistry: (url: string) =>
+    fetch(`${BASE}/registries`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ url }) }).then((r) =>
+      read<{ registries: RegistryEntry[] }>(r),
+    ),
+
+  removeRegistry: (url: string) =>
+    fetch(`${BASE}/registries`, { method: 'DELETE', headers: jsonHeaders, body: JSON.stringify({ url }) }).then((r) =>
+      read<{ registries: RegistryEntry[] }>(r),
+    ),
+
+  /** `url` must be a configured registry. */
+  browseRegistry: (url: string) =>
+    fetch(`${BASE}/registry?url=${encodeURIComponent(url)}`).then((r) => read<{ plugins: RegistryPlugin[] }>(r)),
+
+  /** Downloads and checks the package, then describes it. Nothing is installed. */
+  previewRemote: (registryUrl: string, id: string, version?: string) =>
+    fetch(`${BASE}/preview-remote`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ registryUrl, id, version }) }).then((r) =>
+      read<RemotePreview>(r),
+    ),
+
+  installRemote: (registryUrl: string, id: string, version?: string) =>
+    fetch(`${BASE}/install-remote`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ registryUrl, id, version }) }).then((r) =>
+      read<RemoteInstallResult>(r),
+    ),
 };
