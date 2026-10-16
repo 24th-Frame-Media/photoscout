@@ -20,6 +20,7 @@ import { useWazeReports } from '../map/useWazeReports.js';
 import { reportLabel } from '../map/waze.js';
 import { WazeReportIcon } from '../components/WazeReportIcon.js';
 import { upcomingReports } from '../drive/reports.js';
+import { PluginDriveAlerts } from '../plugins/DriveAlerts.js';
 
 /** Where the drive is going: a place, or a saved route to follow through its stops. */
 type Target =
@@ -307,6 +308,7 @@ function DriveScreen({ children }: { children?: ReactNode }) {
             <strong><WazeReportIcon type={upcoming[0].alert.type} subType={upcoming[0].alert.subType} /> {reportLabel(upcoming[0].alert)}</strong> · {formatDistance(upcoming[0].distanceM)} ahead
             {upcoming[0].alert.street && <span className="drive__report-street">{upcoming[0].alert.street}</span>}
           </div>}
+          {phase === 'driving' && <PluginDriveAlerts />}
           {phase === 'arrived' && <div className="drive__arrived" role="status">You have arrived{target ? ` at ${target.name}` : ''}</div>}
         </div>
 

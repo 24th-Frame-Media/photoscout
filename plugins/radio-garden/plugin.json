@@ -8,6 +8,7 @@
   "category": "map",
   "photoscout": "^1.0",
   "server": "server.js",
+  "web": "web.js",
   "public": ["/places", "/places/*", "/stations/*"],
   "permissions": [{ "kind": "network", "detail": "radio.garden" }]
 }

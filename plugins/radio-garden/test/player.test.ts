@@ -1,79 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CATEGORIES, categoryOf, groupLayers, RADIO_COLOR } from '../src/map/legend.js';
-import { radioGeoJSON, RADIO_LAYERS } from '../src/map/layers.js';
-import type { RadioPlace, RadioStation } from '../src/api.js';
 import {
   DEFAULT_RADIO_CONNECTION_TIMEOUT_MS,
   RADIO_STREAM_UNAVAILABLE_ERROR,
   RadioAudioController,
-} from '../src/components/RadioPanel.js';
+} from '../src/web/player.js';
+import type { RadioStation } from '../src/web/types.js';
 
-test('Legend groups Radio layers correctly and defaults to off', () => {
-  const cat = CATEGORIES.find((c) => c.key === 'radio');
-  assert.ok(cat, 'radio category exists in CATEGORIES');
-  assert.equal(cat.group, 'Overlays');
-  assert.equal(cat.defaultOn, false, 'radio overlay is default-off');
-  assert.equal(cat.color, RADIO_COLOR);
-  assert.equal(cat.glyph, '📻');
-
-  const testLayers = [
-    { id: 'radio-clusters', type: 'circle' },
-    { id: 'radio-cluster-count', type: 'symbol' },
-    { id: 'radio-points', type: 'circle' },
-    { id: 'other-layer', type: 'line' },
-  ];
-
-  assert.equal(categoryOf(testLayers[0]), 'radio');
-  assert.equal(categoryOf(testLayers[1]), 'radio');
-  assert.equal(categoryOf(testLayers[2]), 'radio');
-  assert.equal(categoryOf(testLayers[3]), null);
-
-  const grouped = groupLayers(testLayers);
-  assert.deepEqual(grouped.radio, ['radio-clusters', 'radio-cluster-count', 'radio-points']);
-  assert.deepEqual(RADIO_LAYERS, ['radio-clusters', 'radio-cluster-count', 'radio-points']);
-});
-
-test('radioGeoJSON preserves [lng, lat] order, IDs, and station counts', () => {
-  const samplePlaces: RadioPlace[] = [
-    {
-      id: 'place-syd',
-      title: 'Sydney',
-      country: 'Australia',
-      lng: 151.2093,
-      lat: -33.8688,
-      stationCount: 42,
-    },
-    {
-      id: 'place-nyc',
-      title: 'New York NY',
-      country: 'United States',
-      lng: -74.006,
-      lat: 40.7128,
-      stationCount: 183,
-    },
-  ];
-
-  const fc = radioGeoJSON(samplePlaces);
-  assert.equal(fc.type, 'FeatureCollection');
-  assert.equal(fc.features.length, 2);
-
-  const f0 = fc.features[0];
-  assert.equal(f0.id, 'place-syd');
-  assert.equal(f0.geometry.type, 'Point');
-  // Strict GeoJSON check: [longitude, latitude]
-  assert.deepEqual((f0.geometry as GeoJSON.Point).coordinates, [151.2093, -33.8688]);
-  assert.deepEqual(f0.properties, {
-    id: 'place-syd',
-    title: 'Sydney',
-    country: 'Australia',
-    stationCount: 42,
-  });
-
-  const f1 = fc.features[1];
-  assert.deepEqual((f1.geometry as GeoJSON.Point).coordinates, [-74.006, 40.7128]);
-  assert.equal(f1.properties?.stationCount, 183);
-});
+// The audio controller moved here from the app's RadioPanel (web/src/components) with the radio-garden web bundle.
 
 test('Player lifecycle: no autoplay, cleans up previous stream, and handles errors', () => {
   // Test simulated player state transitions matching RadioPanel
@@ -552,95 +486,6 @@ test('Panel close persistence: closing station panel preserves playback, widget 
   assert.equal(audio.paused, true, 'audio is paused');
   assert.equal(audio.src, '', 'audio src is cleared');
   assert.equal(audio.released, true, 'audio load() called to release buffers');
-
-  controller.destroy();
-});
-
-test('Toggle-off persistence: turning Radio legend toggle off hides map markers only, audio and widget remain', () => {
-  class TestAudio {
-    src = '';
-    paused = true;
-    released = false;
-    onplaying: ((ev?: any) => void) | null = null;
-    onwaiting: ((ev?: any) => void) | null = null;
-    onpause: ((ev?: any) => void) | null = null;
-    onerror: ((ev?: any) => void) | null = null;
-    onended: ((ev?: any) => void) | null = null;
-
-    play() {
-      this.paused = false;
-      return Promise.resolve();
-    }
-    pause() {
-      this.paused = true;
-    }
-    removeAttribute(attr: string) {
-      if (attr === 'src') this.src = '';
-    }
-    load() {
-      this.released = true;
-    }
-  }
-
-  let createdAudio: TestAudio | null = null;
-  const controller = new RadioAudioController({
-    connectionTimeoutMs: 10_000,
-    audioFactory: () => {
-      createdAudio = new TestAudio();
-      return createdAudio as any;
-    },
-  });
-
-  const station: RadioStation = {
-    id: 'st-melb',
-    title: 'Triple R 102.7 FM',
-    placeId: 'pl-melb',
-    listenUrl: '/api/plugins/media.24thframe.radio-garden/stations/st-melb/listen',
-  };
-
-  // Simulating MapPage layer & legend state
-  let radioOn = true;
-  const layerVisibility: Record<string, boolean> = {
-    'radio-clusters': true,
-    'radio-cluster-count': true,
-    'radio-points': true,
-  };
-
-  function setLayerVisible(layers: string[], visible: boolean) {
-    for (const l of layers) {
-      layerVisibility[l] = visible;
-    }
-  }
-
-  // 1. Play station while Radio layer is ON
-  controller.playStation(station);
-  assert.ok(createdAudio);
-  const audio = createdAudio as TestAudio;
-  audio.onplaying!();
-  assert.equal(controller.getState().playbackState, 'playing');
-
-  // 2. Turning Radio legend toggle OFF
-  radioOn = false;
-  // Map effect runs: hides marker layers only
-  setLayerVisible(RADIO_LAYERS, radioOn);
-
-  // Assertions:
-  // - Map markers are hidden
-  for (const layerId of RADIO_LAYERS) {
-    assert.equal(layerVisibility[layerId], false, `${layerId} must be hidden`);
-  }
-
-  // - Audio playback is untouched
-  assert.equal(audio.paused, false, 'audio element is not paused when radio toggle turns off');
-  assert.equal(controller.getState().activeStation?.id, 'st-melb', 'station remains active');
-  assert.equal(controller.getState().playbackState, 'playing', 'playback remains playing');
-
-  // - Widget remains available and can stop playback
-  controller.stop();
-  assert.equal(controller.getState().activeStation, null, 'stopped from widget releases station');
-  assert.equal(audio.paused, true);
-  assert.equal(audio.src, '');
-  assert.equal(audio.released, true);
 
   controller.destroy();
 });

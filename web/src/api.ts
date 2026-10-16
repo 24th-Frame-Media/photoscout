@@ -295,37 +295,6 @@ export interface WazeHeatmap {
   points: WazeHeatPoint[];
 }
 
-/** Where the Radio Garden plugin's routes live. Station listen links come from the server and already point here. */
-const RADIO_BASE = '/api/plugins/media.24thframe.radio-garden';
-
-export interface RadioPlace {
-  id: string;
-  title: string;
-  country: string;
-  lng: number;
-  lat: number;
-  stationCount: number;
-}
-
-export interface RadioStation {
-  id: string;
-  title: string;
-  placeId: string;
-  streamDomain?: string;
-  listenUrl: string;
-}
-
-export interface RadioPlacesResponse {
-  places: RadioPlace[];
-}
-
-export interface RadioStationsResponse {
-  placeId: string;
-  title?: string;
-  country?: string;
-  stations: RadioStation[];
-}
-
 export interface ScoutEvent {
   group: string; title: string; description: string; startTime: string; endTime: string; venueName: string;
   address: string; locality: string; lat: number; lng: number; imageUrl: string | null; category: string; goodDuring: boolean;
@@ -667,10 +636,6 @@ export const api = {
     fetch(`/api/waze/alerts?minLng=${bbox.minLng}&minLat=${bbox.minLat}&maxLng=${bbox.maxLng}&maxLat=${bbox.maxLat}&priority=${priority}`, { signal }).then((r) => json<{ configured: boolean; alerts: WazeAlert[]; coverage: 'route' | 'viewport' | 'bbox'; observedAt: number | null; state: 'fresh' | 'queued' | 'scanning' | 'stale'; retryAfterMs: number }>(r)),
   wazeHeatmap: (bbox: { minLng: number; minLat: number; maxLng: number; maxLat: number }, windowMs: number, signal?: AbortSignal) =>
     fetch(`/api/waze/heatmap?minLng=${bbox.minLng}&minLat=${bbox.minLat}&maxLng=${bbox.maxLng}&maxLat=${bbox.maxLat}&windowMs=${windowMs}`, { signal }).then((r) => json<WazeHeatmap>(r)),
-  // --- Radio Garden layer (the media.24thframe.radio-garden plugin) ---
-  radioPlaces: () => fetch(`${RADIO_BASE}/places`).then((r) => json<RadioPlacesResponse>(r)),
-  radioStations: (placeId: string) => fetch(`${RADIO_BASE}/places/${encodeURIComponent(placeId)}/stations`).then((r) => json<RadioStationsResponse>(r)),
-  radioListenUrl: (channelId: string) => `${RADIO_BASE}/stations/${encodeURIComponent(channelId)}/listen`,
 
   // --- Event Scout ---
   spotNearby: (spotId: string) => fetch(`/api/spots/${spotId}/nearby`).then((r) => json<NearbyResult>(r)),

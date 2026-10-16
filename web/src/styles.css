@@ -1120,7 +1120,7 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
   background: var(--glass); border: 1px solid var(--border); border-radius: var(--pill); padding: 4px 14px; font-size: 13px;
   font-variant-numeric: tabular-nums; backdrop-filter: blur(6px); }
 /* 48px = the 40px chip row + the column's 8px gap; with the radio widget (47px) on top of the row, 103px. */
-.mapshell--has-radio-widget .wxpill { bottom: calc(var(--corner-bottom) + 103px); }
+.mapshell:has(.radiowidget) .wxpill { bottom: calc(var(--corner-bottom) + 103px); }
 @media (min-width: 821px) {
   /* 446px = the side panel's 390px width + its 56px offset from the right edge. 622px = 446px + the Legend chip and gaps. */
   .mapshell--panel .wxpill { left: calc((100% - 446px) / 2); max-width: calc(100% - 622px); }
@@ -1134,7 +1134,7 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
 @media (max-width: 820px) {
   .wxpill { gap: 4px 7px; font-size: 12px; padding: 3px 10px; }
   /* Phone: the radio widget is 54px tall (40px buttons), so 8px + 54px + 48px. */
-  .mapshell--has-radio-widget .wxpill { bottom: calc(var(--corner-bottom) + 110px); }
+  .mapshell:has(.radiowidget) .wxpill { bottom: calc(var(--corner-bottom) + 110px); }
 }
 
 /* Plan shoot */
@@ -1273,8 +1273,15 @@ fieldset.bare { border: 0; padding: 0; margin: 0; }
 
 @media (max-width: 820px) { .calcell { min-height: 56px; } .calcell__ev { font-size: 10.5px; } }
 
-/* Radio Garden layer panel and player */
-.radiopanel { display: flex; flex-direction: column; }
+/* A plugin's side panel: the host's frame around the plugin's view. Same flex column as a core panel's content, so a long
+   list inside the view (the Radio stations) scrolls on its own below the header. */
+.pluginpanel { display: flex; flex-direction: column; }
+.pluginpanel > :not(.panel__handle):not(.panel__close) { display: flex; flex-direction: column; min-height: 0; }
+/* A plugin's corner widget that is drawing nothing (the Radio player while idle) takes no room, and no gap, in the column. */
+.plugincorner:empty { display: none; }
+
+/* Radio Garden layer panel and player (the radio-garden plugin's web bundle uses these classes) */
+.radiopanel { display: flex; flex-direction: column; min-height: 0; }
 .radiopanel__header { margin-bottom: 8px; }
 .radiopanel__notice-box {
   background: var(--input-bg);

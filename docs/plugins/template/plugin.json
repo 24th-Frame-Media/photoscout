@@ -1,0 +1,12 @@
+{
+  "id": "com.example.hello-places",
+  "name": "Hello places",
+  "version": "0.1.0",
+  "description": "Two sample places on the map behind a legend toggle. A starting point for a new plugin.",
+  "author": "Your name",
+  "category": "map",
+  "photoscout": "^1.0",
+  "server": "server.js",
+  "web": "web.js",
+  "public": ["/places"]
+}

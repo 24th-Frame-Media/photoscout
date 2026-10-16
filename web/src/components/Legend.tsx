@@ -16,7 +16,7 @@ export function Swatch({ cat, color = cat.color }: { cat: Category; color?: stri
 }
 
 /** Collapsible map legend: one row per layer category, with a swatch and a visibility checkbox. */
-export function Legend({ map, vis, onToggle }: { map: MlMap | null; vis: Visibility; onToggle: (key: string, on: boolean) => void }) {
+export function Legend({ map, vis, onToggle, extra = [] }: { map: MlMap | null; vis: Visibility; onToggle: (key: string, on: boolean) => void; extra?: readonly Category[] }) {
   const [open, setOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth > 820);
   const layers = useMemo(() => (map?.getStyle().layers ?? []) as LegendLayer[], [map]);
   const groups = ['Base map', 'Overlays'] as const;
@@ -28,7 +28,7 @@ export function Legend({ map, vis, onToggle }: { map: MlMap | null; vis: Visibil
           {groups.map((g) => (
             <div key={g}>
               <h4>{g}</h4>
-              {CATEGORIES.filter((c) => c.group === g).map((c) => (
+              {[...CATEGORIES, ...extra].filter((c) => c.group === g).map((c) => (
                 <label key={c.key} className="legend__row">
                   <Swatch cat={c} color={swatchColor(c, layers)} />
                   <span className="grow">{c.label}</span>

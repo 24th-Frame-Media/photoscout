@@ -1,9 +1,9 @@
 /** MapLibre sources and layers: base extras (imagery, DEM), light (mood, rays, shadows) and our places/spots. */
 import { GeoJSONSource, Map as MlMap, type RasterTileSource, type LightSpecification } from 'maplibre-gl';
-import type { EventItem, FireIncident, Place, RadioPlace, Spot, TrafficCamera } from '../api.js';
+import type { EventItem, FireIncident, Place, Spot, TrafficCamera } from '../api.js';
 import { isOver } from '../events.js';
 import { cameraBearing, ICON, thumbIconId } from './spotGlance.js';
-import { RADIO_COLOR, RAIL_COLOR } from './legend.js';
+import { RAIL_COLOR } from './legend.js';
 import { useOvertureBuildings } from './overture.js';
 import { destination, wedge } from './geo.js';
 import { buildingShadows, MIN_SHADOW_ALT, type Footprint } from './shadows.js';
@@ -301,56 +301,6 @@ export function initFeedLayers(map: MlMap) {
       'icon-allow-overlap': true, 'icon-ignore-placement': true } });
   map.addLayer({ id: 'cameras', type: 'symbol', source: 'cameras',
     layout: { visibility: 'none', 'icon-image': 'camera', 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
-
-  // Radio Garden locations: emerald markers that cluster when zoomed out.
-  map.addSource('radio', {
-    type: 'geojson',
-    data: empty(),
-    cluster: true,
-    clusterMaxZoom: 12,
-    clusterRadius: 40,
-    attribution: 'Radio locations via <a href="https://radio.garden/" target="_blank" rel="noopener noreferrer">Radio Garden</a>',
-  });
-  map.addLayer({
-    id: 'radio-clusters',
-    type: 'circle',
-    source: 'radio',
-    filter: ['has', 'point_count'],
-    layout: { visibility: 'none' },
-    paint: {
-      'circle-radius': 15,
-      'circle-color': '#0d2818',
-      'circle-stroke-color': RADIO_COLOR,
-      'circle-stroke-width': 2,
-    },
-  });
-  map.addLayer({
-    id: 'radio-cluster-count',
-    type: 'symbol',
-    source: 'radio',
-    filter: ['has', 'point_count'],
-    layout: {
-      visibility: 'none',
-      'text-field': ['get', 'point_count_abbreviated'],
-      'text-font': FONT,
-      'text-size': 12,
-      'text-allow-overlap': true,
-    },
-    paint: { 'text-color': RADIO_COLOR },
-  });
-  map.addLayer({
-    id: 'radio-points',
-    type: 'circle',
-    source: 'radio',
-    filter: ['!', ['has', 'point_count']],
-    layout: { visibility: 'none' },
-    paint: {
-      'circle-radius': 6,
-      'circle-color': RADIO_COLOR,
-      'circle-stroke-color': '#0e1014',
-      'circle-stroke-width': 1.5,
-    },
-  });
 }
 
 /** Layers the user has switched off (legend/chips); code that toggles visibility itself must respect this. */
@@ -564,32 +514,6 @@ export function updateCameras(map: MlMap, cameras: TrafficCamera[]) {
   setData(map, 'cameras', camerasGeoJSON(cameras));
 }
 
-export const RADIO_LAYERS = ['radio-clusters', 'radio-cluster-count', 'radio-points'];
-
-export function radioGeoJSON(places: RadioPlace[]): GeoJSON.FeatureCollection {
-  return {
-    type: 'FeatureCollection',
-    features: places.map((p) => ({
-      type: 'Feature',
-      id: p.id,
-      geometry: {
-        type: 'Point',
-        coordinates: [p.lng, p.lat],
-      },
-      properties: {
-        id: p.id,
-        title: p.title,
-        country: p.country,
-        stationCount: p.stationCount,
-      },
-    })),
-  };
-}
-
-export function updateRadioPlaces(map: MlMap, places: RadioPlace[]) {
-  setData(map, 'radio', radioGeoJSON(places));
-}
-
 /** A 60° wedge pointing up from the image centre (the camera), fading out over 32 px; drawn at 2x. */
 function cameraConeIcon(): ImageData {
   const c = document.createElement('canvas');
@@ -616,7 +540,7 @@ function cameraIcon(): ImageData {
   return g.getImageData(0, 0, 44, 44);
 }
 
-export const CLICKABLE = ['spot-thumbs', 'place-spot-thumbs', 'spot-points', 'place-spots', 'clusters', 'place-points', 'place-fill', 'place-line', 'candidates', 'fires-pts', 'fires-polys-fill', 'fires-polys-line', 'cameras', 'event-points', 'event-clusters', 'road-quality', 'route-lines', 'route-staging', 'radio-points', 'radio-clusters'];
+export const CLICKABLE = ['spot-thumbs', 'place-spot-thumbs', 'spot-points', 'place-spots', 'clusters', 'place-points', 'place-fill', 'place-line', 'candidates', 'fires-pts', 'fires-polys-fill', 'fires-polys-line', 'cameras', 'event-points', 'event-clusters', 'road-quality', 'route-lines', 'route-staging'];
 
 export function setImagery(map: MlMap, on: boolean) {
   map.setLayoutProperty('imagery', 'visibility', on ? 'visible' : 'none');

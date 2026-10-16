@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Link, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { api, AuthStatus } from './api.js';
 import { TimeProvider } from './time.js';
+import { loadWebPlugins } from './plugins/loader.js';
+import { pluginRegistry } from './plugins/registry.js';
 import Login from './pages/Login.js';
 import MapPage from './pages/MapPage.js';
 import PlacePage from './pages/PlacePage.js';
@@ -36,6 +38,14 @@ export default function App() {
   const refresh = () => api.authStatus().then((s) => { setStatus(s); setLoadError(''); }, (err: Error) => setLoadError(err.message));
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { setMenuOpen(false); setAccountOpen(false); }, [location.pathname]);
+
+  // Web plugins load once the app knows whether this visitor may read anything. A private instance with nobody
+  // signed in never asks, so the sign-in redirect below is not preceded by a 401; signing in re-runs this.
+  const canRead = !!status && (status.authed || status.publicReads);
+  useEffect(() => {
+    pluginRegistry.setUser(status?.authed && status.user ? { id: status.user.id, username: status.user.username, role: status.user.role } : null);
+  }, [status?.authed, status?.user?.id, status?.user?.username, status?.user?.role]);
+  useEffect(() => { if (canRead) void loadWebPlugins(); }, [canRead]);
 
   if (!status) {
     return (

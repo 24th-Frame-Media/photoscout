@@ -11,7 +11,8 @@ import EventsBusyMap from '../settings/events/DensityView.js';
 import EventsModel from '../settings/events/Model.js';
 import EventsNotify from '../settings/events/Notify.js';
 import EventTasks from '../settings/events/EventTasks.js';
-import { GROUPS, Tab, tabFromHash } from '../settings/tabs.js';
+import { groupsWith, isPluginTabHash, Tab, tabFromHash } from '../settings/tabs.js';
+import { PluginView, usePluginRegistry } from '../plugins/react.js';
 import SignInSetup from '../settings/SignInSetup.js';
 import AccessSetting from '../settings/AccessSetting.js';
 import Plugins from '../settings/Plugins.js';
@@ -31,11 +32,17 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const [keyInput, setKeyInput] = useState('');
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyMsg, setKeyMsg] = useState('');
-  const [tab, setTabState] = useState<Tab>(() => tabFromHash(window.location.hash));
-  const setTab = (t: Tab) => { setTabState(t); history.replaceState(null, '', `#${t}`); };
+  // Plugin tabs arrive after the page does, so the hash is kept as asked and resolved against the tabs that exist now.
+  const plugins = usePluginRegistry();
+  const [wanted, setWanted] = useState(() => window.location.hash);
+  const pluginTabs = plugins.settingsTabs;
+  const tab: Tab = tabFromHash(wanted, pluginTabs.map((t) => t.id));
+  const pluginTab = pluginTabs.find((t) => t.id === tab) ?? null;
+  const waitingForPlugins = isPluginTabHash(wanted) && !pluginTab && plugins.phase !== 'ready';
+  const setTab = (t: Tab) => { setWanted(t); history.replaceState(null, '', `#${t}`); };
   // A link to another tab while already here changes only the hash.
   useEffect(() => {
-    const follow = () => setTabState(tabFromHash(window.location.hash));
+    const follow = () => setWanted(window.location.hash);
     window.addEventListener('hashchange', follow);
     return () => window.removeEventListener('hashchange', follow);
   }, []);
@@ -95,7 +102,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const setAll = (list: Area[]) => set({ home: list[0], areas: list.slice(1) });
   const setArea = (i: number, patch: Partial<Area>) => setAll(all.map((a, j) => (j === i ? { ...a, ...patch } : a)));
   const makeHome = (i: number) => setAll([all[i], ...all.filter((_, j) => j !== i)]);
-  const groups = GROUPS.map((g) => ({ ...g, tabs: g.tabs.filter((t) => isAdmin || !t.admin) })).filter((g) => g.tabs.length > 0);
+  const groups = groupsWith(pluginTabs).map((g) => ({ ...g, tabs: g.tabs.filter((t) => isAdmin || !t.admin) })).filter((g) => g.tabs.length > 0);
 
   return (
     <div className="page settings">
@@ -123,7 +130,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       <div className="settings__body">
       {/* Outside the fieldset below: your own account is yours to change, admin or not. */}
       {tab === 'account' && user && <><Account user={user} account={account} onChange={onChange} /><CalendarLink /></>}
-      {!isAdmin && tab !== 'account' && tab !== 'waze' && <div className="banner">Only an admin can change these.</div>}
+      {!isAdmin && tab !== 'account' && tab !== 'waze' && !(pluginTab && !pluginTab.admin) && <div className="banner">Only an admin can change these.</div>}
       <fieldset disabled={!isAdmin && tab !== 'waze'} className="bare">
         {tab === 'areas' && <section>
           <h2>📍 Areas</h2>
@@ -228,6 +235,12 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       {isAdmin && tab === 'signin' && <SignInSetup />}
       {isAdmin && tab === 'plugins' && <Plugins />}
       {isAdmin && tab === 'users' && <Users me={user!} />}
+      {waitingForPlugins && <p className="hint">Loading plugins…</p>}
+      {pluginTab && (isAdmin || !pluginTab.admin) && (
+        <section className="plugintab" aria-label={pluginTab.label}>
+          <PluginView key={pluginTab.id} pluginId={pluginTab.pluginId} view={pluginTab.view} props={{ isAdmin }} />
+        </section>
+      )}
       </div>
       </div>
     </div>
