@@ -7,6 +7,9 @@ export interface SourceStatus {
   message: string;
   lastFetch: string | null;
   count: number;
+  description?: string;
+  pluginId?: string;
+  pluginName?: string;
 }
 
 /** What a model service is used for: listings, flyers, the chat bot. */

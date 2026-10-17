@@ -77,12 +77,12 @@ The schema is `docs/plugins/plugin.schema.json`. You may add `"$schema": "<relat
 | `description` | yes | one sentence (not empty) |
 | `author` | yes | not empty |
 | `category` | yes | `map`, `feed`, `events`, `ai` or `tools` |
-| `photoscout` | yes | a semver range of the host plugin API, e.g. `^1.0`. The host provides `1.0.0`. |
+| `photoscout` | yes | a semver range of the host plugin API, e.g. `^1.0`. The host provides `1.3.0`. |
 | `server` | no | a `.js` path in the package, e.g. `server.js` |
 | `web` | no | a `.js` or `.mjs` path in the package, e.g. `web.js` |
 | `icon` | no | a path in the package |
 | `homepage` | no | a string shown to the admin |
-| `permissions` | no | `[{ "kind": ..., "detail": ... }]`. Kinds: `network`, `secrets`, `realtime`, `llm`, `tasks`, `storage`. Shown to the admin; not enforced in the browser. The one the server does act on is `network` with a `detail` of `host` or `host:port` (see `ctx.fetch`). |
+| `permissions` | no | `[{ "kind": ..., "detail": ... }]`. Kinds: `network`, `secrets`, `realtime`, `llm`, `tasks`, `storage`, `events`. Shown to the admin; not enforced in the browser. The one the server does act on is `network` with a `detail` of `host` or `host:port` (see `ctx.fetch`). |
 | `services` | no | named external services; see "Services" below |
 | `settings` | no | fields the admin fills in on the plugin's settings page; see below |
 | `public` | no | route patterns a signed-out visitor may GET or HEAD, relative to the plugin: `"/places"`, `"/stations/*"` (`*` matches any run of characters, slashes included; at most 4 per pattern). Every other route needs a signed-in session. |
@@ -103,6 +103,12 @@ Export `definePlugin`-shaped default: an object with `activate(ctx)` (and option
 - `ctx.log.info|warn|error(msg)`.
 - `ctx.services.url(name)`: the URL the admin set for that service, or `null`.
 - `ctx.areas()`: the instance's configured Areas, home first and then the others in the order the admin set them, each as `{ name, lat, lng, radiusKm }` (`PluginArea`; the events and busy switches are left out). Read-only: the result is a frozen copy, and changing it changes nothing in core. Current at call time, so a poll that calls it again sees Areas the admin has changed since. `[]` if they cannot be read. Host `1.2.0` added it, so a plugin that calls it declares `"photoscout": "^1.2"`.
+- `ctx.events`: custom event providers, scrapers, link importers, and event pipeline access (added in host `1.3.0`; declare `"photoscout": "^1.3"`):
+  - `ctx.events.registerSource({ id, label, description?, unofficial?, areaScoped?, fetch(area) })`: registers a custom event source (`plugin:<pluginId>:<id>`) that runs alongside built-in sources on every events refresh and appears with its own enable checkbox and status line under **Settings → Events → Sources**. `area` provides `{ city, lat, lng, radiusKm, queryBudget?, topics, terms }`. Return `PluginRawEvent[]` or `{ missingConfig: 'Set API key in plugin settings' }`. Everything returned flows through PhotoScout's date validation, area checking, Nominatim geocoding, deduplication, LLM classification, flyer reading, and Discord/Matrix notifications.
+  - `ctx.events.ingest(sourceId, events)`: pushes scraped or webhook-received events into a source registered by this plugin on demand without waiting for a full refresh. Returns `{ kept, rejected, outsideArea }`.
+  - `ctx.events.registerImporter({ id, label, match(url), read(url) })`: registers a custom single-page scraper for "Add from a link" on the Events page, checked before the built-in HTML/LLM reader whenever `match(url)` returns `true`.
+  - `ctx.events.extractFromHtml(html, pageUrl)`: extracts `schema.org/Event` (`application/ld+json`) blocks from raw HTML into `PluginRawEvent[]`.
+  - `ctx.events.list(query?)`: reads upcoming curated events (`place`, `category`, `q`, `from`, `to`, `limit`).
 
 ### 4. Web bundle (`src/web.ts`)
 

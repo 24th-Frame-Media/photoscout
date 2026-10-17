@@ -23,10 +23,17 @@ import { classifyEvent } from './sources/topics.js';
 import { cleanAddress, cleanDescription, validateAddress, validateDates, validateLocation } from './validate.js';
 import { localitiesFrom, resolveVenueAlias, unifyVenueNames } from './venues.js';
 import { defaultRegionFrom, isBareCityLabel, localityOf, regionOf } from './regions.js';
+import { bumpEventsVersion } from './events.js';
+import { getPluginEventSource, listPluginEventSources, normalizePluginRawEvents } from './pluginSources.js';
+import type { PluginRawEvent } from '../plugins/types.js';
 
 export const ADAPTERS: EventSourceAdapter[] = [
   ticketmaster, seatgeek, eventbrite, facebook, websearch, icalSource, midnightspec, crawlerSource,
 ];
+
+export function allAdapters(): EventSourceAdapter[] {
+  return [...ADAPTERS, ...listPluginEventSources()];
+}
 
 let refreshing = false;
 let refreshStartedAt = 0;
@@ -220,7 +227,7 @@ export async function refreshAll(): Promise<SourceStatus[]> {
     note(`Looking in ${where || 'the configured area'}`);
 
     await Promise.allSettled(
-      ADAPTERS.map(async (adapter) => {
+      allAdapters().map(async (adapter) => {
         if (settings.enabledSources[adapter.name] === false) {
           setStatus(adapter.name, 'disabled', 'Disabled in Settings', null);
           return;
@@ -921,7 +928,7 @@ export function getStatuses(): SourceStatus[] {
     count: number;
   }[];
   const byName = new Map(rows.map((r) => [r.name, r]));
-  return ADAPTERS.map((a) => {
+  return allAdapters().map((a) => {
     const row = byName.get(a.name);
     return {
       name: a.name,
@@ -931,6 +938,81 @@ export function getStatuses(): SourceStatus[] {
       message: row?.message ?? 'Not fetched yet',
       lastFetch: row?.lastFetch ?? null,
       count: row?.count ?? 0,
+      ...(a.description ? { description: a.description } : {}),
+      ...(a.pluginId ? { pluginId: a.pluginId } : {}),
+      ...(a.pluginName ? { pluginName: a.pluginName } : {}),
     };
   });
 }
+
+/**
+ * Ingest events pushed directly by a plugin event source outside of a full refresh.
+ * Validates dates and locations against the active event areas, geocodes venues,
+ * recomputes dedupe groups, updates source_status and bumps the events version.
+ */
+export async function ingestPluginEvents(
+  sourceName: string,
+  items: readonly PluginRawEvent[],
+): Promise<{ kept: number; rejected: number; outsideArea: number }> {
+  const adapter = getPluginEventSource(sourceName);
+  if (!adapter) throw new Error(`Unknown plugin event source "${sourceName}"`);
+  const settings = getSettings();
+  if (settings.enabledSources[sourceName] === false) {
+    setStatus(sourceName, 'disabled', 'Disabled in Settings', null);
+    return { kept: 0, rejected: 0, outsideArea: 0 };
+  }
+  const locations = await eventLocations(settings);
+  const areaRegions = regionsOfAreas(locations.map((l) => l.city));
+  const raw = normalizePluginRawEvents(items);
+  const kept: RawEvent[] = [];
+  let rejected = 0;
+  let outsideArea = 0;
+
+  for (const ev of raw) {
+    const dates = validateDates(ev);
+    if (!dates.ok) {
+      rejected++;
+      continue;
+    }
+    if (locations.length > 0) {
+      const where = validateLocation(ev, locations, areaRegions);
+      if (!where.ok) {
+        outsideArea++;
+        continue;
+      }
+    }
+    kept.push({ ...ev, startTime: dates.startTime, endTime: dates.endTime ?? undefined });
+  }
+
+  const now = new Date().toISOString();
+  const region = localRegion();
+  const stmt = upsertStmt();
+  for (const ev of kept) insertRaw(stmt, sourceName, ev, now, region);
+
+  if (kept.length > 0 && locations.length > 0) {
+    const unplaced = db
+      .prepare(
+        `SELECT id, venue_name, address FROM events
+          WHERE source = ? AND lat IS NULL AND archived = 0 AND geocode_tried = 0
+            AND (venue_name != '' OR address != '')`,
+      )
+      .all(sourceName) as unknown as { id: number; venue_name: string; address: string }[];
+    const spend = { asked: 0, budget: Math.min(20, GEOCODE_BUDGET) };
+    const countries = countriesOfAreas(locations.map((l) => ({ name: l.city, lat: l.lat, lng: l.lng })));
+    for (const row of unplaced) {
+      try {
+        await placeRow(row, locations, spend, countries);
+      } catch {
+        // Leave for the next full refresh if geocoding fails transiently.
+      }
+    }
+  }
+
+  recomputeDedupeGroups();
+  const dropped =
+    (rejected ? `, ${rejected} rejected on date` : '') + (outsideArea ? `, ${outsideArea} outside every area` : '');
+  setStatus(sourceName, 'ok', `Ingested ${kept.length} events${dropped}`, kept.length);
+  bumpEventsVersion();
+  return { kept: kept.length, rejected, outsideArea };
+}
+

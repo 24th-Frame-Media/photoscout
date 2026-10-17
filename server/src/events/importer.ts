@@ -8,6 +8,7 @@ import { whenFromText } from './shared/textWhen.js';
 import { cleanDescription } from './validate.js';
 import { chatJson } from './llm/router.js';
 import { servicesFor } from './llm/services.js';
+import { tryPluginEventImporters } from './pluginSources.js';
 import type { RawEvent, Settings } from './sources/types.js';
 
 /**
@@ -21,6 +22,7 @@ import type { RawEvent, Settings } from './sources/types.js';
  *
  * In order of how much each is to be trusted:
  *
+ *   0. A plugin importer that matches the URL.
  *   1. A Facebook event, through the Facebook reader.
  *   2. An Instagram post, through the crawler, which reads Instagram with a
  *      browser's headers; its caption holds the date if anything does.
@@ -35,7 +37,7 @@ import type { RawEvent, Settings } from './sources/types.js';
  * the server fetch a URL a person typed, which is the shape of every SSRF.
  */
 
-export type FoundBy = 'json-ld' | 'facebook' | 'instagram' | 'page' | 'text' | 'model';
+export type FoundBy = 'json-ld' | 'facebook' | 'instagram' | 'page' | 'text' | 'model' | 'plugin';
 
 export interface ImportCandidate {
   title: string;
@@ -361,8 +363,16 @@ export async function readEventPage(raw: string, settings: Settings, now = new D
   let preview: ImportPreview;
   let text = '';
   try {
+    const fromPlugin = await tryPluginEventImporters(url);
     const fb = FACEBOOK_EVENT.exec(url);
-    if (INSTAGRAM_POST.test(url)) {
+    if (fromPlugin) {
+      preview = {
+        ok: true,
+        url,
+        candidates: fromPlugin.events.slice(0, MAX_CANDIDATES).map((e) => fromRaw(e, 'plugin', url)),
+        message: `Read via ${fromPlugin.label}.`,
+      };
+    } else if (INSTAGRAM_POST.test(url)) {
       preview = await viaCrawler(url, settings);
     } else if (fb) {
       preview = await viaFacebook(url, fb[1], settings);

@@ -7,6 +7,13 @@ import type { NextFunction, Request, Response as ExpressResponse, Router } from 
 import { requireAdmin as defaultRequireAdmin, requireUser as defaultRequireUser } from '../auth.js';
 import type { Db } from '../db.js';
 import { publicFetch } from '../events/nethost.js';
+import {
+  registerPluginEventImporter,
+  registerPluginEventSource,
+  unregisterPluginEventImporter,
+  unregisterPluginEventSource,
+} from '../events/pluginSources.js';
+import { extractEventsFromHtml } from '../events/sources/jsonld.js';
 import { getSettings } from '../settings.js';
 import type { TaskDef, TaskRegistry } from '../tasks/registry.js';
 import { PluginError, publicRouteAllowed } from './manifest.js';
@@ -18,7 +25,12 @@ import {
   type PermissionKind,
   type PluginArea,
   type PluginContext,
+  type PluginEventImporterDef,
+  type PluginEventItem,
+  type PluginEventQuery,
+  type PluginEventSourceDef,
   type PluginManifest,
+  type PluginRawEvent,
   type PluginTaskDef,
   type ServerPlugin,
   type ServiceSpec,
@@ -130,6 +142,10 @@ export interface PluginRuntimeOptions {
   safeMode?: boolean;
   /** Default: PHOTOSCOUT_PLUGIN_DEV=1 in the environment. */
   devMode?: boolean;
+  /** Direct event ingestion into the events engine behind ctx.events.ingest. */
+  ingestEvents?: (sourceName: string, items: readonly PluginRawEvent[]) => Promise<{ kept: number; rejected: number; outsideArea: number }>;
+  /** Direct read from the events engine behind ctx.events.list. */
+  listEvents?: (query?: Record<string, unknown>) => readonly PluginEventItem[];
 }
 
 /** A plugin that is running, with everything needed to stop it again. */
@@ -144,6 +160,8 @@ interface Live {
   closed: boolean;
   listeners: Set<(s: Record<string, unknown>) => void>;
   taskNames: string[];
+  eventSourceNames: string[];
+  eventImporterNames: string[];
 }
 
 function errorMessage(err: unknown): string {
@@ -394,6 +412,46 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
     }
   }
 
+  function registerEventSource(lv: Live, def: PluginEventSourceDef): void {
+    if (lv.closed) throw new PluginError('This plugin is no longer active');
+    if (!def || typeof def !== 'object') throw new PluginError('event source definition must be an object');
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(def.id)) {
+      throw new PluginError(`event source id "${def.id}" must be lowercase letters, digits and hyphens`);
+    }
+    if (typeof def.label !== 'string' || !def.label.trim()) {
+      throw new PluginError(`event source "${def.id}" must have a non-empty label`);
+    }
+    if (typeof def.fetch !== 'function') {
+      throw new PluginError(`event source "${def.id}" must provide a fetch(area) function`);
+    }
+    const name = `plugin:${lv.id}:${def.id}`;
+    if (lv.eventSourceNames.includes(name)) {
+      throw new PluginError(`event source "${def.id}" is already registered`);
+    }
+    registerPluginEventSource(lv.id, lv.manifest.name, def);
+    lv.eventSourceNames.push(name);
+  }
+
+  function registerEventImporter(lv: Live, def: PluginEventImporterDef): void {
+    if (lv.closed) throw new PluginError('This plugin is no longer active');
+    if (!def || typeof def !== 'object') throw new PluginError('event importer definition must be an object');
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(def.id)) {
+      throw new PluginError(`event importer id "${def.id}" must be lowercase letters, digits and hyphens`);
+    }
+    if (typeof def.label !== 'string' || !def.label.trim()) {
+      throw new PluginError(`event importer "${def.id}" must have a non-empty label`);
+    }
+    if (typeof def.match !== 'function' || typeof def.read !== 'function') {
+      throw new PluginError(`event importer "${def.id}" must provide match(url) and read(url) functions`);
+    }
+    const name = `plugin:${lv.id}:${def.id}`;
+    if (lv.eventImporterNames.includes(name)) {
+      throw new PluginError(`event importer "${def.id}" is already registered`);
+    }
+    registerPluginEventImporter(lv.id, def);
+    lv.eventImporterNames.push(name);
+  }
+
   function buildContext(lv: Live): PluginContext {
     const { id, manifest } = lv;
     const fields = manifest.settings ?? [];
@@ -423,6 +481,41 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
       log: { info: level('info'), warn: level('warn'), error: level('error') },
       services: { url: (name) => serviceUrl(id, name) },
       areas: () => readAreas(opts.db),
+      events: {
+        registerSource: (def) => registerEventSource(lv, def),
+        registerImporter: (def) => registerEventImporter(lv, def),
+        ingest: async (sourceId, events) => {
+          if (lv.closed) throw new PluginError('This plugin is no longer active');
+          const name = `plugin:${lv.id}:${sourceId}`;
+          if (!lv.eventSourceNames.includes(name)) {
+            throw new PluginError(`event source "${sourceId}" is not registered by this plugin`);
+          }
+          if (!Array.isArray(events)) {
+            throw new PluginError('events must be an array');
+          }
+          if (opts.ingestEvents) {
+            return opts.ingestEvents(name, events);
+          }
+          const { ingestPluginEvents } = await import('../events/refresh.js');
+          return ingestPluginEvents(name, events);
+        },
+        extractFromHtml: (html, pageUrl) => {
+          if (lv.closed) throw new PluginError('This plugin is no longer active');
+          return extractEventsFromHtml(String(html ?? ''), String(pageUrl ?? ''), 'source');
+        },
+        list: (query?: PluginEventQuery) => {
+          if (lv.closed) throw new PluginError('This plugin is no longer active');
+          if (!opts.listEvents) return [];
+          const q: Record<string, unknown> = {};
+          if (query?.place !== undefined) q.place = query.place;
+          if (query?.category !== undefined) q.category = query.category;
+          if (query?.q !== undefined) q.q = query.q;
+          if (query?.from !== undefined) q.from = query.from;
+          if (query?.to !== undefined) q.to = query.to;
+          if (query?.limit !== undefined) q.limit = query.limit;
+          return opts.listEvents(q);
+        },
+      },
     };
   }
 
@@ -467,7 +560,7 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
     await plugin.activate(buildContext(lv));
   }
 
-  /** Stop one running plugin: its hook, its tasks, its listeners and its database. */
+  /** Stop one running plugin: its hook, its tasks, its event sources/importers, its listeners and its database. */
   async function teardown(lv: Live): Promise<void> {
     lv.closed = true;
     if (lv.plugin?.deactivate) {
@@ -483,6 +576,14 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
       intervalTasks.delete(name);
     }
     lv.taskNames = [];
+    for (const name of lv.eventSourceNames) {
+      unregisterPluginEventSource(name);
+    }
+    lv.eventSourceNames = [];
+    for (const name of lv.eventImporterNames) {
+      unregisterPluginEventImporter(name);
+    }
+    lv.eventImporterNames = [];
     lv.listeners.clear();
     try {
       lv.db?.close();
@@ -529,6 +630,8 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
         closed: false,
         listeners: new Set(),
         taskNames: [],
+        eventSourceNames: [],
+        eventImporterNames: [],
       };
     } catch (err) {
       fail(id, err);

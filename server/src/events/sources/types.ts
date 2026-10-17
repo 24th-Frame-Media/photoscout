@@ -415,6 +415,13 @@ export interface EventSourceAdapter {
   label: string;
   /** True for sources that scrape rather than use an official API. */
   unofficial?: boolean;
+  /** Short description shown in Settings -> Events -> Sources for plugin sources. */
+  description?: string;
+  /** Set when registered by a plugin (`plugin:<pluginId>:<id>`). */
+  pluginId?: string;
+  pluginName?: string;
+  /** True when the source is already scoped to the user's area, like iCal feeds. */
+  areaScoped?: boolean;
   fetchEvents(loc: Location, settings: Settings): Promise<RawEvent[]>;
 }
 
@@ -426,4 +433,8 @@ export interface SourceStatus {
   message: string;
   lastFetch: string | null;
   count: number;
+  description?: string;
+  pluginId?: string;
+  pluginName?: string;
 }
+

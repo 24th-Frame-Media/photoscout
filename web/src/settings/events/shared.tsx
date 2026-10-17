@@ -48,7 +48,10 @@ export function useEventSettings() {
       setDraft(await api.saveSettings(draft));
       setSaved(true);
       setDirty(false);
-      if (refreshAfter) await api.refresh();
+      if (refreshAfter) {
+        const res = await api.refresh();
+        setSources(res.sources);
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -56,7 +59,7 @@ export function useEventSettings() {
     }
   }, [draft]);
 
-  return { draft, set, save, dirty, saved, busy, error, notSetUp, statusFor: (name: string) => sources.find((s) => s.name === name) };
+  return { draft, set, save, dirty, saved, busy, error, notSetUp, sources, statusFor: (name: string) => sources.find((s) => s.name === name) };
 }
 
 export function SaveBar({ save, dirty, saved, busy, error, canRefresh = true }: {

@@ -2,6 +2,7 @@ import { AREA_SLACK, haversineKm } from './shared/geo.js';
 import { regionName, regionOf, stripRegionAndPostcode } from './regions.js';
 import { localDay } from './day.js';
 import { dateFromTitle } from './shared/textWhen.js';
+import { isAreaScopedPluginSource } from './pluginSources.js';
 
 /**
  * Which events to keep out of sight on their own.
@@ -383,7 +384,7 @@ const AREA_SCOPED_SOURCES = new Set(['ical']);
  * shown once the wait runs out.
  */
 function unplacedReason(ev: Cullable, hubs: CullHub[]): string | null {
-  if (ev.sources.some((s) => AREA_SCOPED_SOURCES.has(s.source))) return null;
+  if (ev.sources.some((s) => AREA_SCOPED_SOURCES.has(s.source) || isAreaScopedPluginSource(s.source))) return null;
   const named = hubs.some((h) => h.name.length >= 4 && new RegExp(`\\b${escapeRe(h.name)}\\b`, 'i').test(ev.title ?? ''));
   if (named || ev.localSite) return ev.unvetted ? 'Waiting to be checked' : null;
   return ev.unknownLocation ? 'No place given, so not known to be in any area' : 'Place not found, so not known to be in any area';

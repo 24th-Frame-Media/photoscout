@@ -17,7 +17,7 @@ export class PluginError extends Error {
 }
 
 export const PLUGIN_CATEGORIES = ['map', 'feed', 'events', 'ai', 'tools'] as const;
-export const PERMISSION_KINDS: readonly PermissionKind[] = ['network', 'secrets', 'realtime', 'llm', 'tasks', 'storage'];
+export const PERMISSION_KINDS: readonly PermissionKind[] = ['network', 'secrets', 'realtime', 'llm', 'tasks', 'storage', 'events'];
 const SETTING_TYPES = ['string', 'secret', 'url', 'number', 'boolean', 'select'];
 /** Reverse-DNS: at least two dot-separated parts, lowercase letters, digits and hyphens. */
 export const PLUGIN_ID_PATTERN = /^[a-z0-9]+(\.[a-z0-9-]+)+$/;

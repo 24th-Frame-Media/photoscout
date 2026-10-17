@@ -110,6 +110,8 @@ export function makeRuntime(
     guardedFetch?: (url: string, init?: RequestInit) => Promise<Response>;
     /** Fake transport for plugins that declare a `network` host. Defaults to the guardedFetch fake, so a stubbed upstream also answers for them. */
     send?: Send;
+    ingestEvents?: Parameters<typeof createPluginRuntime>[0]['ingestEvents'];
+    listEvents?: Parameters<typeof createPluginRuntime>[0]['listEvents'];
   } = {},
 ): Harness {
   const root = opts.root ?? tempRoot();
@@ -140,6 +142,8 @@ export function makeRuntime(
     devMode: opts.devMode ?? false,
     guardedFetch: opts.guardedFetch,
     send: opts.send ?? (opts.guardedFetch ? (url, init) => opts.guardedFetch!(url, init) : undefined),
+    ingestEvents: opts.ingestEvents,
+    listEvents: opts.listEvents,
   });
   return {
     runtime,

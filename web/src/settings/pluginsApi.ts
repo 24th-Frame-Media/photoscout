@@ -4,7 +4,7 @@ import { activityFetch as fetch } from '../activity.js';
 
 const BASE = '/api/admin/plugins';
 
-export type PermissionKind = 'network' | 'secrets' | 'realtime' | 'llm' | 'tasks' | 'storage';
+export type PermissionKind = 'network' | 'secrets' | 'realtime' | 'llm' | 'tasks' | 'storage' | 'events';
 export type PluginState = 'active' | 'inactive' | 'error' | 'disabled';
 export type PluginSource = 'upload' | 'dev' | 'bundled' | 'repository';
 

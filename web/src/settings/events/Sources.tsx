@@ -335,6 +335,36 @@ export default function Sources() {
         </p>
         <StatusLine status={statusFor('midnightspec')} />
       </section>
+
+      {s.sources
+        .filter((src) => Boolean(src.pluginId))
+        .map((src) => (
+          <section key={src.name}>
+            <h2>
+              🔌 {src.label}{' '}
+              {src.unofficial && <span className="badge unofficial">unofficial</span>}{' '}
+              <span className="badge" title={`Plugin: ${src.pluginId}`}>
+                plugin: {src.pluginName ?? src.pluginId}
+              </span>
+              <label className="toggle toggle--end">
+                <input
+                  type="checkbox"
+                  checked={draft.enabledSources[src.name] !== false}
+                  onChange={(e) =>
+                    set({ enabledSources: { ...draft.enabledSources, [src.name]: e.target.checked } })
+                  }
+                />{' '}
+                enabled
+              </label>
+            </h2>
+            <p className="hint">
+              {src.description || `Custom event provider registered by the ${src.pluginName ?? src.pluginId} plugin.`} Configure its credentials or options under{' '}
+              <b>System → Plugins</b>.
+            </p>
+            <StatusLine status={src} />
+          </section>
+        ))}
+
       <SaveBar save={s.save} dirty={s.dirty} saved={s.saved} busy={s.busy} error={s.error} canRefresh={draft.lat != null} />
     </>
   );

@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { db, dataDir } from '../db.js';
+import { listEvents } from '../events/local.js';
+import { ingestPluginEvents } from '../events/refresh.js';
 import { tasks } from '../tasks/tasks.js';
 import { bundledDirs, installBundled } from './bundled.js';
 import { createPluginRuntime } from './runtime.js';
@@ -9,6 +11,8 @@ export const pluginRuntime = createPluginRuntime({
   db,
   root: path.join(dataDir, 'plugins'),
   taskRegistry: tasks,
+  ingestEvents: ingestPluginEvents,
+  listEvents,
 });
 
 /**
