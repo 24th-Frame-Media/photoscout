@@ -68,7 +68,7 @@ A plugin is a zip with a `plugin.json` and a server half, a web half, or both. I
 
 - **Registry.** The default is [kapsikkum/photoscout-plugins](https://github.com/kapsikkum/photoscout-plugins); `PLUGIN_REGISTRY_URL` points a fresh instance somewhere else.
 - **Bundled.** Radio Garden (a radio panel with stations on the map) ships with the app and is installed at startup. An admin can disable or uninstall it.
-- **Waze police and hazards.** Not part of core. It lives in [kapsikkum/photoscout-plugin-waze](https://github.com/kapsikkum/photoscout-plugin-waze) and is listed in the registry. Installed, it adds the Police & hazards layer, a police heatmap and Drive warnings. Its reports come from an Android emulator bridge you host yourself: see [services/waze-harvester/README.md](services/waze-harvester/README.md) and `npm run waze:setup`.
+- **Waze police and hazards.** Not part of core. It lives in [kapsikkum/photoscout-plugin-waze](https://github.com/kapsikkum/photoscout-plugin-waze) and is listed in the registry. Installed, it adds the Police & hazards layer, a police heatmap and Drive warnings. Its reports come from an Android emulator bridge you host yourself: see the plugin repository's `harvester/README.md` and `npm run waze:setup`.
 - **Writing one.** [docs/plugins/authoring.md](docs/plugins/authoring.md) walks through it, with a starter in `docs/plugins/template` and the contract in `packages/plugin-sdk`. `npm run plugin:validate -- plugins/<name>` checks a manifest and `npm run plugin:build -- plugins/<name>` makes the zip.
 - **Safe mode.** `PHOTOSCOUT_SAFE_MODE=1` starts the server without running any plugin, for when one misbehaves.
 
@@ -136,7 +136,6 @@ plugins/
 services/
   crawler/      standalone event crawler, HTTP service and container
   density/      venue density browser, sampling, storage and rendering package
-  waze-harvester/ Android emulator and police/hazard report bridge, used by the Waze plugin
 docs/     API reference, plugin guide (docs/plugins) and research notes
 ```
 

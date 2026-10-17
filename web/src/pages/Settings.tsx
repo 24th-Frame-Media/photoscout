@@ -53,8 +53,11 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   }, [isAdmin]);
   const webTabPluginIds = new Set(pluginTabs.map((t) => t.pluginId));
   // A plugin that already contributes a web settings tab gets its manifest settings appended to that tab
-  // (below); it does NOT also get a separate section. So one plugin = one entry, no duplicate rows.
-  const manifestOnlyPlugins = installed.filter((p) => p.settingsSchema.length > 0 && !webTabPluginIds.has(p.id));
+  // (below); it does NOT also get a separate section. Wait until web plugin bundles finish loading so
+  // a plugin with a web tab does not briefly appear as a manifest-only section first.
+  const manifestOnlyPlugins = plugins.phase === 'ready'
+    ? installed.filter((p) => p.settingsSchema.length > 0 && !webTabPluginIds.has(p.id))
+    : [];
   const pluginSettingsIds = manifestOnlyPlugins.map((p) => `plugin:${p.id}`);
   const tab: Tab = tabFromHash(wanted, [...pluginTabs.map((t) => t.id), ...pluginSettingsIds]);
   const pluginTab = pluginTabs.find((t) => t.id === tab) ?? null;
@@ -63,7 +66,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const tabPluginSettings = pluginTab ? (installed.find((p) => p.id === pluginTab.pluginId && p.settingsSchema.length > 0) ?? null) : null;
   const isPluginSettingsHash = /^#?plugin:[a-z0-9]+(\.[a-z0-9-]+)+$/.test(wanted);
   const waitingForPlugins = isPluginTabHash(wanted) && !pluginTab && plugins.phase !== 'ready';
-  const waitingForPluginSettings = isPluginSettingsHash && !settingsPlugin && isAdmin && !installedLoaded;
+  const waitingForPluginSettings = isPluginSettingsHash && !settingsPlugin && isAdmin && (!installedLoaded || plugins.phase !== 'ready');
   const setTab = (t: Tab) => { setWanted(t); history.replaceState(null, '', `#${t}`); };
   // A link to another tab while already here changes only the hash.
   useEffect(() => {

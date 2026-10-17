@@ -79,11 +79,14 @@ try {
   if (apkPath && (!fs.statSync(apkPath).isFile() || !['.apk', '.apkm', '.apks', '.xapk', '.zip'].includes(apkExtension))) throw new Error('Supply a Waze APK or APK bundle file');
   const useExisting = !apkPath && (process.argv.includes('--existing') || process.platform === 'win32' && emulators.length === 1);
   const configuredRemote = !!process.env.WAZE_ALERT_SERVICE_URL && !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(config.url).hostname);
+  const harvesterDir = [process.env.WAZE_HARVESTER_DIR, path.join(root, 'harvester'), path.join(root, '..', 'photoscout-plugin-waze', 'harvester'), path.join(root, 'services', 'waze-harvester')]
+    .filter(Boolean).map(p => path.resolve(p)).find(p => fs.existsSync(path.join(p, 'harvester.py'))) || null;
   if (configuredRemote) {
     // Container deployments and remote workers own their emulator lifecycle.
     status('starting', 'Waiting for the configured Android report bridge to connect');
   } else if (useExisting) {
     if (emulators.length !== 1) throw new Error('Connect exactly one Android test emulator, or use the Docker setup');
+    if (!harvesterDir) throw new Error('Set WAZE_HARVESTER_DIR to the photoscout-plugin-waze/harvester directory, or use the Docker setup');
     status('installing', 'Preparing the existing Android emulator and report reader');
     if (screenAccess) console.log('Screen access is for the Docker worker only; the existing emulator is already available to scrcpy on this computer.');
     env.ADB_PATH = adb; env.ADB_SERIAL = emulators[0]; env.FRIDA_DEVICE_ID = emulators[0];
@@ -91,12 +94,12 @@ try {
     if (!fs.existsSync(python)) {
       const created = spawnSync('python', ['-m', 'venv', path.join(dir, 'venv')], { encoding: 'utf8', windowsHide: true, timeout: 120000 });
       if (created.status !== 0) throw new Error('Python 3 with venv is required for the existing-emulator option');
-      const pip = spawnSync(python, ['-m', 'pip', 'install', '-r', path.join(root, 'services', 'waze-harvester', 'requirements.txt')], { stdio: 'ignore', windowsHide: true, timeout: 300000 });
+      const pip = spawnSync(python, ['-m', 'pip', 'install', '-r', path.join(harvesterDir, 'requirements.txt')], { stdio: 'ignore', windowsHide: true, timeout: 300000 });
       if (pip.status !== 0) throw new Error('Could not install the isolated report service dependencies');
     }
     // Existing-emulator mode preserves its app installation and root setup.
     const log = fs.openSync(path.join(dir, 'service.log'), 'a');
-    const child = spawn(python, [path.join(root, 'services', 'waze-harvester', 'harvester.py')], { cwd: root, env, detached: true, windowsHide: true, stdio: ['ignore', log, log] });
+    const child = spawn(python, [path.join(harvesterDir, 'harvester.py')], { cwd: root, env, detached: true, windowsHide: true, stdio: ['ignore', log, log] });
     child.on('error', () => { startupFailure = new Error('Could not start the Waze report service'); });
     child.on('exit', () => { startupFailure = new Error('The report reader exited before connecting; inspect the service log'); });
     config.pid = child.pid;
@@ -110,13 +113,19 @@ try {
     async function command(args) {
       const child = spawn(engine, args, { cwd: root, env, windowsHide: true, stdio: ['ignore', log, log] });
       await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { child.kill(); reject(new Error('Container setup timed out; check the container engine and setup log')); }, args[0] === 'build' ? 60 * 60_000 : 120000);
+        const timer = setTimeout(() => { child.kill(); reject(new Error('Container setup timed out; check the container engine and setup log')); }, (args[0] === 'build' || args[0] === 'pull') ? 60 * 60_000 : 120000);
         child.on('error', error => { clearTimeout(timer); reject(error); });
         child.on('exit', code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error('Container setup failed; inspect the setup log')); });
       });
     }
-    const image = 'localhost/photoscout-waze-reports:local', container = 'photoscout-waze-reports';
-    await command(['build', '--tag', image, ...(systemImage ? ['--build-arg', `WAZE_SYSTEM_IMAGE=${systemImage}`] : []), '--file', path.join(root, 'services/waze-harvester/Dockerfile.emulator'), path.join(root, 'services/waze-harvester')]);
+    const container = 'photoscout-waze-reports';
+    let image = process.env.WAZE_HARVESTER_IMAGE || 'ghcr.io/kapsikkum/photoscout-waze-harvester:latest';
+    if (harvesterDir && (systemImage || !process.env.WAZE_HARVESTER_IMAGE)) {
+      image = 'localhost/photoscout-waze-reports:local';
+      await command(['build', '--tag', image, ...(systemImage ? ['--build-arg', `WAZE_SYSTEM_IMAGE=${systemImage}`] : []), '--file', path.join(harvesterDir, 'Dockerfile.emulator'), harvesterDir]);
+    } else {
+      await command(['pull', image]);
+    }
     const owned = spawnSync(engine, ['inspect', '--format', '{{index .Config.Labels "photoscout.waze.managed"}}', container], { encoding: 'utf8', windowsHide: true, timeout: 15000 });
     if (owned.status === 0) {
       if (owned.stdout.trim() !== 'true') throw new Error('A container named photoscout-waze-reports already exists and is not managed by this setup');

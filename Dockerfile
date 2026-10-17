@@ -47,7 +47,6 @@ COPY --from=build /app/services/density/dist ./services/density/dist
 COPY --from=build /app/server/data-static ./server/data-static
 COPY --from=build /app/web/dist ./web/dist
 COPY --from=build /app/scripts/setup-waze.mjs ./scripts/setup-waze.mjs
-COPY --from=build /app/services/waze-harvester ./services/waze-harvester
 # Plugins that ship with the app, installed at startup (server/src/plugins/bundled.ts reads this folder).
 COPY --from=build /app/plugins/*/dist/*.zip ./bundled-plugins/
 

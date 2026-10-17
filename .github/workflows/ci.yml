@@ -38,11 +38,6 @@ jobs:
           TZ: Australia/Sydney
       - name: Build
         run: npm run build
-      - name: Waze decoder, queue and API tests
-        run: |
-          python3 -m venv "$RUNNER_TEMP/waze-tests"
-          "$RUNNER_TEMP/waze-tests/bin/pip" install -r services/waze-harvester/requirements-dev.txt
-          "$RUNNER_TEMP/waze-tests/bin/python" -m unittest discover -s services/waze-harvester -p 'test_*.py'
 
   image:
     needs: test

@@ -1,0 +1,2682 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.55381617708338,
+          -33.44704310386807
+        ]
+      },
+      "properties": {
+        "kind": "place",
+        "id": "9ea3c44f-1029-46bf-a0b6-a43bfbae9c6b",
+        "name": "Mount Panorama",
+        "notes": "",
+        "access": "",
+        "geom": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                149.559856132067,
+                -33.45672156617649
+              ],
+              [
+                149.55660149538767,
+                -33.45973649765333
+              ],
+              [
+                149.55229728807575,
+                -33.45803510483986
+              ],
+              [
+                149.5473287217959,
+                -33.45602861195647
+              ],
+              [
+                149.54585015432383,
+                -33.45422649818338
+              ],
+              [
+                149.54559036442214,
+                -33.452436448237954
+              ],
+              [
+                149.54620243319607,
+                -33.45045400827574
+              ],
+              [
+                149.54708009822713,
+                -33.44934262383131
+              ],
+              [
+                149.54755765766078,
+                -33.44782783622759
+              ],
+              [
+                149.54844698188083,
+                -33.44669549873044
+              ],
+              [
+                149.5500250694264,
+                -33.44680850043498
+              ],
+              [
+                149.5522119563576,
+                -33.44697800789935
+              ],
+              [
+                149.55247928486915,
+                -33.44591555886616
+              ],
+              [
+                149.5527986390034,
+                -33.44459045002331
+              ],
+              [
+                149.5529756276868,
+                -33.443143938558755
+              ],
+              [
+                149.55374380929845,
+                -33.43912888333229
+              ],
+              [
+                149.5548928167309,
+                -33.437386978596855
+              ],
+              [
+                149.55855384175908,
+                -33.43788850769481
+              ],
+              [
+                149.56099778517654,
+                -33.43814489326038
+              ],
+              [
+                149.56256216498684,
+                -33.43846752605752
+              ],
+              [
+                149.5632541014973,
+                -33.43877833446679
+              ],
+              [
+                149.56483546635025,
+                -33.44300914144746
+              ],
+              [
+                149.56163018273793,
+                -33.450245974214496
+              ],
+              [
+                149.559856132067,
+                -33.45672156617649
+              ]
+            ]
+          ]
+        },
+        "visibility": "private",
+        "source": "manual",
+        "sourceRef": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.55306205663607,
+          -33.45602935974267
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "b68bdb34-e531-4883-af3e-a55936e4e8bf",
+        "placeId": "9ea3c44f-1029-46bf-a0b6-a43bfbae9c6b",
+        "name": "Nice panning spot at The Esses",
+        "notes": "",
+        "tags": [],
+        "facingDeg": null,
+        "fovDeg": 180,
+        "goodTimes": {
+          "phases": [
+            "sunrise",
+            "golden_am",
+            "day",
+            "blue",
+            "golden_pm",
+            "sunset",
+            "night",
+            "astro"
+          ],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "manual",
+        "sourceRef": "",
+        "photos": [
+          {
+            "url": "/api/photos/e8a1dc8f-2d81-486a-918b-ca1cbf0fb228/file",
+            "thumbUrl": "/api/photos/e8a1dc8f-2d81-486a-918b-ca1cbf0fb228/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2026-08-15T04:57:23.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.54402623190379,
+          -33.41724970330661
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "36e0cf6b-d429-490b-8bae-f7734af93873",
+        "placeId": null,
+        "name": "Industrial photo spot",
+        "notes": "Can be good for lightpainting.",
+        "tags": [],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [
+            "night",
+            "astro",
+            "blue"
+          ],
+          "months": [],
+          "days": "weekend",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "Work hours",
+          "notes": "Of a day, there are operating shops in this location."
+        },
+        "visibility": "public",
+        "source": "manual",
+        "sourceRef": "",
+        "photos": [
+          {
+            "url": "/api/photos/d3f6995c-73e9-4888-a046-1ecf120db1e6/file",
+            "thumbUrl": "/api/photos/d3f6995c-73e9-4888-a046-1ecf120db1e6/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2026-05-16T06:24:16.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.63014727735236,
+          -33.42981657453031
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "6c285de1-31ba-4851-888f-a1ea6dd03f54",
+        "placeId": null,
+        "name": "Nice empty culdesak",
+        "notes": "Has barely any traffic. Good view of the trains going past and the city at night.",
+        "tags": [],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [
+            "sunrise",
+            "blue",
+            "night",
+            "golden_am",
+            "astro",
+            "golden_pm",
+            "sunset",
+            "day"
+          ],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "public",
+        "source": "manual",
+        "sourceRef": "",
+        "photos": [
+          {
+            "url": "/api/photos/e9be8f71-28f2-4811-87b8-6930573987db/file",
+            "thumbUrl": "/api/photos/e9be8f71-28f2-4811-87b8-6930573987db/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2025-10-07T05:49:18.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.62397847121701,
+          -33.39753081429822
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "844d0335-c82b-46ef-9178-5a10bf9e56b3",
+        "placeId": null,
+        "name": "Clairvaux lane cherry blossoms",
+        "notes": "Best when the cherry blossoms are blooming in early September.",
+        "tags": [],
+        "facingDeg": 277,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [
+            "golden_pm",
+            "sunset",
+            "blue"
+          ],
+          "months": [
+            9
+          ],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "public",
+        "source": "manual",
+        "sourceRef": "",
+        "photos": [
+          {
+            "url": "/api/photos/43c24020-451e-4367-81bc-d92efc5b97a2/file",
+            "thumbUrl": "/api/photos/43c24020-451e-4367-81bc-d92efc5b97a2/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2026-09-01T08:34:14.000Z"
+          },
+          {
+            "url": "/api/photos/cd295088-aece-4c1b-8187-49a2196c4b59/file",
+            "thumbUrl": "/api/photos/cd295088-aece-4c1b-8187-49a2196c4b59/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2026-09-01T09:26:32.000Z"
+          },
+          {
+            "url": "/api/photos/c3bd9a51-8ded-434c-8c3e-6066617e6640/file",
+            "thumbUrl": "/api/photos/c3bd9a51-8ded-434c-8c3e-6066617e6640/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2026-09-01T09:06:54.000Z"
+          },
+          {
+            "url": "/api/photos/222214e0-7f9a-463e-b007-c5e635b3a617/file",
+            "thumbUrl": "/api/photos/222214e0-7f9a-463e-b007-c5e635b3a617/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2026-09-01T08:37:51.000Z"
+          },
+          {
+            "url": "/api/photos/29d638d7-125e-4b61-be9a-2dd5d133b3f1/file",
+            "thumbUrl": "/api/photos/29d638d7-125e-4b61-be9a-2dd5d133b3f1/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2026-09-01T08:29:58.000Z"
+          },
+          {
+            "url": "/api/photos/1a8afb27-627f-4189-afde-1cb58b0f6bbc/file",
+            "thumbUrl": "/api/photos/1a8afb27-627f-4189-afde-1cb58b0f6bbc/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2026-09-01T08:25:01.000Z"
+          },
+          {
+            "url": "/api/photos/6a130c42-b25c-4316-a8cc-6da1ebe08bff/file",
+            "thumbUrl": "/api/photos/6a130c42-b25c-4316-a8cc-6da1ebe08bff/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2026-09-01T08:38:17.000Z"
+          },
+          {
+            "url": "/api/photos/1dab5a6f-f2f4-4f82-9d1c-3a201f07ddce/file",
+            "thumbUrl": "/api/photos/1dab5a6f-f2f4-4f82-9d1c-3a201f07ddce/thumb",
+            "kind": "taken_here",
+            "caption": "",
+            "takenAt": "2026-09-01T08:10:16.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.5518432249911,
+          -33.45496593677443
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "3a2ae854-34e2-4775-9ddf-cd57fc93e168",
+        "placeId": "9ea3c44f-1029-46bf-a0b6-a43bfbae9c6b",
+        "name": "Mount Panorama",
+        "notes": "A world-renowned street circuit in Bathurst, Australia, famous for its extreme elevation changes. It offers photographers high-speed action shots against a unique backdrop of rugged Australian bushland and steep concrete walls.\n— @spiritedjpg, https://atlasphoto.app/post/3cfffbb5-5039-4904-808e-943f06928d35\n\nA world-renowned motor racing track in Bathurst, famous for its extreme elevation changes and scenic vistas. It offers photographers unparalleled opportunities to capture high-speed action against a dramatic landscape backdrop.\n— @6packcorgi, https://atlasphoto.app/post/743b2415-0826-471b-87d4-17bc82d45249\n\nAn iconic Australian street circuit offering dramatic elevation changes and high-speed corners. It is a premier location for automotive and sports photography, especially during sunset when the light hits the track surface and highlights vehicle contours.\n— https://atlasphoto.app/post/8b73d9b9-9e29-4070-b4d1-e0251bf6e3ae\n\nMount Panorama is an iconic public road race circuit with dramatic elevation changes, tight corners (The Chase, Griffins Bend) and long vistas (Conrod Straight) — ideal for motorsport action, panoramic landscapes and golden-hour light. Photograph race days (Bathurst 1000) for high-speed action and atmosphere; arrive early or stay late for sunrise/sunset over the valley. The circuit is a public road outside events—check Motorsport Australia event closures and buy tickets during major races. On-nu\n— https://atlasphoto.app/post/8a84b0e3-1828-4eff-a1a4-8ff45ad4b5d5",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "3cfffbb5-5039-4904-808e-943f06928d35",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.5596589183213,
+          -33.44810890408725
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "e1a8fbcd-476f-4e78-b91b-daee33596d55",
+        "placeId": "9ea3c44f-1029-46bf-a0b6-a43bfbae9c6b",
+        "name": "Mount Panorama - Conrod Straight",
+        "notes": "Mount Panorama is an iconic street circuit famous for its high-speed racing and dramatic elevation. Conrod Straight is the fastest part of the track, offering photographers the chance to capture cars at full tilt against a backdrop of Australian bushland, especially stunning during golden hour.\n— @tylerarizapa, https://atlasphoto.app/post/fcecbbd9-a99b-4f0d-9f2b-4c8eaf70131c\n\nMount Panorama is an iconic street circuit famous for its dramatic elevation changes and high-speed sections. Conrod Straight offers photographers the chance to capture cars at peak velocity against the backdrop of the Australian bush.\n— @as_photography, https://atlasphoto.app/post/4c8bf427-6662-4cf0-86ca-76b0175da440\n\nAn iconic Australian racing circuit offering dramatic elevation changes and sweeping views of the Bathurst region. It is a premier destination for automotive photography, providing a scenic backdrop for vehicle portraits and high-speed action shots.\n— @mk5gti, https://atlasphoto.app/post/566ccd63-f558-41fc-8dda-03105cb9b955",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "fcecbbd9-a99b-4f0d-9f2b-4c8eaf70131c",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.574,
+          -33.459
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "c7e6aa9b-52e1-4ede-86a0-689349facd1c",
+        "placeId": null,
+        "name": "Orton Park Railway Tracks",
+        "notes": "A rural setting near Bathurst featuring long, straight railway tracks that provide perfect leading lines. The open horizon makes it an ideal location for backlit automotive and portrait photography during the golden hour.\n— @kunalr, https://atlasphoto.app/post/f9a0fd6e-3d63-4e7a-9945-237b0d898636",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [
+            "sunset",
+            "golden_pm"
+          ],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "f9a0fd6e-3d63-4e7a-9945-237b0d898636",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.406,
+          -33.038
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "bbef6253-353d-42b4-a0db-7d1948af0ef5",
+        "placeId": null,
+        "name": "Hill End Bush Camping",
+        "notes": "A rugged bushland setting near the historic gold-mining town of Hill End, ideal for capturing off-road adventure and camping lifestyle photography amidst towering eucalyptus trees and rolling hills.\n— @sunday_roamer_4859, https://atlasphoto.app/post/ba69475f-2888-42e8-84e5-b623b4af3e21",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "ba69475f-2888-42e8-84e5-b623b4af3e21",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.5579808421041,
+          -33.439997216014554
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "e6be4df4-09a8-4943-a568-5a993e527f93",
+        "placeId": null,
+        "name": "Mount Panorama Circuit",
+        "notes": "Mount Panorama is a world-renowned motor racing circuit in Bathurst. For photographers, it provides a mix of high-octane track action, intimate pit lane moments, and stunning landscape vistas from the summit of the track.\n— @itstytyjaboy, https://atlasphoto.app/post/87208a40-d00a-4bdf-b304-5101e60c67f7\n\nMount Panorama is a world-renowned motor racing circuit in Bathurst, famous for its 174-meter vertical elevation change. It offers photographers high-speed action, dramatic lighting during endurance races, and sweeping views of the New South Wales countryside.\n— https://atlasphoto.app/post/cce6a174-3917-4420-97d1-3d8e5eb564fc",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "87208a40-d00a-4bdf-b304-5101e60c67f7",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.83,
+          -33.446
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "e9adf59a-74d3-48ec-b9c4-51fb715012ba",
+        "placeId": null,
+        "name": "Yetholme Sunset Overlook",
+        "notes": "Located in the high-altitude Central Tablelands, this spot offers expansive views of the horizon. It is a popular stop for motorists looking to capture their vehicles against dramatic, unobstructed sunset skies and rolling silhouettes.\n— @dylan660, https://atlasphoto.app/post/b3548e60-526b-4e8d-b6b5-4a9f414d10d0",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "b3548e60-526b-4e8d-b6b5-4a9f414d10d0",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.55969761047186,
+          -33.43957528211907
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "90ca7089-2225-4766-8c4e-5de8f08fb70b",
+        "placeId": "9ea3c44f-1029-46bf-a0b6-a43bfbae9c6b",
+        "name": "Mount Panorama Pit Lane",
+        "notes": "Located at the iconic Mount Panorama Circuit, the pit lane offers a professional automotive backdrop. The numbered garage doors and industrial textures provide a clean, repetitive pattern that complements vehicle lines, making it a premier spot for car photography.\n— @chubcars, https://atlasphoto.app/post/ca3e92ec-4818-4707-b6b8-4ad1eb32bea7",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "ca3e92ec-4818-4707-b6b8-4ad1eb32bea7",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.582,
+          -33.419
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "c3cad29f-d7d8-4882-9c92-773adf89a124",
+        "placeId": null,
+        "name": "Bathurst Chase Parking Garage",
+        "notes": "A spacious indoor parking structure in central Bathurst, providing a minimalist industrial setting for automotive photography. The grid of pillars and artificial lighting offer great opportunities for framing and light play on vehicles.\n— @pete82, https://atlasphoto.app/post/9b8955c2-4742-4744-b3b5-9c453f9453c2",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "9b8955c2-4742-4744-b3b5-9c453f9453c2",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.579,
+          -33.412
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "ecbb91e4-a482-4da5-a0a8-18365afa61bc",
+        "placeId": null,
+        "name": "Bathurst Self-Service Car Wash",
+        "notes": "A practical location for automotive enthusiasts to capture clean detail shots. The artificial lighting of the wash bays at night provides high-contrast illumination, perfect for highlighting metallic textures and water reflections on vehicles.\n— https://atlasphoto.app/post/32a5b5e0-7ff1-4370-8bf8-db23e1b0577d",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "32a5b5e0-7ff1-4370-8bf8-db23e1b0577d",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.59,
+          -33.417
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "0aee9201-a08d-451a-ac20-1e785cbc1310",
+        "placeId": null,
+        "name": "Bathurst Showground",
+        "notes": "A historic venue in Bathurst that comes alive during the Royal Bathurst Show and local fairs. It offers dynamic opportunities to shoot carnival rides, vibrant neon lights, and the bustling atmosphere of community events.\n— @vannnnah, https://atlasphoto.app/post/e1f43a7d-7136-406d-a5fe-ec2271cf0fa6",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "e1f43a7d-7136-406d-a5fe-ec2271cf0fa6",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.605,
+          -33.418
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "3a78bdff-3f14-4a4e-bcac-e7a11118588e",
+        "placeId": null,
+        "name": "Bathurst Indoor Sports Stadium",
+        "notes": "This indoor sports hub in Kelso offers a classic arena environment for capturing the energy of local basketball and netball. The high ceilings and overhead lighting create a focused atmosphere for high-contrast action shots and sports-oriented portraits.\n— https://atlasphoto.app/post/93938435-c7ae-410c-8a23-ae387125a0e5",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "93938435-c7ae-410c-8a23-ae387125a0e5",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.613,
+          -33.409
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "b0dda13d-db1e-43f8-a4ce-ea697b98b687",
+        "placeId": null,
+        "name": "Kelso Garden Sunset",
+        "notes": "A peaceful suburban garden setting in Kelso, offering clear views of the horizon for sunset photography. The open space allows for capturing dramatic sky textures and golden hour light over local flora and garden structures.\n— @vannnnah, https://atlasphoto.app/post/7137287a-e5da-4a4d-bca1-8d9fd7c2d3ae",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "7137287a-e5da-4a4d-bca1-8d9fd7c2d3ae",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.55368690483664,
+          -33.45643407799937
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "a85cf72f-fce3-49b1-8e98-a26118ac487d",
+        "placeId": "9ea3c44f-1029-46bf-a0b6-a43bfbae9c6b",
+        "name": "The Esses",
+        "notes": "The Esses are the flowing, elevation-change sweepers on Mount Panorama near Bathurst — a prime spot for capturing high-speed racing lines, dramatic car lean and dynamic compositions against the hills. Visit during race weekends (Bathurst 1000) for peak action and atmosphere; for cleaner light and fewer crowds choose early morning or late afternoon golden hour. Accessibility: public viewing areas and official grandstands; track is closed to traffic during events and open for limited public access\n— https://atlasphoto.app/post/9cce2ce1-1f66-445a-894b-cdf9496f38ff",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "9cce2ce1-1f66-445a-894b-cdf9496f38ff",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.548,
+          -33.455
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "0d91ba67-2522-4c99-bc8f-7c451c68240b",
+        "placeId": "9ea3c44f-1029-46bf-a0b6-a43bfbae9c6b",
+        "name": "John Hinxman Vista",
+        "notes": "High vantage overlooking the legendary Mount Panorama circuit — sweeping curves, elevation changes and surrounding Blue Mountains make striking compositions. Best at sunrise or golden hour for warm side-light and long shadows; evening can produce dramatic skies. Accessible by car with small lookout parking; no entry fee but expect crowds during race events (Bathurst 1000). Paths and railings limit angles; bring layers (windy, changeable weather).\n— https://atlasphoto.app/post/6e54622a-6e3f-4a12-bb3f-b9e15105fdc8",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "6e54622a-6e3f-4a12-bb3f-b9e15105fdc8",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.518,
+          -33.393
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "8197341e-e377-408a-83db-3b98c18d9585",
+        "placeId": null,
+        "name": "Abercrombie House",
+        "notes": "Victorian Italianate mansion set in formal gardens — rich interiors, ornate facades, and mature trees provide varied compositions. Best at golden hour for warm light on the sandstone and long shadows; autumn and late-spring gardens add colour. House operates as a museum with guided tours and seasonal events—check opening hours and entry fees. On-site parking; narrow paths and interior stairs limit accessibility. Respect signs and preservation rules when shooting inside.\n— https://atlasphoto.app/post/b82f5f50-2a3c-4b7b-a45c-550f50d05efb",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "b82f5f50-2a3c-4b7b-a45c-550f50d05efb",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.578,
+          -33.419
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "43fddb04-5355-4adb-89ac-f044232423d2",
+        "placeId": null,
+        "name": "Bathurst Begonia House & Fernery",
+        "notes": "A compact Victorian-style glasshouse and fernery showcasing vibrant begonias, trailing ferns and textured foliage—ideal for close-up color studies and sheltered architectural frames. Visit weekday mornings or late afternoon for soft, directional light; overcast days yield even color. Small site with paved paths and limited parking on Court House Ln; casual entry (check seasonal opening hours). Respect plant signs and avoid flash to protect blooms. Special for intimate botanical detail and the mo\n— https://atlasphoto.app/post/ae649f97-c05e-4f23-a6fa-509b0b18dd94",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "ae649f97-c05e-4f23-a6fa-509b0b18dd94",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.581,
+          -33.417
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "f51ad63f-d7b1-4c54-934b-11da682c512a",
+        "placeId": null,
+        "name": "Australian Fossil and Mineral Museum",
+        "notes": "Compact museum housing an extensive collection of fossils and minerals — opals, marine fossils, dinosaur remains and polished specimens. Shoot dramatic textures, colors and small-scale detail under controlled gallery lighting. Best on weekday mornings to avoid crowds; check the museum's photography policy (tripods/flash often prohibited). Easily reached by car from Bathurst; on-site parking nearby. Low-light interior favors fast lenses and higher ISO.\n— https://atlasphoto.app/post/5da5b4a7-052a-476e-ab7a-57c190dee318",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "5da5b4a7-052a-476e-ab7a-57c190dee318",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.58,
+          -33.418
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "debc614a-875b-4fa4-a43a-53df21fea69b",
+        "placeId": null,
+        "name": "Kings Parade",
+        "notes": "Kings Parade in Bathurst offers a classic regional parade route and streetscape—good for event, street and civic architecture photos. Photograph marching bands, community events, tree-lined avenues and heritage facades. Best at golden hour or during scheduled civic parades and ANZAC services for dramatic light and atmosphere. Easily accessible by car with street parking and nearby public parking in Bathurst CBD; check local event calendars for closures. No special entry requirements.\n— https://atlasphoto.app/post/b1786f6d-3639-41f9-ba81-029c7ef43368",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "b1786f6d-3639-41f9-ba81-029c7ef43368",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.579,
+          -33.418
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "bc504cf2-f08a-494f-bdda-5f0817453546",
+        "placeId": null,
+        "name": "Bathurst War Memorial Carillon",
+        "notes": "A limestone carillon and WWI/WWII memorial set on a hill with a slim tower, sculpted stonework and sweeping views over Bathurst valley. Photograph architectural details (pews, plaques, bells), framed tower silhouettes at sunrise/sunset, and wide panoramas from the viewing platform. Best light: golden hour and blue hour for dramatic skies; ANZAC Day and memorial services add emotive human moments. Site is car-accessible with nearby street parking; check opening hours and guided-tour times before訪\n— https://atlasphoto.app/post/93f0918a-8ed0-43b4-b955-a44ff03b66b1",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "93f0918a-8ed0-43b4-b955-a44ff03b66b1",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.562,
+          -33.44
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "f1ccb9c1-f92c-4adb-b3f4-44aeca2efe71",
+        "placeId": "9ea3c44f-1029-46bf-a0b6-a43bfbae9c6b",
+        "name": "National Motor Racing Museum",
+        "notes": "Historic race cars, trophies and interactive exhibits provide tight detail and dramatic wide shots; combine museum interiors with panoramic exterior views of the nearby Mount Panorama circuit. Best visited weekdays or early morning for soft light and few visitors; golden hour on the nearby track yields warm low-angle light. Museum has paid entry, wheelchair access and on-site parking; allow 1–2 hours. Combine interior close-ups with context shots of the hilltop circuit and grandstands.\n— https://atlasphoto.app/post/4f10f8fd-32b4-4705-89cc-5ebd04767594",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "4f10f8fd-32b4-4705-89cc-5ebd04767594",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.805,
+          -33.286
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "b3d51ccc-810b-4bcd-b63e-b6d9cbbd3878",
+        "placeId": null,
+        "name": "Turon State Forest",
+        "notes": "Turon State Forest offers rugged eucalypt ridges, river corridors and scattered rocky outcrops — ideal for moody landscape shots, intimate forest scenes and birdlife. Best light is at sunrise or late afternoon; spring brings wildflowers, autumn cooler tones. Access is via Eskdale Rd with informal parking near trailheads; expect unsealed roads and limited facilities — a high-clearance vehicle helps. No entry fee but follow signage and biosecurity rules. Less crowded than national parks, it’s good\n— https://atlasphoto.app/post/a7a1d38e-0ea1-4ed5-95e1-755cae26389f",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "a7a1d38e-0ea1-4ed5-95e1-755cae26389f",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.574,
+          -33.412
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "bb3ade24-625c-4c15-a55e-6ba7191a1eec",
+        "placeId": null,
+        "name": "Miss Traill's House",
+        "notes": "Miss Traill's House is a compact 19th‑century heritage home and museum on Russell St — valuable for photographing intact Victorian interiors, decorative timberwork, leadlight windows, a timber verandah and a small heritage garden. Best visited at golden hour for warm exterior light; weekday mornings avoid tours and school groups. Interiors may have restricted tripods and flash — check opening hours and entry fees with the museum. Street parking and short walk from central Bathurst; expect tight,\n— https://atlasphoto.app/post/8bba91b2-ac75-4718-9fea-391e59c033f3",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "8bba91b2-ac75-4718-9fea-391e59c033f3",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.575,
+          -33.426
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "c7d3b76c-b411-4a7e-8a7b-3272e6f6e2f9",
+        "placeId": null,
+        "name": "Centennial Park Bathurst",
+        "notes": "A compact civic park with mature trees, formal garden beds, heritage monuments and paved paths — good for intimate landscapes, environmental portraits and detail shots of memorial architecture and seasonal plantings. Visit at golden hour for warm light through tree canopies; weekday mornings are quieter. Easy street parking on Seymour/Rocket St, flat accessible paths, no entry fee. Local events (ANZAC services, markets) provide candid moments and flags/ceremonial setups.\n— https://atlasphoto.app/post/86c3f353-9c69-4933-95e1-6877286580e4",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "86c3f353-9c69-4933-95e1-6877286580e4",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.578,
+          -33.433
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "3205babb-dbe2-4ede-b9f5-30c654e8896d",
+        "placeId": null,
+        "name": "Chifley Home and Education Centre",
+        "notes": "A well-preserved 19th-century terrace where Prime Minister Ben Chifley lived — shoot evocative period interiors, original furnishings, exterior façade and small cottage garden. Best light is morning or late afternoon for warm side-light on façade and textured interiors. Entry is via guided tour; check opening hours and photography rules (flash often restricted). On-street parking on Busby St; site is compact with narrow rooms and limited tripod space. Cultural context: an intimate slice of mid-‑\n— https://atlasphoto.app/post/8132f19d-a86a-4235-8dd2-b007a453ec92",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "8132f19d-a86a-4235-8dd2-b007a453ec92",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.577,
+          -33.419
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "e963e961-41bf-4356-8e9e-e39aa6e2b4ea",
+        "placeId": null,
+        "name": "Machattie Park",
+        "notes": "Machattie Park is a manicured Victorian-era town park in central Bathurst with formal gardens, a central fountain/rotunda, mature trees and seasonal flower beds — great for garden details, architectural shots of the rotunda and relaxed street-park compositions. Visit early morning or late afternoon for soft light and few people. Easily walkable from Bathurst CBD; street parking and nearby car parks; wheelchair-accessible paths. No entry fee; check for events (markets, ANZAC services) that add a촏\n— https://atlasphoto.app/post/746a6a0c-47b1-475a-b858-27db2fecdf5a",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "746a6a0c-47b1-475a-b858-27db2fecdf5a",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.579,
+          -33.417
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "7e743203-c4d8-4b63-9273-196d12c909bc",
+        "placeId": null,
+        "name": "Bathurst War Memorial",
+        "notes": "A compact, formal World War I memorial set in a parked boulevard on Russell Street — photogenic for stoic sculptures, inscriptions and symmetrical approaches framed by mature plane trees. Best at golden hour for warm side-light and long shadows; ANZAC Day and Remembrance services offer atmospheric crowd and ceremonial moments. Public park access, no entry fee; street parking and small car parks nearby. Weekday mornings are quieter; watch for event closures during ceremonies.\n— https://atlasphoto.app/post/700d6927-8c67-488d-8888-9334cf9ad11b",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "700d6927-8c67-488d-8888-9334cf9ad11b",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.552,
+          -33.305
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "692a8cba-8916-4567-8c72-431567b0f758",
+        "placeId": null,
+        "name": "The Bridle Track Start",
+        "notes": "A trailhead into Newnes Plateau–style bushland: photograph the Bridle Track corridor from the start, leading lines through eucalypt scrub, and textured sandstone/leaf litter in changing light. Expect misty mornings and soft shade; conditions can shift fast in the Blue Mountains hinterland. Access is by car to nearby trail parking; no permits typically, but check local trail status and park alerts.\n— https://atlasphoto.app/post/f390d1a3-569c-4041-b1fb-2ed0de1d3ab4",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "f390d1a3-569c-4041-b1fb-2ed0de1d3ab4",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.55,
+          -33.424
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "c86d61e5-7378-4245-8dc6-7145edbfaafd",
+        "placeId": null,
+        "name": "Boundary Road Reserve",
+        "notes": "Small local reserve with open paddocks, scattered eucalypts and winding walking tracks — good for intimate landscape and nature studies, seasonal colour and cloudscapes. Best at golden hour or after rain for saturated colours; easy roadside parking and level paths make access simple. No entry fees; respect local residents and dog-leash rules. Great for quiet sunrise/sunset silhouettes and close-up bark/seed pod textures.\n— https://atlasphoto.app/post/d69956f3-ef20-45e6-a279-7416d1131971",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "d69956f3-ef20-45e6-a279-7416d1131971",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.574,
+          -33.408
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "4f39e9f8-0a7b-4337-bad5-97df514b562e",
+        "placeId": null,
+        "name": "Extreme Flying Fox",
+        "notes": "A commercial flying-fox/zipline experience over bushland near Bathurst—great for dynamic action shots of riders suspended above trees and valley, plus environmental wide angles showing scale. Visit golden hour for warm side light and long shadows; overcast days work for even skin tones. Book sessions in advance; operator safety briefings are required. Site is car-accessible with limited parking—arrive 20–30 minutes early. Weekdays have fewer families than weekends.\n— https://atlasphoto.app/post/29868969-8a2e-4568-9a02-8400e4ce4156",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "29868969-8a2e-4568-9a02-8400e4ce4156",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.574,
+          -33.408
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "5e8a07f6-425a-4dfb-bbbe-e3dc019dad95",
+        "placeId": null,
+        "name": "Bathurst Adventure Playground",
+        "notes": "A colorful community playground in central Bathurst offering sculptural play equipment, climbing frames, swings and shady trees — great for environmental portraits, kid-in-action shots and detail textures (rubber surfacing, timber). Easy street parking nearby, no entry fee. Best light: golden hour or soft overcast; weekdays or early mornings for fewer families. Accessible paths and seating make logistics simple; capture candid community life and contrast of play structures against Bathurst's low\n— https://atlasphoto.app/post/e4a1ca91-4981-46a1-adc4-0e72bcb86794",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "e4a1ca91-4981-46a1-adc4-0e72bcb86794",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.579,
+          -33.417
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "7d0cc9f8-54fb-421e-8321-52deb694f574",
+        "placeId": null,
+        "name": "George Evans Expedition Statue",
+        "notes": "A civic bronze statue of explorer George Evans set in Bathurst’s public space — good for documentary and historical portraits with strong sculptural lines and contextual townscape. Visit at golden hour or overcast midday for even tones. Easily accessible on foot from central Bathurst; roadside parking and short walks from nearby car parks. No entry fees; respectful framing around nearby civic buildings and passersby. Best in calm weather or after rain for richer textures on bronze and pavements.\n— https://atlasphoto.app/post/e2ffe1a7-0a2d-4a42-9fd9-4e83e355f921",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "e2ffe1a7-0a2d-4a42-9fd9-4e83e355f921",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.245,
+          -33.798
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "60a6d906-4af1-49f0-b5dd-e7e32e11fd72",
+        "placeId": null,
+        "name": "Pensilvania STATE FOREST",
+        "notes": "Pensilvania State Forest near Colo offers quiet bushland scenery: misty gullies, tall eucalypts, winding tracks, and creek-side pockets—ideal for moody landscape frames and woodland textures. Visit after rain for richer greens and low cloud, with daylight filtering through canopy. Entry is generally free; access is via local roads and trailheads—check NSW NPWS updates before driving.\n— https://atlasphoto.app/post/c9db8c0a-260a-4726-b03e-e03953c7766a",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "c9db8c0a-260a-4726-b03e-e03953c7766a",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.574,
+          -33.408
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "6f0f8b68-c16c-4fd6-822c-56b8167a1d2d",
+        "placeId": null,
+        "name": "Victoria Park",
+        "notes": "Victoria Park in Bathurst is a leafy municipal park with open lawns, mature trees and walking paths — good for relaxed landscape, environmental portrait and seasonal shots. Visit at golden hour or after rain for saturated colors; autumn brings warm tones. Easily accessible with street parking and paved paths; no entry fee. Weekday mornings are quieter. Nearby Bathurst heritage streets add context for combined shoots.\n— https://atlasphoto.app/post/b58f3b7d-1e72-41cc-ae8e-ef759f6f01d6",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "b58f3b7d-1e72-41cc-ae8e-ef759f6f01d6",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.516,
+          -33.65
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "9a6f21b1-ea71-42b8-b4ae-f2903077b005",
+        "placeId": null,
+        "name": "Mount Testa Campgrounds",
+        "notes": "Mount Testa Campgrounds suits landscape and nature shots with escarpment-and-valley atmospheres, woodland textures, and calm campfire-night skies. Best light comes at sunrise and sunset; overcast days add soft, contrasty cloud layers. Access is via 613 Messners Rd; parking is at/near the campground—confirm local entry/camping rules and any fire bans before arriving.\n— https://atlasphoto.app/post/6a280d23-675b-4e11-a0f9-8e0d9cf13f66",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "6a280d23-675b-4e11-a0f9-8e0d9cf13f66",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.226,
+          -33.807
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "35e6b1d3-e142-45ec-97b8-2d4dfd40003a",
+        "placeId": null,
+        "name": "Pennsylvania State Forest",
+        "notes": "Pennsylvania State Forest offers quiet bush tracks, layered eucalyptus canopy, and creek/forest-floor textures—ideal for moody landscape and nature compositions. Best light is early morning (soft rays, lower haze) or late afternoon (warm edge-light through branches). Expect variable weather; bugs can be heavy in warmer months. Access is via local roads/trackheads; parking is typically roadside or at nearby trail starts—carry water, a map/offline GPS, and check NSW forestry/NPWS conditions before\n— https://atlasphoto.app/post/03ecf8cd-01df-4727-aae1-33264124eb70",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "03ecf8cd-01df-4727-aae1-33264124eb70",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.48,
+          -33.406
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "ec3987f4-88a6-4943-a53d-377a5b90db37",
+        "placeId": null,
+        "name": "The Big Dog",
+        "notes": "The Big Dog is a quirky roadside landmark outside Dunkeld, ideal for bold scale shots and storytelling compositions. Photograph it straight-on for the iconic shape, or frame it with the nearby highway/trees for context. Best light is late afternoon to sunset; weekdays reduce passing traffic. Access is usually easy by car, but conditions depend on local road/shoulder safety—park carefully and shoot from safe spots.\n— https://atlasphoto.app/post/226e2e5d-893f-4e56-a24a-f1a36e38974b",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "226e2e5d-893f-4e56-a24a-f1a36e38974b",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.67,
+          -33.394
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "a996d8b2-598d-4638-bde8-39a323c412a0",
+        "placeId": null,
+        "name": "Hadiqa-e-Ahmad (Garden of Ahmad)",
+        "notes": "Hadiqa-e-Ahmad is a tranquil Islamic garden where symmetry, shaded paths, and framed water/plant details suit calm landscape and architectural-style compositions. Visit on clear mornings for soft, low-angle light and cooler conditions; weekdays are usually quieter. Photographers can roam on foot—bring a tripod if the grounds allow calm, static scenes. Parking is at/near the site along Limekilns Rd.\n— https://atlasphoto.app/post/1b756480-25da-4777-97d0-0ca16f29385a",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "1b756480-25da-4777-97d0-0ca16f29385a",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.885,
+          -33.379
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "13a75f35-9b43-4a20-8701-10e48f133efc",
+        "placeId": null,
+        "name": "Sunny corner War memorial",
+        "notes": "Sunny Corner War Memorial in NSW offers a quiet, small-scale historical focal point ideal for memorial portraits and respectful landscape compositions. Visit on clear mornings for soft side light across the monument setting; evenings provide warm sky tones over the surrounding countryside. Expect limited services—bring water and plan simple parking near the site.\n— https://atlasphoto.app/post/b26c4a68-9d79-4431-9cb5-91d6594f7434",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "b26c4a68-9d79-4431-9cb5-91d6594f7434",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.92750704350993,
+          -33.43769665940404
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "530cde6b-7563-486b-94a5-41f30cc44a22",
+        "placeId": null,
+        "name": "Meadow Flat Poplar Row",
+        "notes": "This scenic stretch of the Great Western Highway is renowned for its towering rows of poplar trees. During the autumn months, the foliage turns a brilliant golden yellow, creating a spectacular natural corridor that is perfect for automotive and landscape photography.\n— @z_hachi, https://atlasphoto.app/post/73816d22-38d0-4857-b7da-866375e00e1f",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "73816d22-38d0-4857-b7da-866375e00e1f",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.194,
+          -33.402
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "cbb6d5d8-6fc6-478e-a00f-59a49eb8dcff",
+        "placeId": null,
+        "name": "Marrangaroo Lakeside Garden",
+        "notes": "This serene spot features a vibrant Japanese Maple overlooking a calm pond. The area is particularly stunning in autumn when the foliage turns deep red, offering excellent opportunities for backlit nature shots and reflections on the water.\n— @billan, https://atlasphoto.app/post/e7721bc7-b8c5-45ca-8eea-caaa12a55b51",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "e7721bc7-b8c5-45ca-8eea-caaa12a55b51",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.171,
+          -33.428
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "661bec7a-df5d-41cf-868d-6e0c85b91c4c",
+        "placeId": null,
+        "name": "Hassans Walls Lookout",
+        "notes": "A spectacular ridge-top location near Lithgow offering 270-degree views of the Blue Mountains. It is a premier spot for capturing off-road vehicles against a backdrop of deep valleys and sandstone cliffs.\n— https://atlasphoto.app/post/1878acd6-5b95-41ef-bcd9-4dd66f88c025",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "1878acd6-5b95-41ef-bcd9-4dd66f88c025",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.004,
+          -33.372
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "dfda5c1c-63b9-42e8-9c0d-0e32e0b6abf8",
+        "placeId": null,
+        "name": "The Foundations Portland",
+        "notes": "A historic industrial site featuring the skeletal remains of the Portland Cement Works. The rusted steel frames and weathered concrete provide striking geometric patterns and textures, set against the natural backdrop of the New South Wales bushland.\n— @vannnnah, https://atlasphoto.app/post/9feaac1f-8b93-4b32-8178-10a18732592e",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "9feaac1f-8b93-4b32-8178-10a18732592e",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.118,
+          -33.248
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "48e05e22-029b-47b6-b8b6-f8093850964b",
+        "placeId": null,
+        "name": "Wolgan Valley Night Overlook",
+        "notes": "Wolgan Valley is renowned for its dramatic sandstone escarpments and exceptionally dark skies, providing a perfect canvas for astrophotography and capturing celestial events far from urban light pollution.\n— @jt_beam3r, https://atlasphoto.app/post/7d07bb83-6d3a-4ec0-8791-41a8e43b599d",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "7d07bb83-6d3a-4ec0-8791-41a8e43b599d",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.063,
+          -33.502
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "3242177a-798b-4c95-a753-543b7eac77b2",
+        "placeId": null,
+        "name": "Rydal Bushland Retreat",
+        "notes": "A serene spot in the Australian bush, offering moody views of eucalyptus forests. The location is perfect for capturing atmospheric, low-light scenes that blend architectural comfort with wild nature.\n— @kyle0, https://atlasphoto.app/post/b57b48d3-ef59-4eec-85f1-73bda1f48a8b",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "b57b48d3-ef59-4eec-85f1-73bda1f48a8b",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.055,
+          -33.1
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "b471ddd7-5793-4db0-9df3-900d08e7a5df",
+        "placeId": null,
+        "name": "Mugii Murum-Ban State Conservation Area",
+        "notes": "Dramatic sandstone escarpments, deep forested gorges and seasonal waterfalls make Mugii Murum-Ban a strong landscape and nature location. Photograph panoramic cliff vistas, mist-filled valleys at dawn, and long-exposure falls after rain. Best at sunrise or golden hour for directional light and at dusk for warm cliff tones; post-rain days reveal cascades. Most lookouts have short, well-marked trails and roadside parking with no entry fee—arrive early on weekdays to avoid crowds. Trails can be wet\n— https://atlasphoto.app/post/3438ea20-0103-47af-a946-b22c83cb19d4",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "3438ea20-0103-47af-a946-b22c83cb19d4",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.086,
+          -33.187
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "902c8c02-1383-4722-a09d-486218805c31",
+        "placeId": null,
+        "name": "Gardens of Stone National Park",
+        "notes": "Dramatic sandstone pagodas, cliff rims and sweeping views over the Capertee Valley make Gardens of Stone NP a landscape photographer’s dream. Shoot wide panoramas from lookouts at sunrise/sunset for warm side-light on textured cliffs; overcast days reveal subtle rock detail and vertical forms. Access is via sealed roads to several parking areas and short walks; some trails and pagoda areas require decent footwear and moderate scrambling. No entry fee; respect signage and traditional custodians.冬\n— https://atlasphoto.app/post/ba17c901-85a0-4cb9-bb64-cf3a8d971e2a",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "ba17c901-85a0-4cb9-bb64-cf3a8d971e2a",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.034,
+          -33.036
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "ceb10276-b242-46ba-b413-1704fcb4cf5d",
+        "placeId": null,
+        "name": "Capertee National Park",
+        "notes": "Capertee National Park frames the vast Capertee Valley with sandstone cliffs, pagoda formations and sweeping valley vistas—ideal for wide landscapes, intimate rock textures and raptors (wedge‑tailed eagles). Visit sunrise or late afternoon for warm side light and long shadows; winter mornings give clear air and dramatic frost. Access is via sealed roads to park entrances then unsealed tracks; a high‑clearance or 4WD helps reach remote lookouts. No formal entry fees but follow NSW NPWS signage;停车\n— https://atlasphoto.app/post/3d88e57b-48f6-459f-a123-84ff08a158a8",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "3d88e57b-48f6-459f-a123-84ff08a158a8",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.938,
+          -33.197
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "2bb7c2aa-94ce-4b01-9754-3e3cb5399fe2",
+        "placeId": null,
+        "name": "Turon National Park",
+        "notes": "Turon National Park offers rugged sandstone escarpments, river gorges, and remnant gold-rush relics — ideal for dramatic landscape and nature photography. Shoot sweeping canyon vistas at golden hour, birdlife and honeyeaters at dawn, and textured rock details in side light. Access is via Lochaber Rd with parking at trailheads; some lookouts are short walks while backcountry routes use unsealed roads (high-clearance/4WD recommended). Check NSW NPWS for seasonal closures and fire restrictions. Low\n— https://atlasphoto.app/post/d8b3998b-48c2-47b5-85ca-52da69b2791d",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "d8b3998b-48c2-47b5-85ca-52da69b2791d",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.073,
+          -33.082
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "e6b6525d-b170-44d5-bd1f-8a127fd46379",
+        "placeId": null,
+        "name": "Genowlan Point",
+        "notes": "Genowlan Point is a dramatic sandstone escarpment overlooking the wide Capertee Valley — ideal for sweeping landscape panoramas, layered ridgelines, and moody valley mist. Best at sunrise for soft light and possible fog filling the valley, or at golden-hour sunset for warm side-light on cliffs. Access is via unsealed roads off Glen Alice; a high-clearance vehicle is recommended and expect basic parking at the lookout. No entry fees, observe park signage and respect Aboriginal heritage sites. Be準\n— https://atlasphoto.app/post/9d21a190-e333-42a0-b742-ee6b7be89b7d",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "9d21a190-e333-42a0-b742-ee6b7be89b7d",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.937,
+          -33.263
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "5abb5afe-f02f-44c7-980e-c355b6adc400",
+        "placeId": null,
+        "name": "Pinnacle Rocks",
+        "notes": "Rugged granite outcrops and jagged tors rise above open scrub — ideal for dramatic landscape shots and minimalist abstracts. Shoot sweeping panoramas from the highest knobs at sunrise or sunset for warm sidelighting and long shadows. Accessible via a short walk from a roadside parking area; no facilities, limited signage, and no entry fee. Weekday mornings have fewer visitors. Winter mornings offer crisp air and clear visibility; spring adds wildflowers.\n— https://atlasphoto.app/post/6b6f04c7-fbe4-4cb9-90f5-c834c66788cb",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "6b6f04c7-fbe4-4cb9-90f5-c834c66788cb",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.032,
+          -32.999
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "382b1d90-6b4a-4ddc-8a43-3f3f5c5434fe",
+        "placeId": null,
+        "name": "Valley lookout",
+        "notes": "Elevated roadside lookout offering sweeping views of a patchwork valley, rolling hills and distant ranges — ideal for wide panoramas, layered landscapes and moody skies. Best at golden hour (sunrise or sunset) when low light sculpts ridgelines; blue hour brings long-exposure mood. Accessible by car on Brogans Creek road; limited parking on-site and short walk to the rail. No entry fees. Expect variable weather; weekdays are quieter. Respect private farmland boundaries.\n— https://atlasphoto.app/post/5f0d1253-3844-40c7-9821-1124c3b3a441",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "5f0d1253-3844-40c7-9821-1124c3b3a441",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.1,
+          -33.203
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "a622f6ff-28f3-432d-9d33-539f013ea05f",
+        "placeId": null,
+        "name": "Bicentennial trail: Crown Creek fire trail",
+        "notes": "Rugged sandstone pagodas, escarpment ridgelines and the Crown Creek gorge offer dramatic landscapes and intimate textures — ideal for wide vistas, layered compositions and detail shots of weathered rock. Visit at golden hour (sunrise on eastern escarpments; sunset from western outlooks) for warm side-light and long shadows. Access requires driving to Glen Davis with a short walk along an unsealed fire trail; high-clearance vehicles help. Park entry is via Gardens of Stone NP (check alerts), park\n— https://atlasphoto.app/post/376979d8-fd6f-4871-ac07-b58c27bec3b9",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "376979d8-fd6f-4871-ac07-b58c27bec3b9",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.095,
+          -33.104
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "1455ed94-b350-43a2-9fa5-a7861255d3b1",
+        "placeId": null,
+        "name": "Mugii Dhudungura",
+        "notes": "Mugii Dhudungura rises as a rugged sandstone escarpment overlooking the sweeping Capertee Valley — dramatic cliffs, layered rock textures and wide-open skies make it ideal for landscape photography. Visit at sunrise or late afternoon for warm side-lighting and long shadows; golden hour brings rich color on the sandstone. Access requires a short drive on rural roads (gravel in places) and a walk to viewpoints; parking is informal at roadside pullouts. No entry fees, but the site has Indigenous (W\n— https://atlasphoto.app/post/8e04aee4-8909-4f3f-96a9-716a753997e4",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "8e04aee4-8909-4f3f-96a9-716a753997e4",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.032,
+          -33.024
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "8021ee96-69b6-41c5-a083-82f6ac8ca557",
+        "placeId": null,
+        "name": "Capertee Woolshed ruins",
+        "notes": "Weathered stone and timber of the Capertee Woolshed ruins sit against the vast Capertee Valley escarpment—strong textures, peeling paint, rusted iron and wide sky create dramatic foreground interest with sweeping landscape backdrops. Best at golden hour (sunrise or sunset) for warm side-lighting and long shadows; wildflowers in spring add color. Access via park tracks off Capertee–Wollar roads; some unsealed sections warrant a high-clearance or 4WD. No entry fee but be prepared for a short walk,\n— https://atlasphoto.app/post/8430103f-f0cd-42ea-ba81-0608ee291777",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "8430103f-f0cd-42ea-ba81-0608ee291777",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.041,
+          -33.752
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "d93ce3b9-cca1-491e-8590-c208a45ca73f",
+        "placeId": null,
+        "name": "Tourist Drive Jenolan Caves",
+        "notes": "The Tourist Drive at Jenolan Caves (NSW) blends limestone cave grandeur with forested approach views—ideal for moody interiors, dramatic rock textures, and occasional light beams through openings. Access is via guided cave tours with set times; photography is easiest in less crowded morning slots when natural light is steadier outside.\n— https://atlasphoto.app/post/4527d0a3-539e-44ad-9af7-2dc3c193ee01",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "4527d0a3-539e-44ad-9af7-2dc3c193ee01",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.058,
+          -33.12
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "51a697d0-dda6-465b-b6a2-92034e8aaa1b",
+        "placeId": null,
+        "name": "Makinson's Lookout",
+        "notes": "Makinson's Lookout overlooks the vast, dramatic Capertee Valley — sweeping sandstone cliffs, layered ridgelines and native eucalypt woodland create epic panoramas and abundant birdlife. Best at sunrise or golden-hour sunset for warm side light and long shadows; clear winter mornings give crisp visibility. Accessible via a short walk from an informal carpark on a rural road (unsealed sections); no entry fee but limited facilities. Respect private rural land and nesting birds; bring water and wind\n— https://atlasphoto.app/post/0dd161b7-cf9b-4e76-a68e-5295d44883ab",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "0dd161b7-cf9b-4e76-a68e-5295d44883ab",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.057,
+          -33.115
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "90f4f969-0bdc-421a-8d32-d79abe03d09e",
+        "placeId": null,
+        "name": "Valley of the Dinosaurs",
+        "notes": "Weathered sandstone cliffs, creek gorges and ancient dinosaur trace fossils create dramatic foregrounds and layered canyon views. Best light is early morning or late afternoon for warm side-lighting and long shadows; avoid heavy rain (slippery tracks). Access requires a short walk from the Genowlan Creek roadside parking — some uneven terrain and limited parking. No formal entry fees but respect private land signs and local guidance. Great for geological detail shots, intimate creek compositions\n— https://atlasphoto.app/post/08a74ea5-513d-4315-bcb0-70203a675a27",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "08a74ea5-513d-4315-bcb0-70203a675a27",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.984,
+          -33.147
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "680bfdf5-abea-49bc-9ade-116aebcfe18e",
+        "placeId": null,
+        "name": "Clarence Pirie Memorial Park",
+        "notes": "Small riverside park on the Castlereagh Hwy offering riverbank vistas, native gums, picnic lawns and walking paths — good for tranquil landscape and water reflections. No entry fee; roadside parking available. Best at golden hour (sunrise/sunset) for warm light and long shadows; weekday mornings are quiet. Accessible paths for most; bring insect repellent in warmer months. Local farming backdrop gives pastoral context.\n— https://atlasphoto.app/post/b32a9eab-4f8f-4682-98a5-8f75c4b74bde",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "b32a9eab-4f8f-4682-98a5-8f75c4b74bde",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.04,
+          -33.597
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "94432beb-e552-4185-9ed7-80d43a083f6b",
+        "placeId": null,
+        "name": "Bark Ridge",
+        "notes": "Bark Ridge is a quiet ridge-and-bushland stop near Hampton (NSW), ideal for moody landscape frames, trail textures, and lookout-style compositions with soft sky gradients. Best light is at sunrise for warm highlights and low-contrast shadows; late afternoon brings richer greens. Arrive early on weekends for parking and calmer paths.\n— https://atlasphoto.app/post/6c144f49-b8be-4383-8f8a-774ee4c52ece",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "6c144f49-b8be-4383-8f8a-774ee4c52ece",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.997,
+          -33.64
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "f0095f1c-40db-4491-bc8a-a8eee2e81429",
+        "placeId": null,
+        "name": "Hampton",
+        "notes": "Hampton (near the Nepean River in western Sydney) suits calm waterscape and nature images: ripples, riverbanks, and river-gum silhouettes with city-edge haze in the distance. Golden hour adds warm reflections; midday light works for texture and greenery. Weekday mornings are quieter at foreshore parks.\n— https://atlasphoto.app/post/cdb2c54d-bed2-493e-8e4c-5b22be48c748",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "cdb2c54d-bed2-493e-8e4c-5b22be48c748",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          149.921,
+          -33.435
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "83ce107b-94f0-4e5b-bebf-8321cc65ed3a",
+        "placeId": null,
+        "name": "Meadow flat",
+        "notes": "Meadow Flat is a quiet patchwork of open fields and rural tree lines—ideal for wide landscapes, layered horizons, and dramatic sky portraits. Golden hour turns grass into glowing texture and backlights eucalypts; clear nights can deliver strong Milky Way visibility with low light pollution.\n— https://atlasphoto.app/post/fd59e499-193e-4da4-b7e0-037c4cc47370",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "fd59e499-193e-4da4-b7e0-037c4cc47370",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.079,
+          -33.416
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "b5e49770-9e1f-436e-8f3b-35a5e2fe09a6",
+        "placeId": null,
+        "name": "Lake Wallace",
+        "notes": "Lake Wallace (a quiet reservoir near Wallerawang) suits calm water reflections, shoreline landscapes, and moody skies over the dam wall. Expect rural lighting: crisp mornings with mirror-like water, softer sunset warmth. Access appears roadside and via informal lake edges—verify walkability and any local restrictions before shooting.\n— https://atlasphoto.app/post/704913fd-f205-493c-8f1b-ba125d2ab9af",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "704913fd-f205-493c-8f1b-ba125d2ab9af",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.108,
+          -33.236
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "f67f549a-8525-4124-866b-94e8703417e3",
+        "placeId": null,
+        "name": "Stargate Tunnel",
+        "notes": "A dramatic natural sandstone tunnel carved into the Wolgan Valley cliffs — great for framing sunlight, shafted light and textured rock details. Best at golden hour and blue hour when warm side-light brings out striations; pre-dawn or late afternoon reduces visitors. Access via Wolgan Valley roads/tracks; check local park or resort access (some areas private). Bring a torch for exploring interiors; parking available at nearby trailheads. Respect fragile rock and private land.\n— https://atlasphoto.app/post/2740c117-bc2d-4d02-b104-fcc27798195f",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "2740c117-bc2d-4d02-b104-fcc27798195f",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.056,
+          -33.113
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "d86869ca-f42f-474c-8353-dc4bb53c0fb8",
+        "placeId": null,
+        "name": "Ultimate Slot",
+        "notes": "Ultimate Slot is a narrow sandstone slot in the Capertee region offering dramatic vertical walls, textured rock surfaces and shafts of light — ideal for abstract rock and landscape photography. Best at sunrise or late afternoon when side-light reveals textures; mid-winter low sun increases shafts. Remote access—expect unsealed roads and a short walk from parking; use 4WD if wet. No formal entry point; respect private land signs and stay on tracks. Minimal crowds make it great for longer shoots.\n— https://atlasphoto.app/post/a6000fd1-f046-48fd-b6cf-8f9337b7a101",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "a6000fd1-f046-48fd-b6cf-8f9337b7a101",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.057,
+          -33.115
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "72eb2f37-b08a-4d1a-8b26-0e28ff7d7b4a",
+        "placeId": null,
+        "name": "Pagoda Lookout",
+        "notes": "Pagoda Lookout overlooks the Capertee Valley and dramatic sandstone ‘pagoda’ outcrops. Shoot sweeping valley panoramas, layered ridgelines and textured rock details at golden hour. Accessible via a short roadside walk with basic parking; weather can be changeable. Respect Wiradjuri country and stick to marked paths.\n— https://atlasphoto.app/post/65e1be41-3c5f-45eb-9f3f-169d6233ffab",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "65e1be41-3c5f-45eb-9f3f-169d6233ffab",
+        "photos": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          150.039,
+          -33.107
+        ]
+      },
+      "properties": {
+        "kind": "spot",
+        "id": "075f2235-be7d-4283-bee4-025a4692a53f",
+        "placeId": null,
+        "name": "Tramway trail",
+        "notes": "Tramway Trail skirts the Capertee Valley escarpment, offering sweeping vistas of sandstone cliffs, layered ridges, and native bush — ideal for wide landscapes, detail shots of flora, and raptor/bird photography. Best at golden hour for warm side lighting and long shadows; sunrise from western viewpoints and sunset from eastern outlooks. Trail is unsealed and uneven — 4WD or high-clearance cars recommended for nearby access; park at marked trailheads. Respect cultural heritage of the Wiradjuri (D\n— https://atlasphoto.app/post/4acd2931-09dd-46da-81f5-fafe287723bd",
+        "tags": [
+          "atlasphoto"
+        ],
+        "facingDeg": null,
+        "fovDeg": null,
+        "goodTimes": {
+          "phases": [],
+          "months": [],
+          "days": "any",
+          "conditions": [],
+          "eventKeywords": [],
+          "avoid": "",
+          "notes": ""
+        },
+        "visibility": "private",
+        "source": "atlasphoto",
+        "sourceRef": "4acd2931-09dd-46da-81f5-fafe287723bd",
+        "photos": []
+      }
+    }
+  ]
+}
