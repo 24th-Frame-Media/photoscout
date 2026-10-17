@@ -10,6 +10,7 @@ export interface WeatherHour {
   precipMm: number | null;
   precipProbPct: number | null;
   windKmh: number | null;
+  windDeg: number | null;
   gustKmh: number | null;
   visibilityM: number | null;
   weatherCode: number | null;
@@ -26,7 +27,7 @@ export interface WeatherForecast {
 
 const HOURLY_VARS = [
   'temperature_2m', 'cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'precipitation',
-  'precipitation_probability', 'wind_speed_10m', 'wind_gusts_10m', 'visibility', 'weather_code',
+  'precipitation_probability', 'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m', 'visibility', 'weather_code',
 ] as const;
 
 type Hourly = Partial<Record<(typeof HOURLY_VARS)[number], (number | null)[]>> & { time?: (string | number)[] };
@@ -86,6 +87,7 @@ export function parseOpenMeteo(
       precipMm: at('precipitation', i),
       precipProbPct: at('precipitation_probability', i),
       windKmh: at('wind_speed_10m', i),
+      windDeg: at('wind_direction_10m', i),
       gustKmh: at('wind_gusts_10m', i),
       visibilityM,
       weatherCode,
@@ -153,4 +155,77 @@ export async function fetchWeather(baseUrl: string, lat: number, lng: number, da
   })();
   inflight.set(key, p);
   return p;
+}
+
+export interface WindGridPoint { lat: number; lng: number; windKmh: number; windDeg: number }
+export interface WindGridResponse {
+  bounds: { south: number; west: number; north: number; east: number };
+  cols: number;
+  rows: number;
+  time: string;
+  grid: WindGridPoint[];
+}
+
+const windGridCache = new Map<string, { at: number; data: WindGridResponse }>();
+const WIND_GRID_CACHE_TTL_MS = 15 * 60_000;
+
+/** Fetch a small viewport grid of hourly wind vectors from Open-Meteo. */
+export async function fetchWindGrid(
+  baseUrl: string,
+  bounds: { south: number; west: number; north: number; east: number },
+  cols = 4,
+  rows = 4,
+  timeMs?: number,
+): Promise<WindGridResponse> {
+  const cCount = Math.min(5, Math.max(2, Math.round(cols)));
+  const rCount = Math.min(5, Math.max(2, Math.round(rows)));
+  const targetDate = timeMs == null ? new Date() : new Date(timeMs);
+  if (Number.isNaN(targetDate.getTime())) throw new Error('Invalid wind-grid time');
+  const targetHourIso = new Date(Math.floor(targetDate.getTime() / 3_600_000) * 3_600_000).toISOString();
+  const cacheKey = `${bounds.south.toFixed(1)},${bounds.west.toFixed(1)},${bounds.north.toFixed(1)},${bounds.east.toFixed(1)},${cCount}x${rCount},${targetHourIso}`;
+  const hit = windGridCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < WIND_GRID_CACHE_TTL_MS) return hit.data;
+
+  const lats: number[] = [];
+  const lngs: number[] = [];
+  for (let r = 0; r < rCount; r++) {
+    const lat = bounds.south + (r / (rCount - 1)) * (bounds.north - bounds.south);
+    for (let c = 0; c < cCount; c++) {
+      const lng = bounds.west + (c / (cCount - 1)) * (bounds.east - bounds.west);
+      lats.push(Number(lat.toFixed(3)));
+      lngs.push(Number(lng.toFixed(3)));
+    }
+  }
+
+  const url = `${baseUrl.replace(/\/$/, '')}/v1/forecast?latitude=${lats.join(',')}&longitude=${lngs.join(',')}`
+    + '&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh&timeformat=unixtime&forecast_days=2';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': 'photoscout/0.1' }, signal: controller.signal });
+    if (!res.ok) throw new Error(`Open-Meteo returned ${res.status}`);
+    const rawData = await res.json() as unknown;
+    const items = Array.isArray(rawData) ? rawData : [rawData];
+    const targetSec = Math.floor(targetDate.getTime() / 1000);
+    const grid = items.map((item: any, i: number) => {
+      const times: number[] = item?.hourly?.time ?? [];
+      let bestIdx = 0;
+      let bestDiff = Infinity;
+      for (let j = 0; j < times.length; j++) {
+        const diff = Math.abs(times[j] - targetSec);
+        if (diff < bestDiff) { bestDiff = diff; bestIdx = j; }
+      }
+      return {
+        lat: lats[i] ?? item?.latitude ?? 0,
+        lng: lngs[i] ?? item?.longitude ?? 0,
+        windKmh: Number(item?.hourly?.wind_speed_10m?.[bestIdx] ?? 0),
+        windDeg: Number(item?.hourly?.wind_direction_10m?.[bestIdx] ?? 0),
+      };
+    });
+    const response: WindGridResponse = { bounds, cols: cCount, rows: rCount, time: targetDate.toISOString(), grid };
+    windGridCache.set(cacheKey, { at: Date.now(), data: response });
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
 }

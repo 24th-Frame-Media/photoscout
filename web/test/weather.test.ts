@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { burnScore, hourAt, pickRadarFrame, weatherIcon } from '../src/map/weather.js';
+import { burnScore, hourAt, pickRadarFrame, weatherIcon, rainTierFor, windDirectionLabel, windTierFor } from '../src/map/weather.js';
 
 const idx = { host: 'https://h', radar: { past: [{ time: 1000, path: '/a' }, { time: 1600, path: '/b' }], nowcast: [{ time: 2200, path: '/n' }] } };
 
@@ -70,4 +70,18 @@ test('burnScore: clarity penalties for low visibility or high aod', () => {
   const highAod = burnScore({ cloudHighPct: 50, cloudMidPct: 0, cloudLowPct: 0, visibilityM: 20_000, aod: 0.7 }, 0);
   assert.equal(highAod.score, 50);
   assert.equal(highAod.label, 'Fair');
+});
+
+test('weather heatmap helpers classify precipitation, wind, and direction', () => {
+  assert.equal(rainTierFor(null), null);
+  assert.equal(rainTierFor(0.5)?.id, 'drizzle');
+  assert.equal(rainTierFor(12)?.id, 'moderate');
+  assert.equal(rainTierFor(60)?.id, 'severe');
+  assert.equal(windTierFor(null).id, 'calm');
+  assert.equal(windTierFor(24).id, 'moderate');
+  assert.equal(windTierFor(42).id, 'strong');
+  assert.equal(windTierFor(75).id, 'gale');
+  assert.equal(windDirectionLabel(0), 'N');
+  assert.equal(windDirectionLabel(225), 'SW');
+  assert.equal(windDirectionLabel(null), '–');
 });
