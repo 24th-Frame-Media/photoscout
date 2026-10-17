@@ -156,9 +156,9 @@ What makes that acceptable, and what is enforced:
 There are two version numbers, and they are independent.
 
 - `WEB_API_VERSION` (`packages/plugin-sdk/src/web.ts`, 2.0.0) is the browser contract. The SPA reports it to every bundle as `host.apiVersion`. Semver: a major breaks bundles built against the previous one, a minor adds, a patch fixes. The template vendors a copy of `web.ts` (`docs/plugins/template/src/sdk/web-api.ts`); `plugin.mjs sdk-check --write` re-copies it when the SDK version moves, and the test suite fails until the template copies match.
-- `HOST_API_VERSION` (`packages/plugin-sdk/src/server.ts`, 1.1.0) is the server contract (`ServerPlugin`, `PluginContext`) and the manifest's own rules. A manifest's `photoscout` range is checked against it, and only against it (`manifest.ts`). The admin list `GET /api/admin/plugins/` reports it as `hostApiVersion`.
+- `HOST_API_VERSION` (`packages/plugin-sdk/src/server.ts`, 1.2.0) is the server contract (`ServerPlugin`, `PluginContext`) and the manifest's own rules. A manifest's `photoscout` range is checked against it, and only against it (`manifest.ts`). The admin list `GET /api/admin/plugins/` reports it as `hostApiVersion`.
 
-Decision: the two do not move together. A change to the browser contract bumps `WEB_API_VERSION` and leaves `HOST_API_VERSION` alone; a change to the server contract or to what a manifest may say bumps `HOST_API_VERSION` and leaves `WEB_API_VERSION` alone. 1.1.0 of the host is an example of the second kind: it accepts a `.mjs` web bundle, which 1.0.0 refused, so a plugin that needs it should say `photoscout: "^1.1"`. A `^1.0` range (radio-garden) still installs everywhere.
+Decision: the two do not move together. A change to the browser contract bumps `WEB_API_VERSION` and leaves `HOST_API_VERSION` alone; a change to the server contract or to what a manifest may say bumps `HOST_API_VERSION` and leaves `WEB_API_VERSION` alone. 1.1.0 of the host is an example of the second kind: it accepts a `.mjs` web bundle, which 1.0.0 refused, so a plugin that needs it should say `photoscout: "^1.1"`. A `^1.0` range (radio-garden) still installs everywhere. 1.2.0 is another of the second kind, additive: it adds `ctx.areas()` and the `PluginArea` type, so a plugin that calls `ctx.areas()` should say `photoscout: "^1.2"`.
 
 What a bundle can and cannot say:
 

@@ -49,7 +49,7 @@ test('an uploaded package is installed, started, and answers under /api/plugins/
   assert.deepEqual(await ping.json(), { id: ID, version: '1.0.0' });
 
   const list = await json(await fetch(`${base}/api/admin/plugins`));
-  assert.equal(list.hostApiVersion, '1.1.0');
+  assert.equal(list.hostApiVersion, '1.2.0');
   assert.equal(list.plugins[0].id, ID);
   assert.equal(list.plugins[0].status, 'active');
 });

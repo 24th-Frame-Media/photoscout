@@ -12,6 +12,7 @@ import { createPluginRuntime, type PluginRuntime } from '../../src/plugins/runti
 import { mountPlugins } from '../../src/plugins/routes.js';
 import type { RemoteDeps } from '../../src/plugins/remote.js';
 import type { Send } from '../../src/plugins/netscope.js';
+import type { Db } from '../../src/db.js';
 
 /**
  * Shared scaffolding for the plugin tests. Nothing here imports the app's
@@ -93,6 +94,8 @@ export interface Harness {
   runtime: PluginRuntime;
   registry: TaskRegistry;
   handle: DatabaseSync;
+  /** The core-database wrapper the runtime reads settings through (ctx.areas()). Write settings with the core's own functions, e.g. saveAreas. */
+  db: Db;
   root: string;
   close(): Promise<void>;
 }
@@ -119,8 +122,17 @@ export function makeRuntime(
   };
   const registry = createRegistry(kvStore);
   const handle = new DatabaseSync(':memory:');
+  // The core settings (home, areas) live in a kv map here, as they do in the app's kv table.
+  const settingsKv = new Map<string, string>();
+  const db: Db = {
+    handle,
+    getKv: (key) => settingsKv.get(key) ?? null,
+    setKv: (key, value) => {
+      settingsKv.set(key, value);
+    },
+  };
   const runtime = createPluginRuntime({
-    db: { handle },
+    db,
     root,
     devRoot: opts.devRoot,
     taskRegistry: registry,
@@ -133,6 +145,7 @@ export function makeRuntime(
     runtime,
     registry,
     handle,
+    db,
     root,
     async close() {
       await runtime.close();

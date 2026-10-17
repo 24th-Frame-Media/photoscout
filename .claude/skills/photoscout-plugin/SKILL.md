@@ -46,7 +46,7 @@ Run commands from the photoscout repo root. `<dir>` is the plugin folder, for ex
    - `public`: route patterns a signed-out visitor may GET. Every other route needs a session.
    - Optional `"$schema": "<relative path to plugin.schema.json>"` for editor hints.
 
-3. **Server half (`src/server.ts`).** Default-export an object with `activate(ctx)`, typed `ServerPlugin`. Routes go on `ctx.router`, which is mounted at `/api/plugins/<id>/`. Guard every non-public route with `ctx.auth.requireUser` or `ctx.auth.requireAdmin`. The other tools are `ctx.settings`, `ctx.tasks.register()` for background jobs, `ctx.fetch` for outside calls, `ctx.db` for the plugin's own SQLite (never the core database), `ctx.dataDir`, `ctx.log` and `ctx.services.url()`. The build inlines the bundle's imports (Node built-ins aside), so the zip needs nothing beside it.
+3. **Server half (`src/server.ts`).** Default-export an object with `activate(ctx)`, typed `ServerPlugin`. Routes go on `ctx.router`, which is mounted at `/api/plugins/<id>/`. Guard every non-public route with `ctx.auth.requireUser` or `ctx.auth.requireAdmin`. The other tools are `ctx.settings`, `ctx.tasks.register()` for background jobs, `ctx.fetch` for outside calls, `ctx.db` for the plugin's own SQLite (never the core database), `ctx.dataDir`, `ctx.log`, `ctx.services.url()` and `ctx.areas()` (the configured Areas, read-only; needs `"photoscout": "^1.2"`). The build inlines the bundle's imports (Node built-ins aside), so the zip needs nothing beside it.
 
 4. **Web half (`src/web.ts`).** Default-export an object with `activate(host)`, typed `WebPlugin`. Import types only and never app code. Everything goes through `host`:
    - a legend toggle and its layers: `host.legend.add`;

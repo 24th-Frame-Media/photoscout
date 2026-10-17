@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeRuntime, PING_SERVER, pluginApp, listen, pluginPackage, removeRoot, tempRoot, type Harness, type Listening } from './helpers.js';
 import { PluginError } from '../../src/plugins/manifest.js';
+import { getSettings, saveAreas } from '../../src/settings.js';
 
 /**
  * The lifecycle, exercised through the runtime and its dispatcher: a plugin
@@ -343,4 +344,77 @@ test('a plugin whose package can no longer be read shows no settings, and its se
 
   assert.deepEqual(h.runtime.settings(ID), { values: {}, secretsSet: {} });
   assert.throws(() => h.runtime.updateSettings(ID, { radius: 6 }), (err: unknown) => err instanceof PluginError);
+});
+
+const AREAS_SERVER = [
+  'export default { activate(ctx) {',
+  "  ctx.router.get('/areas', (req, res) => res.json(ctx.areas()));",
+  '} };',
+].join('\n');
+
+test('ctx.areas() gives the configured Areas, home first, and reads them again on each call', async () => {
+  const h = harness();
+  h.runtime.store.installFromZip(pluginPackage({ id: ID, server: AREAS_SERVER }), { source: 'upload' });
+  saveAreas(
+    h.db,
+    { name: 'Home', lat: -33.4, lng: 149.5, radiusKm: 60, events: true, busy: false },
+    [
+      { name: 'Coast', lat: -34, lng: 151, radiusKm: 25, events: false, busy: true, topics: ['music'] },
+      { name: 'Hills', lat: -33.9, lng: 150.1, radiusKm: 10, events: true, busy: false },
+    ],
+  );
+  assert.equal((await h.runtime.activate(ID)).status, 'active');
+  const base = await serve(h);
+
+  // Only where and how far: no events or busy switches, no topics.
+  assert.deepEqual(await (await fetch(`${base}/api/plugins/${ID}/areas`)).json(), [
+    { name: 'Home', lat: -33.4, lng: 149.5, radiusKm: 60 },
+    { name: 'Coast', lat: -34, lng: 151, radiusKm: 25 },
+    { name: 'Hills', lat: -33.9, lng: 150.1, radiusKm: 10 },
+  ]);
+
+  // Read at call time: a change made after the plugin started shows on the next call.
+  saveAreas(h.db, { name: 'Base', lat: -33.4, lng: 149.5, radiusKm: 60, events: true, busy: false }, []);
+  assert.deepEqual(await (await fetch(`${base}/api/plugins/${ID}/areas`)).json(), [
+    { name: 'Base', lat: -33.4, lng: 149.5, radiusKm: 60 },
+  ]);
+});
+
+test('ctx.areas() cannot change the stored Areas: a plugin that edits what it was given leaves the settings alone', async () => {
+  const h = harness();
+  h.runtime.store.installFromZip(
+    pluginPackage({
+      id: ID,
+      server: [
+        'export default { activate(ctx) {',
+        "  ctx.router.get('/areas', (req, res) => {",
+        '    const list = ctx.areas();',
+        "    try { list[0].name = 'hacked'; } catch {}",
+        "    try { list.push({ name: 'extra', lat: 0, lng: 0, radiusKm: 1 }); } catch {}",
+        '    res.json(ctx.areas());',
+        '  });',
+        '} };',
+      ].join('\n'),
+    }),
+    { source: 'upload' },
+  );
+  assert.equal((await h.runtime.activate(ID)).status, 'active');
+  const base = await serve(h);
+
+  const body = await (await fetch(`${base}/api/plugins/${ID}/areas`)).json();
+  assert.deepEqual(body.map((a: { name: string }) => a.name), ['Bathurst']);
+  assert.equal(getSettings(h.db).home.name, 'Bathurst');
+  assert.equal(getSettings(h.db).areas.length, 0);
+});
+
+test('ctx.areas() gives [] instead of throwing when the stored settings cannot be read', async () => {
+  const h = harness();
+  h.runtime.store.installFromZip(pluginPackage({ id: ID, server: AREAS_SERVER }), { source: 'upload' });
+  h.db.setKv('settings', '{ not json');
+  assert.equal((await h.runtime.activate(ID)).status, 'active');
+  const base = await serve(h);
+
+  const res = await fetch(`${base}/api/plugins/${ID}/areas`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), []);
 });

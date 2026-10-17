@@ -5,7 +5,9 @@ import { DatabaseSync } from 'node:sqlite';
 import express from 'express';
 import type { NextFunction, Request, Response as ExpressResponse, Router } from 'express';
 import { requireAdmin as defaultRequireAdmin, requireUser as defaultRequireUser } from '../auth.js';
+import type { Db } from '../db.js';
 import { publicFetch } from '../events/nethost.js';
+import { getSettings } from '../settings.js';
 import type { TaskDef, TaskRegistry } from '../tasks/registry.js';
 import { PluginError, publicRouteAllowed } from './manifest.js';
 import { createPluginFetch, type Send } from './netscope.js';
@@ -14,6 +16,7 @@ import { effectiveSettings, mergeSettings, redactedSettings } from './settings.j
 import {
   HOST_API_VERSION,
   type PermissionKind,
+  type PluginArea,
   type PluginContext,
   type PluginManifest,
   type PluginTaskDef,
@@ -107,7 +110,8 @@ export interface PluginRuntime {
 }
 
 export interface PluginRuntimeOptions {
-  db: { handle: DatabaseSync };
+  /** The core database. The plugin's own SQLite is opened per plugin; this one is read for ctx.areas() (settings.ts getSettings). */
+  db: Db;
   /** The plugins folder, e.g. <dataDir>/plugins. */
   root: string;
   /** Unpacked plugins for development. Default: <dirname(root)>/plugins-dev. */
@@ -164,6 +168,20 @@ function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> 
     timer = setTimeout(() => reject(new PluginError(`${what} took longer than ${ms / 1000} seconds`)), ms);
   });
   return Promise.race([work, limit]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * ctx.areas(): the core's configured Areas, home first, read from the settings on each call. Any failure to
+ * read them gives [], so a plugin that polls does not throw because the stored settings cannot be read.
+ */
+function readAreas(db: Db): readonly PluginArea[] {
+  try {
+    const settings = getSettings(db);
+    const areas = [settings.home, ...settings.areas].map((a) => Object.freeze({ name: a.name, lat: a.lat, lng: a.lng, radiusKm: a.radiusKm }));
+    return Object.freeze(areas);
+  } catch {
+    return [];
+  }
 }
 
 function openPluginDb(file: string): DatabaseSync {
@@ -404,6 +422,7 @@ export function createPluginRuntime(opts: PluginRuntimeOptions): PluginRuntime {
       dataDir: store.dataDir(id),
       log: { info: level('info'), warn: level('warn'), error: level('error') },
       services: { url: (name) => serviceUrl(id, name) },
+      areas: () => readAreas(opts.db),
     };
   }
 

@@ -105,7 +105,8 @@ describe('vendored contract copies (plugin.mjs sdk-check)', () => {
   it('line endings do not count as drift', () => {
     const dir = scratchPlugin();
     const file = path.join(dir, 'src', 'sdk', 'web-api.ts');
-    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/\n/g, '\r\n'));
+    // Normalise first: the checkout may already hold CRLF, and a bare \n -> \r\n would double the \r.
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/\r?\n/g, '\r\n'));
     assert.deepEqual(cli.checkPluginSdk(dir, { sdkRoot: REPO }).errors, []);
     assert.equal(cli.sdkDrift('a\r\nb\r\n', 'a\nb\n', pkg.version), null);
   });

@@ -102,6 +102,7 @@ Export `definePlugin`-shaped default: an object with `activate(ctx)` (and option
 - `ctx.dataDir`: the plugin's data folder.
 - `ctx.log.info|warn|error(msg)`.
 - `ctx.services.url(name)`: the URL the admin set for that service, or `null`.
+- `ctx.areas()`: the instance's configured Areas, home first and then the others in the order the admin set them, each as `{ name, lat, lng, radiusKm }` (`PluginArea`; the events and busy switches are left out). Read-only: the result is a frozen copy, and changing it changes nothing in core. Current at call time, so a poll that calls it again sees Areas the admin has changed since. `[]` if they cannot be read. Host `1.2.0` added it, so a plugin that calls it declares `"photoscout": "^1.2"`.
 
 ### 4. Web bundle (`src/web.ts`)
 
@@ -389,7 +390,7 @@ export default plugin;
 
 | Case | Schema | Host | CLI |
 |---|---|---|---|
-| `photoscout` range the host (1.1.0) cannot meet | accepts | rejects | rejects (host check) |
+| `photoscout` range the host (1.2.0) cannot meet | accepts | rejects | rejects (host check) |
 | duplicate setting `key` | accepts | rejects | rejects (host check) |
 | select `default` not among its `options` | accepts | rejects | rejects (host check) |
 | empty `description`, `author`, setting `label`, or service `image` | rejects | accepts | rejects |
