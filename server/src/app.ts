@@ -378,9 +378,11 @@ app.put('/api/settings', (req, res) => {
   }
   // A new key means timetables can now be pulled: start the import in the background.
   if (keyChanged && settings.tfnswApiKey) {
-    for (const name of ['trains-static-nswtrains', 'trains-static-sydneytrains']) {
-      tasks.run(name, { force: true }).catch(() => {});
-    }
+    void (async () => {
+      for (const name of ['trains-static-nswtrains', 'trains-static-sydneytrains']) {
+        await tasks.run(name, { force: true }).catch(() => {});
+      }
+    })();
   }
   res.json(publicSettings(settings));
 });

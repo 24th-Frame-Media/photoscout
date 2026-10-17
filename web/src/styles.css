@@ -200,6 +200,27 @@ input[type='checkbox'], input[type='radio'] { width: auto; accent-color: var(--a
 .filterbar select { width: auto; max-width: 100%; }
 .filterbar label.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; }
 
+/* A dropdown of checkboxes (MultiSelect), made to sit beside the selects. */
+.multi { position: relative; }
+.multi__button { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 150px; }
+.multi__button.is-set { border-color: var(--accent); color: var(--accent); }
+.multi__summary { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multi__caret { color: var(--muted); font-size: 11px; }
+.multi__menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 250px;
+  max-height: 380px; overflow: auto; background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
+.multi__head { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 6px;
+  font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+.multi__clear { padding: 2px 9px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.multi__option { display: flex; align-items: center; gap: 9px; padding: 5px 8px; border-radius: 6px;
+  font-size: 13px; cursor: pointer; }
+.multi__option:hover { background: var(--panel-2); }
+.multi__option input { width: 15px; height: 15px; margin: 0; flex: none; cursor: pointer; }
+.multi__option--divider { border-top: 1px solid var(--border); border-radius: 0 0 6px 6px; margin-top: 4px; padding-top: 8px; }
+.multi__label { flex: 1; min-width: 0; }
+.multi__count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.multi__none { color: var(--muted); font-size: 13px; margin: 6px 8px; }
+
 .empty {
   text-align: center;
   color: var(--muted);
@@ -2237,7 +2258,7 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
   .evd__title { font-size: 22px; }
   .evd__chips { padding-right: 0; }
   .inbox { padding-top: 16px; }
-  .events button:not(.linkbtn), .events a.button, .events .chip, .events select, .events input:not([type='checkbox']),
+  .events button:not(.linkbtn):not(.multi__clear), .events a.button, .events .chip, .events select, .events input:not([type='checkbox']),
   .modal button:not(.linkbtn), .modal a.button, .modal input:not([type='checkbox']) { min-height: 40px; }
   .events .filterbar .search { flex-basis: 100%; }
   /* The date chips scroll sideways inside their own strip, and the menus sit two to a row, so the filters do not fill the screen. */
@@ -2245,7 +2266,8 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
   .events .filterbar .chiprow[aria-label='When'] { flex-wrap: nowrap; overflow-x: auto; width: 100%; scrollbar-width: none; }
   .events .filterbar .chiprow[aria-label='When']::-webkit-scrollbar { display: none; }
   .events .filterbar .chip { flex: none; display: inline-flex; align-items: center; white-space: nowrap; }
-  .events .filterbar select { flex: 1 1 calc(50% - 8px); min-width: 0; width: auto; }
+  .events .filterbar select, .events .filterbar .multi { flex: 1 1 calc(50% - 8px); min-width: 0; width: auto; }
+  .events .filterbar .multi__button { width: 100%; min-width: 0; }
   .events .filterbar label.toggle { min-height: 40px; }
   .events__head h1 { font-size: 20px; }
   .invite__share { flex-wrap: wrap; }

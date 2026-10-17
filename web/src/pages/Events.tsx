@@ -10,6 +10,7 @@ import EventCard, { EventCardSkeleton } from '../components/EventCard.js';
 import EventDetail, { EventDetailSkeleton, EventNotFound } from '../components/EventDetail.js';
 import InvitesButton from '../components/InvitesInbox.js';
 import EventAdmin, { HiddenEvents } from '../components/EventAdmin.js';
+import MultiSelect, { type MultiOption } from '../components/MultiSelect.js';
 import { api as adminApi } from '../settings/events/api.js';
 
 /** Only the "By place" sort wants headed sections; any other sort is one run. The sort has already put a venue's events side by side. */
@@ -30,8 +31,8 @@ function activeFilters(f: Filters): string[] {
   const out: string[] = [];
   if (f.search.trim()) out.push(`search "${f.search.trim()}"`);
   if (f.dateChip !== 'all') out.push(DATE_CHIPS.find((c) => c.key === f.dateChip)?.label.toLowerCase() ?? f.dateChip);
-  if (f.category) out.push(`category ${f.category}`);
-  if (f.place) out.push('a town');
+  if (f.categories.length) out.push(f.categories.length === 1 ? `category ${f.categories[0]}` : `${f.categories.length} categories`);
+  if (f.places.length) out.push(f.places.length === 1 ? 'a town' : `${f.places.length} towns`);
   if (f.source) out.push(`source ${f.source}`);
   if (f.recentOnly) out.push('new only');
   if (f.starredOnly) out.push('shortlist only');
@@ -66,6 +67,20 @@ export default function Events({ user }: { user: User | null }) {
   const sourceNames = useMemo(() => sourcesOf(all), [events]);
   const recentCount = useMemo(() => all.filter((e) => !e.hidden && isRecent(e)).length, [events]);
   const { places, nearby, elsewhere, unknown } = useMemo(() => placesOf(all, geo), [events, geo]);
+  const placeOptions = useMemo<MultiOption[]>(
+    () => [
+      ...(nearby > 0 ? [{ value: NEARBY, label: 'Nearby', count: nearby }] : []),
+      ...places.map((p, i) => ({ value: p.name, label: decodeEntities(p.name), count: p.count, divider: i === 0 && nearby > 0 })),
+      ...(elsewhere > 0 ? [{ value: ELSEWHERE, label: 'Elsewhere', count: elsewhere, divider: true }] : []),
+      ...(unknown > 0 ? [{ value: UNKNOWN, label: 'Unknown location', count: unknown, divider: elsewhere === 0 && (nearby > 0 || places.length > 0) }] : []),
+    ],
+    [places, nearby, elsewhere, unknown]
+  );
+  const categoryOptions = useMemo<MultiOption[]>(() => {
+    const counts = new Map<string, number>();
+    for (const e of all) if (e.category) counts.set(e.category, (counts.get(e.category) ?? 0) + 1);
+    return categories.map((c) => ({ value: c, label: c, count: counts.get(c) ?? 0 }));
+  }, [events, categories]);
   const folded = filtered.length - cards.length;
 
   // --- the open event, from the address ---
@@ -136,18 +151,23 @@ export default function Events({ user }: { user: User | null }) {
             <button key={c.key} type="button" aria-pressed={filters.dateChip === c.key} className={`chip ${filters.dateChip === c.key ? 'active' : ''}`} onClick={() => set({ dateChip: c.key })}>{c.label}</button>
           ))}
         </div>
-        <select aria-label="Category" value={filters.category} onChange={(e) => set({ category: e.target.value })}>
-          <option value="">All categories</option>
-          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        {(nearby > 0 || places.length > 0 || elsewhere > 0 || unknown > 0) && (
-          <select aria-label="Town" value={filters.place} title="Filter by town" onChange={(e) => set({ place: e.target.value })}>
-            <option value="">Anywhere</option>
-            {nearby > 0 && <option value={NEARBY}>Nearby ({nearby})</option>}
-            {places.map((p) => <option key={p.name} value={p.name}>{decodeEntities(p.name)} ({p.count})</option>)}
-            {elsewhere > 0 && <option value={ELSEWHERE}>Elsewhere ({elsewhere})</option>}
-            {unknown > 0 && <option value={UNKNOWN}>Unknown location ({unknown})</option>}
-          </select>
+        <MultiSelect
+          label="Categories"
+          allLabel="All categories"
+          title="Filter by category"
+          options={categoryOptions}
+          value={filters.categories}
+          onChange={(categories) => set({ categories })}
+        />
+        {(placeOptions.length > 0 || filters.places.length > 0) && (
+          <MultiSelect
+            label="Towns"
+            allLabel="Anywhere"
+            title="Filter by town"
+            options={placeOptions}
+            value={filters.places}
+            onChange={(places) => set({ places })}
+          />
         )}
         <select aria-label="Sort" value={filters.sort} title="Sort" onChange={(e) => set({ sort: e.target.value as SortKey })}>
           <option value="date">Soonest first</option>

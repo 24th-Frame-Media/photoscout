@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { strToU8, zipSync } from 'fflate';
+import { createDb } from '../src/db.js';
+import { forEachCsvRow } from '../src/csv.js';
 import {
-  bearingDeg, buildPointPassesResponse, clampPassHours, cumulativeKm, emptyFeedData, isServiceActiveOn, isTrainRoute, nextPasses, parseGtfsTime,
-  parsePointPassRequest, PATH_BACK_KM, predictTrainPositions, shapeSlice, TrainsFeedData, vehicleExtras,
+  bearingDeg, buildPointPassesResponse, clampPassHours, cumulativeKm, emptyFeedData, isServiceActiveOn, isTrainRoute, loadFeedData, nextPasses, parseGtfsTime,
+  parsePointPassRequest, PATH_BACK_KM, predictTrainPositions, shapeSlice, storeStaticGtfsZip, TrainsFeedData, vehicleExtras,
 } from '../src/feeds/trains.js';
 
 test('parseGtfsTime: handles times past midnight (>24:00:00)', () => {
@@ -175,3 +178,33 @@ test('isTrainRoute: route_type decides; without it, TrainLink coach ids ("4T.C.<
   assert.equal(isTrainRoute('x', '714'), false);
   assert.equal(isTrainRoute('4T.C.1', '2'), true);
 });
+
+test('forEachCsvRow: streams rows, handles BOM, CRLF, and doubled quotes across chunk boundaries', () => {
+  const pad = 'x'.repeat(65520);
+  const csv = `\uFEFFid,label\r\n1,"${pad}""quoted"""\r\n2,plain\n`;
+  const rows: [string, string][] = [];
+  forEachCsvRow(strToU8(csv), (get) => rows.push([get('id'), get('label')]));
+  assert.deepEqual(rows, [
+    ['1', `${pad}"quoted"`],
+    ['2', 'plain'],
+  ]);
+});
+
+test('storeStaticGtfsZip: keeps only train trips touching configured areas and sorts stops/shapes', () => {
+  const db = createDb(':memory:');
+  const zip = Buffer.from(zipSync({
+    'routes.txt': strToU8('route_id,route_short_name,route_long_name,route_type\nR_BMT,BMT,Blue Mountains Line,2\nR_COACH,4T.C.1,Coach,204\nR_FAR,FAR,Far Line,2\n'),
+    'trips.txt': strToU8('route_id,service_id,trip_id,trip_headsign,shape_id\nR_BMT,WKD,T_KEEP,Bathurst,SH_KEEP\nR_COACH,WKD,T_COACH,Lithgow,SH_KEEP\nR_FAR,WKD,T_FAR,Nowhere,SH_FAR\n'),
+    'stops.txt': strToU8('stop_id,stop_name,stop_lat,stop_lon\nST_BATH,Bathurst,-33.42,149.58\nST_LITH,Lithgow,-33.48,150.15\nST_FAR,Far,-30.0,140.0\n'),
+    'stop_times.txt': strToU8('trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT_KEEP,10:00:00,10:00:00,ST_BATH,2\nT_KEEP,09:00:00,09:00:00,ST_LITH,1\nT_FAR,08:00:00,08:00:00,ST_FAR,1\n'),
+    'shapes.txt': strToU8('shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\nSH_KEEP,-33.42,149.58,2\nSH_KEEP,-33.48,150.15,1\nSH_FAR,-30.0,140.0,1\n'),
+    'calendar.txt': strToU8('service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWKD,1,1,1,1,1,0,0,20260101,20261231\n'),
+  }));
+  const res = storeStaticGtfsZip(db, 'sydneytrains', zip, [{ lat: -33.42, lng: 149.58, radiusKm: 100 }], () => {});
+  assert.deepEqual(res, { ok: true, message: '1 trips' });
+  const loaded = loadFeedData(db, 'sydneytrains');
+  assert.deepEqual(loaded.trips.map((t) => t.id), ['T_KEEP']);
+  assert.deepEqual(loaded.stopTimesByTrip.get('T_KEEP')?.map((s) => s.stopId), ['ST_LITH', 'ST_BATH']);
+  assert.deepEqual(loaded.shapesById.get('SH_KEEP')?.map((p) => p.lat), [-33.48, -33.42]);
+});
+

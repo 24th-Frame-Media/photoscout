@@ -42,10 +42,13 @@ export const UNKNOWN = 'nearby:unknown';
 
 export interface Filters {
   dateChip: DateChip;
-  /** One category, or '' for every category. */
-  category: string;
-  /** A town (locality), NEARBY, ELSEWHERE or UNKNOWN; '' for no location filter. */
-  place: string;
+  /** Any of these categories; empty for every category. */
+  categories: string[];
+  /**
+   * Any of these: town names (locality), NEARBY, ELSEWHERE or UNKNOWN; empty
+   * for no location filter at all.
+   */
+  places: string[];
   search: string;
   hideOnline: boolean;
   /** One source name, or '' for every source. */
@@ -58,7 +61,7 @@ export interface Filters {
 }
 
 export const DEFAULT_FILTERS: Filters = {
-  dateChip: 'all', category: '', place: '', search: '', hideOnline: true, source: '', recentOnly: false, showHidden: false, starredOnly: false, sort: 'date',
+  dateChip: 'all', categories: [], places: [], search: '', hideOnline: true, source: '', recentOnly: false, showHidden: false, starredOnly: false, sort: 'date',
 };
 
 /** Where "nearby" and "nearest" are measured from: the areas the app looks around, the first being home. */
@@ -77,15 +80,21 @@ export function loadFilters(): Filters {
   try {
     const raw = localStorage.getItem(FILTERS_KEY);
     if (!raw) return DEFAULT_FILTERS;
-    const saved = JSON.parse(raw) as Partial<Filters> | null;
+    const saved = JSON.parse(raw) as (Partial<Filters> & { category?: unknown; place?: unknown }) | null;
     if (!saved || typeof saved !== 'object') return DEFAULT_FILTERS;
     const d = DEFAULT_FILTERS;
     const bool = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
     const str = (v: unknown, fallback: string) => (typeof v === 'string' ? v : fallback);
+    const strs = (v: unknown, legacy: unknown, fallback: string[]) =>
+      Array.isArray(v)
+        ? v.filter((x): x is string => typeof x === 'string' && Boolean(x))
+        : typeof legacy === 'string' && legacy
+          ? [legacy]
+          : fallback;
     return {
       dateChip: CHIPS.includes(saved.dateChip as DateChip) ? (saved.dateChip as DateChip) : d.dateChip,
-      category: str(saved.category, d.category),
-      place: str(saved.place, d.place),
+      categories: strs(saved.categories, saved.category, d.categories),
+      places: strs(saved.places, saved.place, d.places),
       search: str(saved.search, d.search),
       hideOnline: bool(saved.hideOnline, d.hideOnline),
       source: str(saved.source, d.source),
@@ -203,8 +212,8 @@ export function applyFilters(events: EventItem[], f: Filters, now = new Date(), 
     if (f.hideOnline && ev.isOnline) return false;
     if (f.source && !ev.sources.includes(f.source)) return false;
     if (f.recentOnly && !isRecent(ev, now.getTime())) return false;
-    if (f.category && ev.category !== f.category) return false;
-    if (f.place && !inPlace(ev, f.place, geo)) return false;
+    if (f.categories.length && !f.categories.includes(ev.category)) return false;
+    if (f.places.length && !f.places.some((p) => inPlace(ev, p, geo))) return false;
     if (window) {
       const t = new Date(ev.startTime);
       if (t < window[0] || t >= window[1]) return false;
