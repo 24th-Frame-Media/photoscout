@@ -109,7 +109,7 @@ Run commands from the photoscout repo root. `<dir>` is the plugin folder, for ex
   - a separate Docker harvester (`harvester/`, kept out of the zip) that the plugin calls;
   - three `network` permissions for the harvester's addresses, with `ctx.fetch` wrapped so it reaches only those;
   - its API key as a `secret` setting, sent only to the declared host;
-  - its own SQLite for police sightings, kept for seven days;
+  - its own SQLite for police sightings, kept for sixty days;
   - an admin-only `POST /setup` route that runs the core's setup helper, which is not packaged;
   - `host.data.poll` feeds for the pins, the heatmap and Drive, with scoped ids;
   - a corner widget and a Settings tab;
