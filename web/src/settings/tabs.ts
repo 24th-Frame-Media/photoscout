@@ -24,7 +24,7 @@ export const GROUPS: TabGroup[] = [
     { id: 'busy', label: 'Busy map', admin: true }, { id: 'conditions', label: 'Conditions', admin: true },
   ] },
   { label: 'Admin', tabs: [
-    { id: 'instance', label: 'Instance', admin: true }, { id: 'signin', label: 'Sign-in', admin: true }, { id: 'plugins', label: 'Plugins', admin: true },
+    { id: 'instance', label: 'Instance', admin: true }, { id: 'signin', label: 'Sign-in', admin: true }, { id: 'plugins', label: 'Manage plugins', admin: true },
     { id: 'tasks', label: 'Tasks', admin: true }, { id: 'users', label: 'Users', admin: true },
   ] },
 ];

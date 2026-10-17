@@ -16,6 +16,9 @@ import { PluginView, usePluginRegistry } from '../plugins/react.js';
 import SignInSetup from '../settings/SignInSetup.js';
 import AccessSetting from '../settings/AccessSetting.js';
 import Plugins from '../settings/Plugins.js';
+import PluginSettingsForm from '../settings/PluginSettingsForm.js';
+import { pluginsApi, type PluginStatus } from '../settings/pluginsApi.js';
+import { TabGroup } from '../settings/tabs.js';
 import ActivityLog from '../components/ActivityLog.js';
 
 export default function Settings({ user, account, onChange }: { user: User | null; account: string | null; onChange: () => void }) {
@@ -35,9 +38,27 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const plugins = usePluginRegistry();
   const [wanted, setWanted] = useState(() => window.location.hash);
   const pluginTabs = plugins.settingsTabs;
-  const tab: Tab = tabFromHash(wanted, pluginTabs.map((t) => t.id));
+  // Installed plugins that declare settings each get their own section in the menu (admin only), so
+  // a plugin's options live under its own name, not nested inside the Manage-plugins page.
+  const [installed, setInstalled] = useState<PluginStatus[]>([]);
+  const [installedLoaded, setInstalledLoaded] = useState(false);
+  useEffect(() => {
+    if (!isAdmin) { setInstalled([]); setInstalledLoaded(true); return; }
+    let live = true;
+    pluginsApi.list()
+      .then((r) => { if (live) setInstalled(r.plugins); })
+      .catch(() => {})
+      .finally(() => { if (live) setInstalledLoaded(true); });
+    return () => { live = false; };
+  }, [isAdmin]);
+  const settingsPlugins = installed.filter((p) => p.settingsSchema.length > 0);
+  const pluginSettingsIds = settingsPlugins.map((p) => `plugin:${p.id}`);
+  const tab: Tab = tabFromHash(wanted, [...pluginTabs.map((t) => t.id), ...pluginSettingsIds]);
   const pluginTab = pluginTabs.find((t) => t.id === tab) ?? null;
+  const settingsPlugin = settingsPlugins.find((p) => `plugin:${p.id}` === tab) ?? null;
+  const isPluginSettingsHash = /^#?plugin:[a-z0-9]+(\.[a-z0-9-]+)+$/.test(wanted);
   const waitingForPlugins = isPluginTabHash(wanted) && !pluginTab && plugins.phase !== 'ready';
+  const waitingForPluginSettings = isPluginSettingsHash && !settingsPlugin && isAdmin && !installedLoaded;
   const setTab = (t: Tab) => { setWanted(t); history.replaceState(null, '', `#${t}`); };
   // A link to another tab while already here changes only the hash.
   useEffect(() => {
@@ -101,7 +122,18 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const setAll = (list: Area[]) => set({ home: list[0], areas: list.slice(1) });
   const setArea = (i: number, patch: Partial<Area>) => setAll(all.map((a, j) => (j === i ? { ...a, ...patch } : a)));
   const makeHome = (i: number) => setAll([all[i], ...all.filter((_, j) => j !== i)]);
-  const groups = groupsWith(pluginTabs).map((g) => ({ ...g, tabs: g.tabs.filter((t) => isAdmin || !t.admin) })).filter((g) => g.tabs.length > 0);
+  // One entry per installed plugin that has settings, in a 'Plugins' group just above Admin (merged with
+  // any web-registered 'Plugins' tabs). Selecting one shows that plugin's settings form in its own section.
+  const pluginSettingsTabs = settingsPlugins.map((p) => ({ id: `plugin:${p.id}`, label: p.name, admin: true }));
+  const withPluginSettings = (base: TabGroup[]): TabGroup[] => {
+    if (pluginSettingsTabs.length === 0) return base;
+    const i = base.findIndex((g) => g.label === 'Plugins');
+    if (i >= 0) return base.map((g, j) => (j === i ? { ...g, tabs: [...g.tabs, ...pluginSettingsTabs] } : g));
+    const at = base.findIndex((g) => g.label === 'Admin');
+    const group: TabGroup = { label: 'Plugins', tabs: pluginSettingsTabs };
+    return at < 0 ? [...base, group] : [...base.slice(0, at), group, ...base.slice(at)];
+  };
+  const groups = withPluginSettings(groupsWith(pluginTabs)).map((g) => ({ ...g, tabs: g.tabs.filter((t) => isAdmin || !t.admin) })).filter((g) => g.tabs.length > 0);
 
   return (
     <div className="page settings">
@@ -237,6 +269,14 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       {pluginTab && (isAdmin || !pluginTab.admin) && (
         <section className="plugintab" aria-label={pluginTab.label}>
           <PluginView key={pluginTab.id} pluginId={pluginTab.pluginId} view={pluginTab.view} props={{ isAdmin }} />
+        </section>
+      )}
+      {waitingForPluginSettings && <p className="hint">Loading plugin…</p>}
+      {settingsPlugin && isAdmin && (
+        <section className="plugintab" aria-label={`${settingsPlugin.name} settings`}>
+          <h2>🧩 {settingsPlugin.name}</h2>
+          {settingsPlugin.description && <p className="hint">{settingsPlugin.description}</p>}
+          <PluginSettingsForm key={settingsPlugin.id} plugin={settingsPlugin} />
         </section>
       )}
       </div>

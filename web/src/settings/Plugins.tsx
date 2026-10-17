@@ -13,7 +13,6 @@ import {
   statusBadge,
 } from './pluginsFormat.js';
 import PluginBrowse from './PluginBrowse.js';
-import PluginSettingsForm from './PluginSettingsForm.js';
 import './plugins.css';
 
 type View = 'installed' | 'browse' | 'manual';
@@ -156,7 +155,6 @@ function PluginCard({ plugin, onChange, onRemoved }: {
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [keepData, setKeepData] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
 
   const badge = statusBadge(plugin);
@@ -267,10 +265,7 @@ function PluginCard({ plugin, onChange, onRemoved }: {
       )}
 
       {plugin.settingsSchema.length > 0 && (
-        <details className="plugins__details" onToggle={(e) => setSettingsOpen(e.currentTarget.open)}>
-          <summary>Settings</summary>
-          {settingsOpen && <PluginSettingsForm plugin={plugin} />}
-        </details>
+        <p className="plugins__note">Settings for this plugin are under <strong>{plugin.name}</strong> in the Settings menu.</p>
       )}
       <details className="plugins__details" onToggle={(e) => setLogsOpen(e.currentTarget.open)}>
         <summary>Logs</summary>
