@@ -1,5 +1,5 @@
 # Self-contained Linux bridge. Software emulation needs neither KVM nor a Docker socket.
-FROM ubuntu:24.04
+FROM docker.io/library/ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive ANDROID_HOME=/opt/android ANDROID_SDK_ROOT=/opt/android
 ENV PATH=/opt/venv/bin:/opt/android/emulator:/opt/android/platform-tools:/opt/android/cmdline-tools/latest/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends \
