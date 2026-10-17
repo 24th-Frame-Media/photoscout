@@ -51,11 +51,16 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       .finally(() => { if (live) setInstalledLoaded(true); });
     return () => { live = false; };
   }, [isAdmin]);
-  const settingsPlugins = installed.filter((p) => p.settingsSchema.length > 0);
-  const pluginSettingsIds = settingsPlugins.map((p) => `plugin:${p.id}`);
+  const webTabPluginIds = new Set(pluginTabs.map((t) => t.pluginId));
+  // A plugin that already contributes a web settings tab gets its manifest settings appended to that tab
+  // (below); it does NOT also get a separate section. So one plugin = one entry, no duplicate rows.
+  const manifestOnlyPlugins = installed.filter((p) => p.settingsSchema.length > 0 && !webTabPluginIds.has(p.id));
+  const pluginSettingsIds = manifestOnlyPlugins.map((p) => `plugin:${p.id}`);
   const tab: Tab = tabFromHash(wanted, [...pluginTabs.map((t) => t.id), ...pluginSettingsIds]);
   const pluginTab = pluginTabs.find((t) => t.id === tab) ?? null;
-  const settingsPlugin = settingsPlugins.find((p) => `plugin:${p.id}` === tab) ?? null;
+  const settingsPlugin = manifestOnlyPlugins.find((p) => `plugin:${p.id}` === tab) ?? null;
+  // When a web settings tab is shown, append that plugin's manifest settings form beneath it (admins only).
+  const tabPluginSettings = pluginTab ? (installed.find((p) => p.id === pluginTab.pluginId && p.settingsSchema.length > 0) ?? null) : null;
   const isPluginSettingsHash = /^#?plugin:[a-z0-9]+(\.[a-z0-9-]+)+$/.test(wanted);
   const waitingForPlugins = isPluginTabHash(wanted) && !pluginTab && plugins.phase !== 'ready';
   const waitingForPluginSettings = isPluginSettingsHash && !settingsPlugin && isAdmin && !installedLoaded;
@@ -124,7 +129,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const makeHome = (i: number) => setAll([all[i], ...all.filter((_, j) => j !== i)]);
   // One entry per installed plugin that has settings, in a 'Plugins' group just above Admin (merged with
   // any web-registered 'Plugins' tabs). Selecting one shows that plugin's settings form in its own section.
-  const pluginSettingsTabs = settingsPlugins.map((p) => ({ id: `plugin:${p.id}`, label: p.name, admin: true }));
+  const pluginSettingsTabs = manifestOnlyPlugins.map((p) => ({ id: `plugin:${p.id}`, label: p.name, admin: true }));
   const withPluginSettings = (base: TabGroup[]): TabGroup[] => {
     if (pluginSettingsTabs.length === 0) return base;
     const i = base.findIndex((g) => g.label === 'Plugins');
@@ -269,6 +274,12 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       {pluginTab && (isAdmin || !pluginTab.admin) && (
         <section className="plugintab" aria-label={pluginTab.label}>
           <PluginView key={pluginTab.id} pluginId={pluginTab.pluginId} view={pluginTab.view} props={{ isAdmin }} />
+          {tabPluginSettings && isAdmin && (
+            <>
+              <h2>⚙ Settings</h2>
+              <PluginSettingsForm key={tabPluginSettings.id} plugin={tabPluginSettings} />
+            </>
+          )}
         </section>
       )}
       {waitingForPluginSettings && <p className="hint">Loading plugin…</p>}
