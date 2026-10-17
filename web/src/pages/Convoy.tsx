@@ -167,7 +167,7 @@ function InRoom({ convoy }: { convoy: ConvoyApi }) {
                   : `last seen ${lastSeenText(m.lastSeen)}`}
               </span>
               {iLead && m.id !== convoy.me && m.online && <button className="linkbtn" onClick={() => convoy.handOver(m.id)}>Make leader</button>}
-              {iLead && m.id !== convoy.me && <button className="linkbtn" title="They cannot rejoin with the code" onClick={() => convoy.remove(m.id)}>Remove</button>}
+              {iLead && m.id !== convoy.me && <button className="danger" title="They cannot rejoin with the code" onClick={() => convoy.remove(m.id)}>Remove</button>}
             </li>
           );
         })}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { LngLatBounds, Map as MlMap, Marker, type GeoJSONSource } from 'maplibre-gl';
+import { LngLatBounds, Map as MlMap, Marker, Popup, type GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { api, type User } from '../api.js';
 import { STYLE_URL } from '../map/layers.js';
@@ -16,6 +16,9 @@ import { fetchNavRoute, parseTo, stopsAhead, stopsForSavedRoute, type NavRoute }
 import type { LngLat } from '../drive/geometry.js';
 import { ManeuverBanner } from '../components/ManeuverBanner.js';
 import DriveSearch from '../components/DriveSearch.js';
+import { PluginDriveAlerts, PluginDriveToggles } from '../plugins/DriveAlerts.js';
+import { DriveRunner } from '../plugins/driveRunner.js';
+import { usePluginRegistry } from '../plugins/react.js';
 
 /** Where the drive is going: a place, or a saved route to follow through its stops. */
 type Target =
@@ -69,11 +72,15 @@ function DriveScreen({ children }: { children?: ReactNode }) {
   const bar = useRef<HTMLDivElement>(null);
 
   // The newest of everything, for the map's and the GPS's callbacks, which outlive a render.
-  const live = useRef({ phase, target, route, fix, following, speak: speech.speak });
-  live.current = { phase, target, route, fix, following, speak: speech.speak };
+  const live = useRef({ phase, target, route, fix, following, speak: speech.speak, voiceOn: speech.supported && !speech.muted });
+  live.current = { phase, target, route, fix, following, speak: speech.speak, voiceOn: speech.supported && !speech.muted };
   const session = useRef<DriveSession>(newSession());
   const lastFix = useRef<Fix | null>(null);
   const heading = useRef<number | null>(null);
+  // Plugin drive sources: one runner per map, running only while a drive is on (see the effects below).
+  const [runner, setRunner] = useState<DriveRunner | null>(null);
+  const runnerRef = useRef<DriveRunner | null>(null);
+  const pluginSources = usePluginRegistry().driveSources;
   const car = useRef<Marker | null>(null);
   const pin = useRef<Marker | null>(null);
   const asking = useRef<AbortController | null>(null);
@@ -98,11 +105,35 @@ function DriveScreen({ children }: { children?: ReactNode }) {
     for (const type of ['dragstart', 'rotatestart', 'pitchstart', 'zoomstart'] as const) m.on(type, pause);
     // A tap picks a destination, but never while driving: a thumb on the way past is not a new trip.
     m.on('click', (e) => {
+      // A pin a plugin source declared (DriveSourceContext.mapLayers) is the plugin's to handle.
+      if (runnerRef.current?.tap(e)) return;
       if (live.current.phase === 'driving' || live.current.phase === 'routing') return;
       void choose({ kind: 'point', lat: e.lngLat.lat, lng: e.lngLat.lng, name: 'Dropped pin' });
     });
     return () => { m.remove(); car.current = null; pin.current = null; };
   }, []);
+
+  // --- plugin drive sources ---
+  useEffect(() => {
+    if (!map) return;
+    const r = new DriveRunner(map, {
+      fix: () => live.current.fix,
+      route: () => live.current.route?.coords ?? null,
+      heading: () => heading.current,
+      voiceOn: () => live.current.voiceOn,
+      speak: (text) => live.current.speak(text),
+      createPopup: () => new Popup(),
+    });
+    runnerRef.current = r;
+    setRunner(r);
+    return () => { r.stopAll(); runnerRef.current = null; setRunner(null); };
+  }, [map]);
+
+  // A source runs while a drive is on (or from the map's start, if it asks to), and stops when the drive ends.
+  useEffect(() => {
+    if (!runner) return;
+    runner.sync(pluginSources, phase === 'driving');
+  }, [runner, phase, pluginSources]);
 
   // The map's credit line sits above the readouts, whatever height they are.
   useEffect(() => {
@@ -285,12 +316,14 @@ function DriveScreen({ children }: { children?: ReactNode }) {
             <DriveSearch onPick={(r) => void choose({ kind: 'point', lat: r.lat, lng: r.lng, name: r.displayName.split(',')[0] })} onClose={() => setSearchOpen(false)} />
           )}
           {phase === 'driving' && route && progress && !searchOpen && <ManeuverBanner route={route} progress={progress} rerouting={rerouting} />}
+          {runner && <PluginDriveAlerts runner={runner} fix={fix} route={route?.coords ?? null} driving={phase === 'driving'} />}
           {phase === 'arrived' && <div className="drive__arrived" role="status">You have arrived{target ? ` at ${target.name}` : ''}</div>}
         </div>
 
         <div className="drive__tools">
           {!following && phase !== 'preview' && <button type="button" className="primary" onClick={() => setFollowing(true)}>Recentre</button>}
           <Link className="drivebtn" to="/" aria-label="Leave Drive">Exit</Link>
+          <PluginDriveToggles />
           {speech.supported && (
             <button type="button" className={`drivebtn${speech.muted ? ' is-off' : ''}`} aria-pressed={speech.muted} onClick={() => speech.setMuted(!speech.muted)}>
               {speech.muted ? 'Voice off' : 'Voice on'}

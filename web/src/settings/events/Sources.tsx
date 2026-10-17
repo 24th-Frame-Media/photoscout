@@ -27,7 +27,7 @@ export default function Sources() {
       <section>
         <h2>
           🎫 Ticketmaster
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <label className="toggle toggle--end">
             <input
               type="checkbox"
               checked={draft.enabledSources.ticketmaster !== false}
@@ -55,7 +55,7 @@ export default function Sources() {
       <section>
         <h2>
           🪑 SeatGeek
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <label className="toggle toggle--end">
             <input
               type="checkbox"
               checked={draft.enabledSources.seatgeek !== false}
@@ -83,7 +83,7 @@ export default function Sources() {
       <section>
         <h2>
           🎟 Eventbrite
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <label className="toggle toggle--end">
             <input
               type="checkbox"
               checked={draft.enabledSources.eventbrite !== false}
@@ -113,7 +113,7 @@ export default function Sources() {
       <section>
         <h2>
           📘 Facebook <span className="badge unofficial">unofficial</span>
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <label className="toggle toggle--end">
             <input
               type="checkbox"
               checked={draft.enabledSources.facebook !== false}
@@ -146,7 +146,7 @@ export default function Sources() {
       <section>
         <h2>
           🔎 Web search <span className="badge unofficial">unofficial</span>
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <label className="toggle toggle--end">
             <input
               type="checkbox"
               checked={draft.enabledSources.websearch !== false}
@@ -202,7 +202,7 @@ export default function Sources() {
       <section>
         <h2>
           📅 Calendar feeds (iCal)
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <label className="toggle toggle--end">
             <input
               type="checkbox"
               checked={draft.enabledSources.ical !== false}
@@ -242,7 +242,7 @@ export default function Sources() {
       <section>
         <h2>
           🕷 Web crawler
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <label className="toggle toggle--end">
             <input
               type="checkbox"
               checked={draft.enabledSources.crawler !== false}
@@ -287,7 +287,7 @@ export default function Sources() {
       <section>
         <h2>
           🏁 MIDNIGHT_SPEC car meets
-          <label className="toggle" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          <label className="toggle toggle--end">
             <input
               type="checkbox"
               checked={draft.enabledSources.midnightspec !== false}

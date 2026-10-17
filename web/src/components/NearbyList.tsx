@@ -12,6 +12,9 @@ interface Props {
   /** Keep the camera on a vehicle; `following` is the id currently followed. */
   onFollow?: (kind: 'plane' | 'train', row: PlaneRow | TrainRow) => void;
   following?: string | null;
+  /** Controlled open state; without it the list keeps its own (open by default on wide screens). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function Section<T extends { id: string; lat: number; lng: number }>({ title, rows, render, onHover, onPick, onFollow, following }: {
@@ -44,8 +47,10 @@ function Section<T extends { id: string; lat: number; lng: number }>({ title, ro
 }
 
 /** Collapsible list of planes and trains near the map centre, nearest first. */
-export function NearbyList({ planes, trains, centre, onHover, onPlane, onTrain, onFollow, following }: Props) {
-  const [open, setOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth > 820);
+export function NearbyList({ planes, trains, centre, onHover, onPlane, onTrain, onFollow, following, open: openProp, onOpenChange }: Props) {
+  const [openLocal, setOpenLocal] = useState(() => typeof window !== 'undefined' && window.innerWidth > 820);
+  const open = openProp ?? openLocal;
+  const setOpen = (value: boolean) => { if (openProp === undefined) setOpenLocal(value); onOpenChange?.(value); };
   const pRows = useMemo(() => (planes ? planeRows(planes, centre) : null), [planes, centre.lat, centre.lng]);
   const tRows = useMemo(() => (trains ? trainRows(trains, centre) : null), [trains, centre.lat, centre.lng]);
   if (!pRows && !tRows) return null;

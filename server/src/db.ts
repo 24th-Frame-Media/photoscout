@@ -126,6 +126,32 @@ CREATE TABLE IF NOT EXISTS community_rsvps (
 );
 CREATE INDEX IF NOT EXISTS idx_community_rsvps_user ON community_rsvps(user_id);
 
+-- Going or interested in a crawled event, by the group key user_event_state
+-- uses. No foreign key to the event: it lives in another service.
+CREATE TABLE IF NOT EXISTS event_rsvps (
+  event_group TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('going','interested')),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (event_group, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_event_rsvps_user ON event_rsvps(user_id);
+
+-- One person asking another to an event, crawled or community. The event is
+-- named by kind and key, with no foreign key, so an invite can outlive it.
+CREATE TABLE IF NOT EXISTS event_invites (
+  id TEXT PRIMARY KEY,
+  event_kind TEXT NOT NULL CHECK(event_kind IN ('event','community')),
+  event_ref TEXT NOT NULL,
+  from_user TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  to_user TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','dismissed')),
+  UNIQUE(event_kind, event_ref, from_user, to_user)
+);
+CREATE INDEX IF NOT EXISTS idx_event_invites_to ON event_invites(to_user, status);
+CREATE INDEX IF NOT EXISTS idx_event_invites_from ON event_invites(from_user, created_at);
+
 -- The feed, chat and reports. No foreign keys: authStore.deleteUser and the
 -- routes that delete a ride, gear or event clear their rows by hand, so a
 -- post can outlive nothing it should not.

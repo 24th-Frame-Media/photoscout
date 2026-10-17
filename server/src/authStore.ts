@@ -102,7 +102,7 @@ export function setUserBanned(db: Db, id: string, banned: boolean): void {
   }
 }
 
-/** The account and everything of theirs that other tables hold: Kit (and its photo files), follows, community events and RSVPs. */
+/** The account and everything of theirs that other tables hold: Kit (and its photo files), follows, community events, RSVPs and invites. */
 export function deleteUser(db: Db, id: string): void {
   deleteUserSessions(db, id);
   db.handle.prepare('DELETE FROM calendar_tokens WHERE user_id = ?').run(id);
@@ -121,6 +121,11 @@ export function deleteUser(db: Db, id: string): void {
   db.handle.prepare('DELETE FROM chat_messages WHERE owner_id = ?').run(id);
   db.handle.prepare('DELETE FROM reports WHERE reporter_id = ?').run(id);
   db.handle.prepare('DELETE FROM community_rsvps WHERE user_id = ? OR event_id IN (SELECT id FROM community_events WHERE owner_id = ?)').run(id, id);
+  // Foreign keys are not switched on, so these go by hand. An invite to one of their events has no key to follow.
+  db.handle.prepare('DELETE FROM event_rsvps WHERE user_id = ?').run(id);
+  db.handle.prepare(
+    "DELETE FROM event_invites WHERE from_user = ? OR to_user = ? OR (event_kind = 'community' AND event_ref IN (SELECT id FROM community_events WHERE owner_id = ?))"
+  ).run(id, id, id);
   db.handle.prepare('DELETE FROM community_events WHERE owner_id = ?').run(id);
   db.handle.prepare('DELETE FROM users WHERE id = ?').run(id);
 }

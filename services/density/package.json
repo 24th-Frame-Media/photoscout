@@ -1,0 +1,9 @@
+{
+  "name": "@photoscout/density",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": { "./*": { "types": "./dist/*.d.ts", "default": "./dist/*.js" } },
+  "scripts": { "build": "tsc -p tsconfig.json", "test": "node --test" },
+  "devDependencies": { "@types/node": "^22.13.0", "typescript": "^5.7.3" }
+}

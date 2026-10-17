@@ -152,7 +152,7 @@ export default function RouteEditor({
       {routingBusy && <p className="status-line" role="status">Finding the driveable route…</p>}
       {routingError && (
         <p className="status-line error" role="alert">
-          Road routing failed: {routingError} {onRetryRouting && <button type="button" onClick={onRetryRouting}>Retry</button>}
+          Road routing failed: {routingError} {onRetryRouting && <button type="button" className="linkbtn" onClick={onRetryRouting}>Retry</button>}
         </p>
       )}
 
@@ -165,7 +165,7 @@ export default function RouteEditor({
               <div className="route-editor__point-actions">
                 <button type="button" aria-label={`Move point ${index + 1} earlier`} onClick={() => movePoint(index, -1)} disabled={index === 0 || routingBusy}>↑</button>
                 <button type="button" aria-label={`Move point ${index + 1} later`} onClick={() => movePoint(index, 1)} disabled={index === points.length - 1 || routingBusy}>↓</button>
-                <button type="button" aria-label={`Remove point ${index + 1}`} onClick={() => onWaypointsChange(points.filter((_, i) => i !== index))} disabled={routingBusy}>×</button>
+                <button type="button" className="iconbtn iconbtn--ghost" aria-label={`Remove point ${index + 1}`} onClick={() => onWaypointsChange(points.filter((_, i) => i !== index))} disabled={routingBusy}>×</button>
               </div>
             </li>
           ))}
@@ -219,7 +219,7 @@ export default function RouteEditor({
           {saving ? 'Saving…' : routingBusy ? 'Routing…' : 'Save route'}
         </button>
         <button type="button" onClick={onCancel}>Cancel</button>
-        {onDelete && <button type="button" onClick={onDelete}>Delete</button>}
+        {onDelete && <button type="button" className="danger" onClick={onDelete}>Delete</button>}
       </div>
     </form>
   );

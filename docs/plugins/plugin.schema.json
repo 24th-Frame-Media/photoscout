@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PhotoScout plugin manifest (plugin.json)",
+  "description": "The plugin.json at the root of a PhotoScout plugin package. Mirrors parseManifest in server/src/plugins/manifest.ts. Where the host is more lenient than this schema, docs/plugins/authoring.md section 'Schema vs host' lists the difference. scripts/plugin.mjs also runs the host's own parseManifest, so the host's rules always apply.",
+  "type": "object",
+  "required": ["id", "name", "version", "description", "author", "category", "photoscout"],
+  "properties": {
+    "$schema": { "type": "string", "description": "Optional editor hint. The host ignores it." },
+    "id": { "$ref": "#/$defs/pluginId" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 60, "description": "Display name, 1 to 60 characters." },
+    "version": { "$ref": "#/$defs/version" },
+    "description": { "$ref": "#/$defs/text", "description": "One sentence on what the plugin does. Shown in the admin list." },
+    "author": { "$ref": "#/$defs/text" },
+    "homepage": { "type": "string", "description": "Optional URL for the plugin's page, shown to the admin." },
+    "icon": { "$ref": "#/$defs/packagePath", "description": "Optional image inside the package (served with the web bundle)." },
+    "category": { "enum": ["map", "feed", "events", "ai", "tools"], "description": "Where the plugin belongs in the admin list." },
+    "photoscout": { "type": "string", "minLength": 1, "description": "Semver range of the host plugin API this plugin was built for, e.g. ^1.0. The host's API version is 1.0.0 today." },
+    "server": { "$ref": "#/$defs/jsFile", "description": "Server entry: a self-contained ES module at the package root. Its default export is definePlugin({ activate }). Optional." },
+    "web": { "$ref": "#/$defs/webFile", "description": "Web bundle: a self-contained ES module at the package root, .js or .mjs. Its default export is { activate(host) }. Optional." },
+    "permissions": { "type": "array", "items": { "$ref": "#/$defs/permission" }, "description": "What the plugin says it needs. Shown to the admin; not enforced by the browser." },
+    "services": { "type": "array", "items": { "$ref": "#/$defs/service" }, "description": "Named external services. The admin sets each one's URL; see authoring.md." },
+    "settings": { "type": "array", "items": { "$ref": "#/$defs/setting" }, "description": "Fields the admin fills in on the plugin's settings page." },
+    "public": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/publicRoute" },
+      "description": "Routes under /api/plugins/<id>/ that a visitor who has not signed in may GET or HEAD. Every other plugin route needs a signed-in session."
+    }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "pluginId": {
+      "type": "string",
+      "maxLength": 100,
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)+$",
+      "description": "Reverse-DNS: at least two dot-separated parts, lowercase letters, digits and hyphens. Example: media.example.waze"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$",
+      "description": "Plain semver: 1.2.3 or 1.2.3-beta.1. No leading v, no build metadata (+build)."
+    },
+    "packagePath": {
+      "type": "string",
+      "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!.*\\\\)(?!.*\\u0000)(?!.*//)(?!.*/$)(?!(?:.*/)?\\.\\.(?:/|$))[^\\u0000]+$",
+      "description": "A path inside the package: relative, forward slashes, no .. segments, no empty segments."
+    },
+    "jsFile": {
+      "type": "string",
+      "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!.*\\\\)(?!.*\\u0000)(?!.*//)(?!.*/$)(?!(?:.*/)?\\.\\.(?:/|$))[^\\u0000]*\\.js$",
+      "description": "A package path ending in .js. The server entry is always .js."
+    },
+    "webFile": {
+      "type": "string",
+      "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!.*\\\\)(?!.*\\u0000)(?!.*//)(?!.*/$)(?!(?:.*/)?\\.\\.(?:/|$))[^\\u0000]*\\.m?js$",
+      "description": "A package path ending in .js or .mjs. The web bundle may be either."
+    },
+    "publicRoute": {
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^(?!(?:[^*]*\\*){5})(?!(?:.*/)?\\.\\.?(?:/|$))/[A-Za-z0-9._~:/*-]*$",
+      "description": "A path under the plugin, starting with /. Letters, digits and . _ ~ : - / only; * matches any run of characters (slashes included), at most 4 per pattern. Examples: /places, /stations/*"
+    },
+    "permission": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["network", "secrets", "realtime", "llm", "tasks", "storage"] },
+        "detail": { "type": "string", "description": "What the permission is for, e.g. the host it calls. For kind \"network\" it must be a host or host:port (no scheme or path); that exact host is then reachable from ctx.fetch even if private." }
+      }
+    },
+    "serviceName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "service": {
+      "type": "object",
+      "required": ["name", "image", "port"],
+      "properties": {
+        "name": { "$ref": "#/$defs/serviceName" },
+        "image": { "$ref": "#/$defs/text" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "health": { "type": "string" },
+        "memory": { "type": "string" },
+        "cpus": { "type": "number" },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "volumes": { "type": "array", "items": { "type": "string" } },
+        "devices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "properties": { "path": { "type": "string" }, "optional": { "type": "boolean" } }
+          }
+        }
+      }
+    },
+    "settingKey": {
+      "type": "string",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
+      "not": { "enum": ["constructor", "prototype", "__proto__", "toString", "valueOf", "hasOwnProperty"] },
+      "description": "A letter, then letters, digits or underscores. Object property names are reserved."
+    },
+    "setting": {
+      "type": "object",
+      "required": ["key", "type", "label"],
+      "properties": {
+        "key": { "$ref": "#/$defs/settingKey" },
+        "type": { "enum": ["string", "secret", "url", "number", "boolean", "select"] },
+        "label": { "$ref": "#/$defs/text" },
+        "help": { "type": "string" },
+        "required": { "type": "boolean" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "enum": ["string", "secret", "url"] },
+            "default": { "type": "string" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "number" },
+            "default": { "type": "number" },
+            "min": { "type": "number" },
+            "max": { "type": "number" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "boolean" },
+            "default": { "type": "boolean" }
+          }
+        },
+        {
+          "required": ["options"],
+          "properties": {
+            "type": { "const": "select" },
+            "default": { "type": "string", "description": "Must be the value of one of the options (checked by the CLI)." },
+            "options": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["value", "label"],
+                "properties": {
+                  "value": { "type": "string" },
+                  "label": { "$ref": "#/$defs/text" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -67,7 +67,7 @@ function Console({ lines, onClear }: { lines: LogEntry[]; onClear: () => void })
     <section>
       <div className="taskrow">
         <strong style={{ fontSize: 15.5 }}>Console</strong>
-        <span className="hint" style={{ margin: 0 }}>
+        <span className="hint hint--flush">
           every task, as it happens
         </span>
         <div className="taskrow__actions">
@@ -195,7 +195,7 @@ export default function Tasks() {
             <div className="taskrow">
               <strong style={{ fontSize: 15.5 }}>{task.label}</strong>
               <State task={task} />
-              <span className="hint" style={{ margin: 0 }}>
+              <span className="hint hint--flush">
                 {every(task)}
               </span>
               <div className="taskrow__actions">

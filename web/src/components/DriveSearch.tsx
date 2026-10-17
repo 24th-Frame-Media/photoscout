@@ -21,7 +21,7 @@ export default function DriveSearch({ onPick, onClose }: { onPick: (r: GeocodeRe
       <div className="drivesearch__row">
         <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Where to? Address or place" autoFocus enterKeyHint="search" aria-label="Destination" />
         <button type="submit" className="primary" disabled={busy || !query.trim()}>{busy ? '…' : 'Search'}</button>
-        {onClose && <button type="button" onClick={onClose} aria-label="Close search">✕</button>}
+        {onClose && <button type="button" className="iconbtn iconbtn--ghost" onClick={onClose} aria-label="Close search">✕</button>}
       </div>
       {error && <p className="status-line error">{error}</p>}
       {results && (

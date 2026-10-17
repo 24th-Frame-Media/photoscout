@@ -19,7 +19,7 @@ const timeOf = (ev: EventItem): string =>
   ev.dateOnly ? 'All day' : new Date(ev.startTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
 export default function Calendar({ user }: { user: User | null }) {
-  const { events, error, mark, setGoing } = useEvents();
+  const { events, error, mark, rsvp } = useEvents();
   const [view, setView] = useState<View>('agenda');
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState<string | null>(null);
@@ -154,7 +154,7 @@ export default function Calendar({ user }: { user: User | null }) {
         </>
       )}
 
-      {openEvent && <EventDetail ev={openEvent} user={user} onClose={() => setOpen(null)} onMark={onMark} onGoing={user ? setGoing : undefined} />}
+      {openEvent && <EventDetail ev={openEvent} user={user} onClose={() => setOpen(null)} onMark={onMark} onRsvp={user ? rsvp : undefined} />}
     </div>
   );
 }

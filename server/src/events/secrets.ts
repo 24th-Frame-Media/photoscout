@@ -1,5 +1,7 @@
 import { NotifyTarget, Settings } from './sources/types.js';
 import { normalizeTarget } from './notify/targets.js';
+import { normalizeService } from './llm/services.js';
+import type { LlmService } from './llm/types.js';
 
 /**
  * Keeping the credentials out of the settings response.
@@ -31,6 +33,11 @@ export interface RedactedTarget extends NotifyTarget {
   webhookSet: boolean;
 }
 
+/** A model service as the page gets it: the key blanked, and whether one is stored. */
+export interface RedactedService extends LlmService {
+  apiKeySet: boolean;
+}
+
 /** What the settings response says instead of the values. */
 export interface RedactedSettings extends Settings {
   /**
@@ -39,6 +46,7 @@ export interface RedactedSettings extends Settings {
    */
   secretsSet: Record<SecretKey, boolean>;
   notifyTargets: RedactedTarget[];
+  llmServices: RedactedService[];
 }
 
 export function redactSettings(settings: Settings): RedactedSettings {
@@ -55,6 +63,13 @@ export function redactSettings(settings: Settings): RedactedSettings {
     ...t,
     webhookUrl: '',
     webhookSet: Boolean(t.webhookUrl?.trim()),
+  }));
+  // Each service's key is a credential for somebody else's API, so it is
+  // treated like the webhook above: blanked, with only whether one is stored.
+  out.llmServices = (settings.llmServices ?? []).map((s) => ({
+    ...s,
+    apiKey: '',
+    apiKeySet: Boolean(s.apiKey?.trim()),
   }));
   return out;
 }
@@ -97,6 +112,16 @@ export function mergeSecrets(current: Settings, body: Record<string, unknown>): 
       const stored = (current.notifyTargets ?? []).find((t) => t.id === incoming.id);
       const { webhookSet: _ignored, ...rest } = incoming;
       return normalizeTarget({ ...rest, webhookUrl: resolveSecret(stored?.webhookUrl ?? '', incoming.webhookUrl) });
+    });
+  }
+  // The same for the model services, matched by id: a blank key keeps the
+  // stored one, null clears it. `apiKeySet` is the page's own word for it.
+  if (Array.isArray(body.llmServices)) {
+    out.llmServices = body.llmServices.map((raw) => {
+      const incoming = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      const stored = (current.llmServices ?? []).find((s) => s.id === incoming.id);
+      const { apiKeySet: _ignored, ...rest } = incoming;
+      return normalizeService({ ...rest, apiKey: resolveSecret(stored?.apiKey ?? '', incoming.apiKey) });
     });
   }
   return out as Partial<Settings>;

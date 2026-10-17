@@ -11,8 +11,15 @@ import EventsBusyMap from '../settings/events/DensityView.js';
 import EventsModel from '../settings/events/Model.js';
 import EventsNotify from '../settings/events/Notify.js';
 import EventTasks from '../settings/events/EventTasks.js';
-import { GROUPS, Tab, tabFromHash } from '../settings/tabs.js';
+import { groupsWith, isPluginTabHash, Tab, tabFromHash } from '../settings/tabs.js';
+import { PluginView, usePluginRegistry } from '../plugins/react.js';
 import SignInSetup from '../settings/SignInSetup.js';
+import AccessSetting from '../settings/AccessSetting.js';
+import Plugins from '../settings/Plugins.js';
+import PluginSettingsForm from '../settings/PluginSettingsForm.js';
+import { pluginsApi, type PluginStatus } from '../settings/pluginsApi.js';
+import { TabGroup } from '../settings/tabs.js';
+import ActivityLog from '../components/ActivityLog.js';
 
 export default function Settings({ user, account, onChange }: { user: User | null; account: string | null; onChange: () => void }) {
   const isAdmin = user?.role === 'admin';
@@ -27,11 +34,40 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const [keyInput, setKeyInput] = useState('');
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyMsg, setKeyMsg] = useState('');
-  const [tab, setTabState] = useState<Tab>(() => tabFromHash(window.location.hash));
-  const setTab = (t: Tab) => { setTabState(t); history.replaceState(null, '', `#${t}`); };
+  // Plugin tabs arrive after the page does, so the hash is kept as asked and resolved against the tabs that exist now.
+  const plugins = usePluginRegistry();
+  const [wanted, setWanted] = useState(() => window.location.hash);
+  const pluginTabs = plugins.settingsTabs;
+  // Installed plugins that declare settings each get their own section in the menu (admin only), so
+  // a plugin's options live under its own name, not nested inside the Manage-plugins page.
+  const [installed, setInstalled] = useState<PluginStatus[]>([]);
+  const [installedLoaded, setInstalledLoaded] = useState(false);
+  useEffect(() => {
+    if (!isAdmin) { setInstalled([]); setInstalledLoaded(true); return; }
+    let live = true;
+    pluginsApi.list()
+      .then((r) => { if (live) setInstalled(r.plugins); })
+      .catch(() => {})
+      .finally(() => { if (live) setInstalledLoaded(true); });
+    return () => { live = false; };
+  }, [isAdmin]);
+  const webTabPluginIds = new Set(pluginTabs.map((t) => t.pluginId));
+  // A plugin that already contributes a web settings tab gets its manifest settings appended to that tab
+  // (below); it does NOT also get a separate section. So one plugin = one entry, no duplicate rows.
+  const manifestOnlyPlugins = installed.filter((p) => p.settingsSchema.length > 0 && !webTabPluginIds.has(p.id));
+  const pluginSettingsIds = manifestOnlyPlugins.map((p) => `plugin:${p.id}`);
+  const tab: Tab = tabFromHash(wanted, [...pluginTabs.map((t) => t.id), ...pluginSettingsIds]);
+  const pluginTab = pluginTabs.find((t) => t.id === tab) ?? null;
+  const settingsPlugin = manifestOnlyPlugins.find((p) => `plugin:${p.id}` === tab) ?? null;
+  // When a web settings tab is shown, append that plugin's manifest settings form beneath it (admins only).
+  const tabPluginSettings = pluginTab ? (installed.find((p) => p.id === pluginTab.pluginId && p.settingsSchema.length > 0) ?? null) : null;
+  const isPluginSettingsHash = /^#?plugin:[a-z0-9]+(\.[a-z0-9-]+)+$/.test(wanted);
+  const waitingForPlugins = isPluginTabHash(wanted) && !pluginTab && plugins.phase !== 'ready';
+  const waitingForPluginSettings = isPluginSettingsHash && !settingsPlugin && isAdmin && !installedLoaded;
+  const setTab = (t: Tab) => { setWanted(t); history.replaceState(null, '', `#${t}`); };
   // A link to another tab while already here changes only the hash.
   useEffect(() => {
-    const follow = () => setTabState(tabFromHash(window.location.hash));
+    const follow = () => setWanted(window.location.hash);
     window.addEventListener('hashchange', follow);
     return () => window.removeEventListener('hashchange', follow);
   }, []);
@@ -91,10 +127,22 @@ export default function Settings({ user, account, onChange }: { user: User | nul
   const setAll = (list: Area[]) => set({ home: list[0], areas: list.slice(1) });
   const setArea = (i: number, patch: Partial<Area>) => setAll(all.map((a, j) => (j === i ? { ...a, ...patch } : a)));
   const makeHome = (i: number) => setAll([all[i], ...all.filter((_, j) => j !== i)]);
-  const groups = GROUPS.map((g) => ({ ...g, tabs: g.tabs.filter((t) => isAdmin || !t.admin) })).filter((g) => g.tabs.length > 0);
+  // One entry per installed plugin that has settings, in a 'Plugins' group just above Admin (merged with
+  // any web-registered 'Plugins' tabs). Selecting one shows that plugin's settings form in its own section.
+  const pluginSettingsTabs = manifestOnlyPlugins.map((p) => ({ id: `plugin:${p.id}`, label: p.name, admin: true }));
+  const withPluginSettings = (base: TabGroup[]): TabGroup[] => {
+    if (pluginSettingsTabs.length === 0) return base;
+    const i = base.findIndex((g) => g.label === 'Plugins');
+    if (i >= 0) return base.map((g, j) => (j === i ? { ...g, tabs: [...g.tabs, ...pluginSettingsTabs] } : g));
+    const at = base.findIndex((g) => g.label === 'Admin');
+    const group: TabGroup = { label: 'Plugins', tabs: pluginSettingsTabs };
+    return at < 0 ? [...base, group] : [...base.slice(0, at), group, ...base.slice(at)];
+  };
+  const groups = withPluginSettings(groupsWith(pluginTabs)).map((g) => ({ ...g, tabs: g.tabs.filter((t) => isAdmin || !t.admin) })).filter((g) => g.tabs.length > 0);
 
   return (
     <div className="page settings">
+      <ActivityLog admin={isAdmin} floating />
       <h1>Settings</h1>
       <div className="settings__layout">
       <nav className="settingsnav" aria-label="Settings">
@@ -118,7 +166,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       <div className="settings__body">
       {/* Outside the fieldset below: your own account is yours to change, admin or not. */}
       {tab === 'account' && user && <><Account user={user} account={account} onChange={onChange} /><CalendarLink /></>}
-      {!isAdmin && tab !== 'account' && <div className="banner">Only an admin can change these.</div>}
+      {!isAdmin && tab !== 'account' && !(pluginTab && !pluginTab.admin) && <div className="banner">Only an admin can change these.</div>}
       <fieldset disabled={!isAdmin} className="bare">
         {tab === 'areas' && <section>
           <h2>📍 Areas</h2>
@@ -134,9 +182,9 @@ export default function Settings({ user, account, onChange }: { user: User | nul
               {geoResults.length === 0 && <span className="hint">No matches found.</span>}
               {geoResults.map((r) => (
                 <div key={`${r.lat},${r.lng}`} className="feedrow">
-                  <span style={{ flex: 1 }}>📍 {r.displayName}</span>
-                  <button onClick={() => { setAll([fromResult(r, draft.home.radiusKm), ...all]); setGeoResults(null); }}>Make home</button>
-                  <button onClick={() => { setAll([...all, fromResult(r, 30)]); setGeoResults(null); }}>+ Area</button>
+                  <span className="grow">📍 {r.displayName}</span>
+                  <button className="linkbtn" onClick={() => { setAll([fromResult(r, draft.home.radiusKm), ...all]); setGeoResults(null); }}>Make home</button>
+                  <button className="linkbtn" onClick={() => { setAll([...all, fromResult(r, 30)]); setGeoResults(null); }}>+ Area</button>
                 </div>
               ))}
             </div>
@@ -147,7 +195,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
                 <div className="arealist__head">
                   <input aria-label="Area name" value={a.name} maxLength={100} onChange={(e) => setArea(i, { name: e.target.value })} />
                   {i === 0 ? <span className="arealist__home">Home</span> : <button className="linkbtn" onClick={() => makeHome(i)}>Make home</button>}
-                  {i > 0 && <button aria-label={`Remove ${a.name}`} onClick={() => setAll(all.filter((_, j) => j !== i))}>✕</button>}
+                  {i > 0 && <button className="iconbtn iconbtn--ghost" aria-label={`Remove ${a.name}`} onClick={() => setAll(all.filter((_, j) => j !== i))}>✕</button>}
                 </div>
                 <div className="arealist__opts">
                   <label>Reach <input type="number" min={1} max={1000} value={a.radiusKm} onChange={(e) => setArea(i, { radiusKm: Number(e.target.value) })} /> km</label>
@@ -162,6 +210,7 @@ export default function Settings({ user, account, onChange }: { user: User | nul
 
         {tab === 'instance' && isAdmin && <section>
           <h2>🔗 Instance</h2>
+          <AccessSetting />
           <div className="formrow"><label>Private remotes</label>
             <input type="checkbox" checked={draft.allowPrivateRemotes} onChange={(e) => set({ allowPrivateRemotes: e.target.checked })} />
             <span className="hint">Let remotes resolve to LAN addresses.</span></div>
@@ -219,7 +268,28 @@ export default function Settings({ user, account, onChange }: { user: User | nul
       )}
       {isAdmin && tab === 'tasks' && <><Tasks /><div className="evs"><EventTasks /></div></>}
       {isAdmin && tab === 'signin' && <SignInSetup />}
+      {isAdmin && tab === 'plugins' && <Plugins />}
       {isAdmin && tab === 'users' && <Users me={user!} />}
+      {waitingForPlugins && <p className="hint">Loading plugins…</p>}
+      {pluginTab && (isAdmin || !pluginTab.admin) && (
+        <section className="plugintab" aria-label={pluginTab.label}>
+          <PluginView key={pluginTab.id} pluginId={pluginTab.pluginId} view={pluginTab.view} props={{ isAdmin }} />
+          {tabPluginSettings && isAdmin && (
+            <>
+              <h2>⚙ Settings</h2>
+              <PluginSettingsForm key={tabPluginSettings.id} plugin={tabPluginSettings} />
+            </>
+          )}
+        </section>
+      )}
+      {waitingForPluginSettings && <p className="hint">Loading plugin…</p>}
+      {settingsPlugin && isAdmin && (
+        <section className="plugintab" aria-label={`${settingsPlugin.name} settings`}>
+          <h2>🧩 {settingsPlugin.name}</h2>
+          {settingsPlugin.description && <p className="hint">{settingsPlugin.description}</p>}
+          <PluginSettingsForm key={settingsPlugin.id} plugin={settingsPlugin} />
+        </section>
+      )}
       </div>
       </div>
     </div>
@@ -370,7 +440,7 @@ function Users({ me }: { me: User }) {
               <td className="hint">{new Date(u.created_at).toLocaleDateString()}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 {u.id !== me.id && <button onClick={() => void run(() => api.updateUser(u.id, { banned: !u.banned }))}>{u.banned ? 'Reinstate' : 'Suspend'}</button>}{' '}
-                {u.id !== me.id && <button onClick={() => { if (confirm(`Delete ${u.username}?`)) void run(() => api.deleteUser(u.id)); }}>Delete</button>}
+                {u.id !== me.id && <button className="danger" onClick={() => { if (confirm(`Delete ${u.username}?`)) void run(() => api.deleteUser(u.id)); }}>Delete</button>}
               </td>
             </tr>
           ))}

@@ -86,7 +86,7 @@ export default function PlaceEditor({ draft, drawing, onDrawing, onChange, onSav
       <div className="panel__actions">
         <button className="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
         <button type="button" onClick={onCancel}>Cancel</button>
-        {onDelete && <button type="button" onClick={onDelete}>Delete</button>}
+        {onDelete && <button type="button" className="danger" onClick={onDelete}>Delete</button>}
       </div>
     </form>
   );

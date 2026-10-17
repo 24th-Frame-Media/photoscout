@@ -18,6 +18,9 @@ services:
       # Comma-separated provider:id accounts that are admins, e.g.
       # google:1234,discord:5678. Sign in once and read yours in Settings > Account.
       ADMIN_IDS: ${ADMIN_IDS:-}
+      # Unset: private, everything needs a sign-in. 1 or true lets visitors read the public map;
+      # any other value keeps it private. Wins over Settings > Instance.
+      PUBLIC_READS: ${PUBLIC_READS:-}
       # Behind a reverse proxy (Caddy, nginx, Traefik), set this to the number
       # of proxies in front, usually 1.
       TRUST_PROXY: ${TRUST_PROXY:-}
@@ -57,7 +60,7 @@ services:
     image: ghcr.io/kapsikkum/photoscout-crawler:latest
     build:
       context: .
-      dockerfile: Dockerfile.crawler
+      dockerfile: services/crawler/Dockerfile
     init: true
     environment:
       CRAWLER_PORT: "3002"

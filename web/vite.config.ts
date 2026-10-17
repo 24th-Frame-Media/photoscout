@@ -10,6 +10,9 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': 'http://localhost:3003',
+      // Plugin web bundles are served by the backend at /plugins/<id>/<version>/web.js;
+      // without this the SPA (on 5174) can't load them in dev and every web plugin fails.
+      '/plugins': 'http://localhost:3003',
       // The convoy and chat socket.
       '/ws': { target: 'http://localhost:3003', ws: true },
     },

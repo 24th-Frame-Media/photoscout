@@ -269,7 +269,7 @@ type PreviewState = IcalPreview | 'loading';
 /** What is in one feed, under its row or under the address box. */
 function FeedPreview({ state, added, onAdd }: { state: PreviewState; added: boolean; onAdd: () => void }) {
   if (state === 'loading') return <p className="hint">Reading the feed…</p>;
-  if (!state.ok) return <p className="hint" style={{ color: 'var(--red)' }}>{state.message}</p>;
+  if (!state.ok) return <p className="hint hint--error">{state.message}</p>;
   const events = state.events ?? [];
   return (
     <div className="feedpreview">
@@ -504,7 +504,7 @@ function PagesSection() {
         <button className={sort === 'yield' ? 'primary' : ''} onClick={() => setSort('yield')}>Best yield</button>
         <button onClick={() => void load()}>Refresh</button>
       </div>
-      {problem && <p className="hint" style={{ color: 'var(--red)' }}>{problem}</p>}
+      {problem && <p className="hint hint--error">{problem}</p>}
       {pages && pages.length === 0 && !problem && <p className="hint">Nothing read yet.</p>}
       {pages && pages.length > 0 && (
         <table className="crawltable crawltable--wide">
@@ -570,7 +570,7 @@ function FindsSection({
         )}
       </div>
       {problem ? (
-        <p className="hint" style={{ color: 'var(--red)' }}>{problem}</p>
+        <p className="hint hint--error">{problem}</p>
       ) : loading && finds.length === 0 ? (
         <p className="hint">Loading…</p>
       ) : finds.length === 0 ? (
@@ -695,7 +695,7 @@ export default function CrawlerPanel() {
       <>
         <section>
           <h2>🕷 Crawler</h2>
-          <p className="hint" style={{ color: 'var(--red)' }}>
+          <p className="hint hint--error">
             {status.problem ?? 'Cannot reach the crawler.'}
           </p>
           <p className="hint">
@@ -751,12 +751,12 @@ export default function CrawlerPanel() {
         {history.length > 0 ? (
           <CrawlChart history={history} />
         ) : (
-          <p className="hint" style={{ marginTop: '0.75rem' }}>
+          <p className="hint mt-3">
             The graph starts with the first finished cycle.
           </p>
         )}
 
-        <div className="formrow" style={{ marginTop: '0.75rem' }}>
+        <div className="formrow mt-3">
           <button onClick={() => void run()} disabled={busy || status.running}>
             {status.running ? 'Crawling…' : 'Crawl now'}
           </button>

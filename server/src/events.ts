@@ -8,6 +8,7 @@
  * (see user_event_state).
  */
 import { Db } from './db.js';
+import type { RsvpStatus } from './eventRsvps.js';
 import { listEvents } from './events/local.js';
 import { isSafeFlyerPath } from './events/flyers.js';
 
@@ -45,6 +46,11 @@ export interface EventItem {
   /** The caller's own, false for a visitor. */
   starred: boolean;
   hidden: boolean;
+  /** Everyone's answers, from accounts that are not banned (see eventRsvps.ts). */
+  going: number;
+  interested: number;
+  /** The caller's own answer, null for a visitor or when there is none. */
+  myRsvp: RsvpStatus | null;
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -101,6 +107,9 @@ export function publicEvent(raw: unknown): EventItem | null {
     foundAt: str(ev.shownAt) || str(ev.firstSeenAt) || null,
     starred: false,
     hidden: false,
+    going: 0,
+    interested: 0,
+    myRsvp: null,
   };
 }
 

@@ -102,7 +102,7 @@ export default function General() {
             );
           })}
         </div>
-        {area && !area.topics?.length && <p className="hint" style={{ marginTop: 8 }}>None picked: {area.name} searches for everywhere's topics.</p>}
+        {area && !area.topics?.length && <p className="hint mt-2">None picked: {area.name} searches for everywhere's topics.</p>}
         {categories.length > 0 && (
           <>
             <h4 style={{ margin: '16px 0 4px', fontSize: 13 }}>Categories to hide{area ? ` in ${area.name}` : ''}</h4>
@@ -127,12 +127,12 @@ export default function General() {
             </div>
           </>
         )}
-        <div className="formrow" style={{ marginTop: 10 }}>
+        <div className="formrow mt-2">
           <label>Refresh events every</label>
-          <input type="number" min={60} max={10080} step={60} style={{ maxWidth: 90 }}
+          <input type="number" min={60} max={10080} step={60} className="input--narrow"
             value={draft.eventRefreshIntervalMinutes ?? 360}
             onChange={(e) => set({ eventRefreshIntervalMinutes: Math.max(60, Number(e.target.value) || 360) })} />
-          <span className="hint" style={{ margin: 0 }}>minutes</span>
+          <span className="hint hint--flush">minutes</span>
         </div>
       </section>
       <SaveBar save={save} dirty={s.dirty || appDirty} saved={s.saved && !appDirty} busy={s.busy} error={appError || s.error} canRefresh={draft.lat != null} />

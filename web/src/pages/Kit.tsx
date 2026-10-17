@@ -84,16 +84,16 @@ function Rides({ rides, reload }: { rides: Ride[]; reload: () => Promise<unknown
       {rides.map((r) => (
         <div key={r.id} className="kititem">
           <div className="feedrow">
-            <strong style={{ flex: 1 }}>{r.kind === 'motorbike' ? '🏍️' : '🚗'} {rideTitle(r)}</strong>
+            <strong className="grow">{r.kind === 'motorbike' ? '🏍️' : '🚗'} {rideTitle(r)}</strong>
             <button onClick={() => setEditing(editing === r.id ? null : r.id)}>{editing === r.id ? 'Close' : 'Edit'}</button>
-            <button onClick={() => { if (confirm(`Remove ${rideTitle(r)}?`)) void run(() => api.deleteRide(r.id)); }}>Remove</button>
+            <button className="danger" onClick={() => { if (confirm(`Remove ${rideTitle(r)}?`)) void run(() => api.deleteRide(r.id)); }}>Remove</button>
           </div>
           {editing === r.id && <RideForm initial={r} onSave={(v) => run(async () => { await api.updateRide(r.id, v); setEditing(null); })} />}
           <div className="kitphotos">
             {r.photos.map((p) => (
               <span key={p.id} className="kitphotos__item">
                 <img src={p.thumbUrl} alt="" loading="lazy" />
-                <button type="button" aria-label="Remove photo" onClick={() => void run(() => api.deleteRidePhoto(p.id))}>✕</button>
+                <button type="button" className="iconbtn iconbtn--ghost" aria-label="Remove photo" onClick={() => void run(() => api.deleteRidePhoto(p.id))}>✕</button>
               </span>
             ))}
             {r.photos.length < 6 && (
@@ -157,9 +157,9 @@ function Garage({ gear, reload }: { gear: Gear[]; reload: () => Promise<unknown>
         <div key={g.id} className="kititem">
           <div className="feedrow">
             <span className="eventbadge">{g.kind}</span>
-            <strong style={{ flex: 1 }}>{gearTitle(g)}</strong>
+            <strong className="grow">{gearTitle(g)}</strong>
             <button onClick={() => setEditing(editing === g.id ? null : g.id)}>{editing === g.id ? 'Close' : 'Edit'}</button>
-            <button onClick={() => { if (confirm(`Remove ${gearTitle(g)}?`)) void run(() => api.deleteGear(g.id)); }}>Remove</button>
+            <button className="danger" onClick={() => { if (confirm(`Remove ${gearTitle(g)}?`)) void run(() => api.deleteGear(g.id)); }}>Remove</button>
           </div>
           {editing === g.id && <GearForm initial={g} onSave={(v) => run(async () => { await api.updateGear(g.id, v); setEditing(null); })} />}
         </div>

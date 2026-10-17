@@ -1,7 +1,9 @@
 import { db, getSettings } from '../db.js';
 import { TaskLog, TaskResult } from '../tasks/registry.js';
-import { chatJson, listModels, OllamaError } from './ollama.js';
-import { ollamaUrl, cleanExtractedVenue, cleanExtractedAddress } from './pipeline.js';
+import { checkRole, chatJson, poolKey } from '../llm/router.js';
+import { servicesFor } from '../llm/services.js';
+import { LlmError } from '../llm/types.js';
+import { cleanExtractedVenue, cleanExtractedAddress } from './pipeline.js';
 import {
   buildVisionPrompt,
   fetchImage,
@@ -57,7 +59,8 @@ export function pendingFlyers(model: string, limit: number): Row[] {
 }
 
 export function flyerBacklog(): number {
-  return pendingFlyers(getSettings().visionModel || '', Number.MAX_SAFE_INTEGER).length;
+  const settings = getSettings();
+  return pendingFlyers(poolKey('vision', settings), Number.MAX_SAFE_INTEGER).length;
 }
 
 /**
@@ -69,18 +72,13 @@ export function flyerBacklog(): number {
  */
 export async function runVisionPass(log: TaskLog): Promise<TaskResult> {
   const settings = getSettings();
-  const url = ollamaUrl(settings.llmUrl);
-  const model = settings.visionModel || '';
-  if (!model) return { ok: false, message: 'No vision model chosen in Settings' };
-
-  try {
-    const installed = await listModels(url);
-    if (!installed.some((m) => m.name === model)) {
-      return { ok: false, message: `${model} is not installed on ${url} — try: ollama pull ${model}` };
-    }
-  } catch (err) {
-    return { ok: false, message: (err as Error).message };
+  if (servicesFor('vision', settings).length === 0) {
+    return { ok: false, message: 'No vision model chosen in Settings' };
   }
+
+  const check = await checkRole('vision', settings);
+  if (!check.ok) return { ok: false, message: check.message };
+  const model = poolKey('vision', settings);
 
   const limit = Math.max(1, settings.visionMaxPerRun ?? 20);
   const rows = pendingFlyers(model, limit);
@@ -112,15 +110,13 @@ export async function runVisionPass(log: TaskLog): Promise<TaskResult> {
     const hash = visionHash(input, model);
     try {
       const image = await fetchImage(thumbnailFor(row.image_url));
-      const raw = await chatJson({
-        url,
-        model,
+      const raw = await chatJson('vision', {
         prompt: buildVisionPrompt(input),
         schema: VISION_SCHEMA,
         images: [image],
         numCtx: VISION_NUM_CTX,
         timeoutMs: EVENT_TIMEOUT_MS,
-      });
+      }, settings);
       const v = readVisionVerdict(raw);
       // Same tidying insertRaw runs on a scraped venue/address: an untidied
       // flyer read stores "Bathurst, NSW, Australia, Bathurst" as literally as
@@ -141,7 +137,7 @@ export async function runVisionPass(log: TaskLog): Promise<TaskResult> {
       // first on every subsequent run and hold up the queue behind it.
       record.run(row.id, hash, model, 0, message.slice(0, 200), new Date().toISOString());
       log(`${row.title}: ${message}`);
-      if (err instanceof OllamaError && /cannot reach|No answer/i.test(message)) {
+      if (err instanceof LlmError && /cannot reach|No answer/i.test(message)) {
         return { ok: false, message: `${message} after ${read} flyer${read === 1 ? '' : 's'}` };
       }
       if (err instanceof ImageError) continue;

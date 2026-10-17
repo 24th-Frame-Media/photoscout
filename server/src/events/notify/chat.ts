@@ -1,5 +1,5 @@
 import type { MergedEvent } from '../events.js';
-import type { ChatMessage } from '../enrich/ollama.js';
+import type { ChatMessage } from '../llm/types.js';
 import type { NotifyFilters, Settings } from '../sources/types.js';
 import type { PhotoConditions } from '../photo.js';
 import { matchesFilters } from './filters.js';

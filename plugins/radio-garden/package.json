@@ -1,0 +1,20 @@
+{
+  "name": "@photoscout-plugin/radio-garden",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Radio Garden stations for PhotoScout (bundled first-party plugin).",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@photoscout/plugin-sdk": "*",
+    "@types/node": "^22.13.0",
+    "esbuild": "^0.28.2",
+    "fflate": "^0.8.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

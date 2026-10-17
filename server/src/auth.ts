@@ -24,7 +24,10 @@ export interface SessionUser {
   role: Role;
 }
 
-/** Signing in and out cannot themselves require a session. */
+/**
+ * Open in every mode, private or public. Signing in and out cannot themselves
+ * require a session, and a share or calendar token is its own credential.
+ */
 const OPEN_ROUTES = [
   /^\/api\/auth\/status$/,
   /^\/api\/auth\/logout$/,
@@ -38,10 +41,12 @@ const OPEN_ROUTES = [
 ];
 
 /**
- * What a visitor who has not signed in may read: the public map and nothing
- * that costs anything. Each of these filters its rows through `canRead`, so
- * an anonymous request sees public rows only. Everything that proxies a
- * third-party service is left off on purpose — an open proxy is an invitation.
+ * What a visitor who has not signed in may read when the instance allows
+ * public reads (see access.ts; off by default, so a private instance ignores
+ * this list): the public map and nothing that costs anything. Each of these
+ * filters its rows through `canRead`, so an anonymous request sees public rows
+ * only. Everything that proxies a third-party service is left off on purpose —
+ * an open proxy is an invitation.
  */
 const ANONYMOUS_READS = [
   /^\/api\/(places|spots|routes)(\/[^/]+)?$/,
@@ -55,6 +60,9 @@ const ANONYMOUS_READS = [
   // Events, from a list this server keeps for a minute (see events.ts), so
   // asking costs event-scout nothing more however many visitors there are.
   /^\/api\/events(\/[^/]+)?$/,
+  // Who is going to an event: the counts are public, as the list is.
+  /^\/api\/events\/[^/]+\/rsvp$/,
+  /^\/api\/community-events\/[^/]+\/rsvp$/,
   // A stored flyer; the route checks that its event is still on show.
   /^\/api\/flyer\/[^/]+\/[^/]+$/,
   // A profile by handle, the public community events, and the pictures of a
@@ -65,11 +73,15 @@ const ANONYMOUS_READS = [
   // The feed (scope=following is refused to a visitor by the handler: the query is not seen here) and a post's comments.
   /^\/api\/feed$/,
   /^\/api\/posts\/[^/]+\/comments$/,
-  // Radio Garden layer: cached places, on-demand station lists, and direct redirects.
-  /^\/api\/radio\/places$/,
-  /^\/api\/radio\/places\/[^/]+\/stations$/,
-  /^\/api\/radio\/stations\/[^/]+\/listen$/,
+  // The web bundles of the active plugins: the map loads them before anyone signs in.
+  /^\/api\/plugins-web$/,
 ];
+
+/**
+ * A plugin's own route, /api/plugins/<id>/<rest>. Whether a visitor may read it
+ * is for the plugin to declare (`public` in its plugin.json), not for this list.
+ */
+const PLUGIN_ROUTE = /^\/api\/plugins\/([^/]+)(\/.*)?$/;
 
 export function normalizePath(p: string): string {
   const withoutQuery = p.split('?')[0].toLowerCase();
@@ -77,10 +89,27 @@ export function normalizePath(p: string): string {
   return trimmed === '' ? '/' : trimmed;
 }
 
-/** Whether a request needs a signed-in session at all. */
-export function needsAuth(method: string, path: string): boolean {
+/**
+ * Whether a request needs a signed-in session at all.
+ *
+ * `publicReads` is the instance's access mode (see access.ts). Anything but
+ * exactly `true`, which includes leaving it out, makes the instance private:
+ * everything but OPEN_ROUTES needs a session, plugin routes and reads included.
+ * With `true`, a visitor may also read ANONYMOUS_READS, and the plugin routes a
+ * running plugin has declared public. `pluginRoutePublic` says whether it has;
+ * without it, every plugin route needs a session.
+ */
+export function needsAuth(
+  method: string,
+  path: string,
+  pluginRoutePublic: (id: string, method: string, rest: string) => boolean = () => false,
+  publicReads = false,
+): boolean {
   const normalized = normalizePath(path);
   if (OPEN_ROUTES.some((re) => re.test(normalized))) return false;
+  if (publicReads !== true) return true;
+  const plugin = PLUGIN_ROUTE.exec(normalized);
+  if (plugin) return !pluginRoutePublic(plugin[1], method, plugin[2] ?? '/');
   if (method === 'GET' || method === 'HEAD') return !ANONYMOUS_READS.some((re) => re.test(normalized));
   return true;
 }
@@ -166,6 +195,28 @@ export function handleFrom(name: string, taken: (handle: string) => boolean, ran
     const candidate = `${stem}_${random()}`;
     if (!taken(candidate)) return candidate;
   }
+}
+
+/** The request and reply, as far as the gates below need them. Structural, so this file stays free of express. */
+interface GatedRequest {
+  user?: SessionUser | null;
+}
+interface Reply {
+  status(code: number): { json(body: unknown): unknown };
+}
+
+/** Answer 401 and return false unless a session is signed in. The `/api` gate in app.ts applies the same rule to routes it can see. */
+export function requireUser(req: GatedRequest, res: Reply): boolean {
+  if (req.user) return true;
+  res.status(401).json({ error: 'Sign in required' });
+  return false;
+}
+
+/** Answer 403 and return false unless the signed-in account is an admin. */
+export function requireAdmin(req: GatedRequest, res: Reply): boolean {
+  if (req.user?.role === 'admin') return true;
+  res.status(403).json({ error: 'Admins only' });
+  return false;
 }
 
 /** `ADMIN_IDS=google:1234,discord:5678` — the accounts that are admins, by who the provider says they are. */

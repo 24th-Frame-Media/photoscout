@@ -91,7 +91,7 @@ export default function SpotPanel({ spot, place, time, fires = [], canEdit, onEd
       {canEdit && (
         <div className="panel__actions">
           <button className="primary" onClick={onEdit}>Edit</button>
-          <button onClick={onDelete}>Delete</button>
+          <button className="danger" onClick={onDelete}>Delete</button>
         </div>
       )}
     </>

@@ -143,7 +143,7 @@ export default function ImportExport() {
               <code className={`grow ellipsis${s.revoked_at ? ' is-revoked' : ''}`}>{shareUrl(s.token)}</code>
               {s.revoked_at ? <span className="hint">revoked</span> : <>
                 <button onClick={async () => { await navigator.clipboard.writeText(shareUrl(s.token)); setCopied(s.token); }}>{copied === s.token ? 'Copied' : 'Copy'}</button>
-                <button onClick={async () => { if (confirm('Revoke this link?')) { await api.revokeShare(s.token); void loadShares(); } }}>Revoke</button>
+                <button className="danger" onClick={async () => { if (confirm('Revoke this link?')) { await api.revokeShare(s.token); void loadShares(); } }}>Revoke</button>
               </>}
             </li>
           ))}
@@ -174,7 +174,7 @@ export default function ImportExport() {
                 </span>
               </span>
               <button onClick={async () => { await api.syncRemote(r.id).catch(() => {}); void loadRemotes(); }}>Sync</button>
-              <button onClick={async () => { if (confirm('Remove this remote?')) { await api.deleteRemote(r.id); void loadRemotes(); } }}>Remove</button>
+              <button className="danger" onClick={async () => { if (confirm('Remove this remote?')) { await api.deleteRemote(r.id); void loadRemotes(); } }}>Remove</button>
             </li>
           ))}
         </ul>

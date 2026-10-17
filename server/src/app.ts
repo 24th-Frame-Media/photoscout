@@ -7,7 +7,7 @@ import helmet from 'helmet';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import {
   SessionUser, Visibility,
-  canEdit, canRead, isStaff, needsAuth, originAllowed, readCookie, secureEqual, HANDLE, OAUTH_COOKIE, SESSION_COOKIE,
+  canEdit, canRead, isStaff, needsAuth, originAllowed, readCookie, requireAdmin, requireUser, secureEqual, HANDLE, OAUTH_COOKIE, SESSION_COOKIE,
 } from './auth.js';
 import {
   accountIdOf, createSession, deleteSession, deleteUser, findUserById, findUserByUsername, listUsers,
@@ -19,6 +19,7 @@ import {
 import { catalog, searchCatalog } from './gearCatalog.js';
 import { authConfigView, configuredProviders, generateCodeVerifier, generateState, provider, publicUrl, updateCredentials } from './oauth.js';
 import { corsDecision, readOrigins } from './cors.js';
+import { accessConfigView, publicReads, setPublicReads } from './access.js';
 import { applySettingsUpdate, getSettings, memberSettings, publicSettings, tfnswKey } from './settings.js';
 import { geocode, GeocoderBusyError } from './geocode.js';
 import { routing } from './routing.js';
@@ -39,7 +40,9 @@ import { nearbyFor } from './feeds/eventScout.js';
 import { eventsApi } from './events/index.js';
 import { syncEngineAreas } from './events/areas.js';
 import { syncCrawler } from './events/sources/crawler.js';
-import { eventList, flyerIsShown, forgetEventList, MAX_GROUP_LENGTH, setUserEventState, userEventStates, withState } from './events.js';
+import { eventList, flyerIsShown, forgetEventList, MAX_GROUP_LENGTH, setUserEventState, userEventStates, withState, type EventItem } from './events.js';
+import { clearEventRsvp, communityRsvpSummary, eventRsvpSummary, eventRsvpTotals, isRsvpStatus, setEventRsvp, withRsvps } from './eventRsvps.js';
+import { addInvite, findInvite, inviteTo, MAX_INVITES_PER_HOUR, MAX_PENDING_PER_PAIR, sentLastHour, setInviteStatus, waitingBetween, waitingInviteCount, waitingInvites, type InviteRow } from './invites.js';
 import { flyerRelative, isSafeFlyerPath } from './events/flyers.js';
 import { store as flyerStore } from './events/flyerStore.js';
 import { buildIcs } from './events/ics.js';
@@ -56,7 +59,8 @@ import { versionInfo } from './version.js';
 import { isRouteType, parseRouteSnap, parseRouteStaging, parseRouteVertices, serializeRouteWaypoints, routeJson, type RouteRow } from './routes.js';
 import { chatFeed } from './realtime.js';
 import { cruiseJson, readCruise, resolveCruise } from './cruise.js';
-import { fetchRadioPlaces, fetchRadioStations, getProviderListenUrl, isValidRadioId } from './sources/radioGarden.js';
+import { mountPlugins } from './plugins/routes.js';
+import { pluginRuntime } from './plugins/host.js';
 import crypto from 'node:crypto';
 
 declare global {
@@ -97,7 +101,7 @@ app.use(
         'img-src': ["'self'", 'data:', 'blob:', 'https:'],
         'connect-src': ["'self'", 'https:'],
         'worker-src': ["'self'", 'blob:'],
-        // Radio streams: /api/radio/.../listen redirects to radio.garden and on to the station.
+        // Radio streams: the Radio Garden plugin's /stations/<id>/listen redirects to radio.garden and on to the station.
         'media-src': ["'self'", 'https:'],
         // The installable app: its manifest and the service worker that lets it open offline.
         'manifest-src': ["'self'"],
@@ -126,7 +130,9 @@ app.use('/api', (req, res, next) => {
       path: req.baseUrl + req.path,
       requestMethod: req.headers['access-control-request-method'] as string | undefined,
     },
-    readOrigins(getSettings(db).corsOrigins)
+    readOrigins(getSettings(db).corsOrigins),
+    // The same access mode the sign-in gate below uses, so CORS never offers what that gate refuses.
+    publicReads(db)
   );
   if (decision) {
     res.vary(decision.vary);
@@ -180,7 +186,7 @@ const writeLimit = limit(MINUTE, 90, 'changes');
 // third party one, so they are counted on their own and kept low.
 const upstreamLimit = limit(MINUTE, 60, 'lookups');
 app.use(
-  ['/api/geocode', '/api/route', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates', '/api/radio'],
+  ['/api/geocode', '/api/route', '/api/planes', '/api/weather', '/api/marine', '/api/buildings', '/api/roads', '/api/cameras', '/api/candidates', '/api/plugins/media.24thframe.radio-garden'],
   upstreamLimit
 );
 app.use(/^\/api\/(spots|places)\/[^/]+\/(nearby|commons|trains)$/, upstreamLimit);
@@ -190,7 +196,9 @@ const uploadLimit = limit(10 * MINUTE, 60, 'uploads');
 const chatLimit = limit(MINUTE, 10, 'messages');
 
 app.use('/api', (req, res, next) => {
-  if (!needsAuth(req.method, req.baseUrl + req.path)) return next();
+  // Private unless an admin (or PUBLIC_READS) allows public reads; then a plugin's own route is open
+  // only where that plugin declares it public (plugin.json "public"). Sign-in routes are open either way.
+  if (!needsAuth(req.method, req.baseUrl + req.path, (id, method, rest) => pluginRuntime.isPublicRoute(id, method, rest), publicReads(db))) return next();
   if (req.user) return next();
   res.status(401).json({ error: 'Sign in required' });
 });
@@ -207,12 +215,6 @@ app.use(['/api/places', '/api/spots', '/api/routes'], (req, res, next) => {
   next();
 });
 
-function requireAdmin(req: express.Request, res: express.Response): boolean {
-  if (req.user?.role === 'admin') return true;
-  res.status(403).json({ error: 'Admins only' });
-  return false;
-}
-
 // --- auth -------------------------------------------------------------------
 
 const secureCookie = { httpOnly: true, secure: true, sameSite: 'lax' as const, path: '/' };
@@ -224,6 +226,7 @@ app.get('/api/auth/status', (req, res) => {
     // What to put in ADMIN_IDS to make this account an admin. Its own, and only to itself.
     account: req.user ? accountIdOf(db, req.user.id) : null,
     providers: configuredProviders(db),
+    publicReads: publicReads(db),
   });
 });
 
@@ -338,6 +341,24 @@ app.put('/api/auth-config/:provider', (req, res) => {
   const refused = updateCredentials(db, req.params.provider, (req.body ?? {}) as Record<string, unknown>);
   if (refused) return res.status(400).json({ error: refused });
   res.json(authConfigView(db));
+});
+
+/**
+ * Whether visitors who have not signed in may read the public map, for
+ * Settings → Instance. Private unless this says otherwise. PUBLIC_READS in the
+ * environment wins; a save is refused while it is set, rather than stored where it would do nothing.
+ */
+app.get('/api/settings/access', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  res.json(accessConfigView(db));
+});
+app.put('/api/settings/access', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const value = (req.body as { publicReads?: unknown } | undefined)?.publicReads;
+  if (typeof value !== 'boolean') return res.status(400).json({ error: 'publicReads must be true or false' });
+  if (accessConfigView(db).source === 'env') return res.status(409).json({ error: 'Set by PUBLIC_READS in the environment — change it there' });
+  setPublicReads(db, value);
+  res.json(accessConfigView(db));
 });
 
 // --- settings -----------------------------------------------------------------
@@ -900,10 +921,11 @@ app.get('/api/fires', async (_req, res, next) => {
 
 // --- events (from event-scout) --------------------------------------------
 
-/** The shared list, with the caller's own star and hide laid over it when signed in. */
+/** The shared list, with the caller's own star and hide laid over it when signed in, and the going and interested counts on every event. */
 async function eventsFor(req: express.Request) {
   const events = eventList();
-  return withState(events, req.user ? userEventStates(db, req.user.id) : null);
+  const marked = withState(events, req.user ? userEventStates(db, req.user.id) : null);
+  return withRsvps(marked, eventRsvpTotals(db, req.user?.id ?? null));
 }
 
 app.get('/api/events', async (req, res, next) => {
@@ -936,6 +958,33 @@ app.put('/api/events/:group/state', async (req, res, next) => {
     }
     res.json({ group, ...setUserEventState(db, req.user!.id, group, { starred, hidden }) });
   } catch (err) { next(err); }
+});
+
+/** Going or interested, for an event on the list. Clearing is allowed for one that has since left it, so a stale answer can still go. */
+app.get('/api/events/:group/rsvp', async (req, res, next) => {
+  try {
+    const group = req.params.group;
+    if (!eventList().some((ev) => ev.group === group)) return res.status(404).json({ error: 'No such event' });
+    res.json({ rsvp: eventRsvpSummary(db, group, req.user?.id ?? null) });
+  } catch (err) { next(err); }
+});
+
+app.put('/api/events/:group/rsvp', async (req, res, next) => {
+  try {
+    if (!requireUser(req, res)) return;
+    const status = ((req.body ?? {}) as { status?: unknown }).status;
+    if (!isRsvpStatus(status)) return res.status(400).json({ error: 'status must be going or interested' });
+    const group = req.params.group;
+    if (!eventList().some((ev) => ev.group === group)) return res.status(404).json({ error: 'No such event' });
+    setEventRsvp(db, req.user!.id, group, status);
+    res.json({ rsvp: eventRsvpSummary(db, group, req.user!.id) });
+  } catch (err) { next(err); }
+});
+
+app.delete('/api/events/:group/rsvp', (req, res) => {
+  if (!requireUser(req, res)) return;
+  clearEventRsvp(db, req.user!.id, req.params.group);
+  res.json({ rsvp: eventRsvpSummary(db, req.params.group, req.user!.id) });
 });
 
 /** What a browser is told about a stored flyer: the type from our own list, never sniffed, and nothing it could run. */
@@ -1082,40 +1131,7 @@ app.get('/api/cameras/:id/image', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// --- Radio Garden layer (unsupported provider behind server adapter) ---------
-
-app.get('/api/radio/places', async (_req, res) => {
-  try {
-    const places = await fetchRadioPlaces(db);
-    res.json({ places });
-  } catch (err) {
-    const status = (err as any).status ?? 502;
-    res.status(status).json({ error: (err as Error).message });
-  }
-});
-
-app.get('/api/radio/places/:id/stations', async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!isValidRadioId(id)) {
-      return res.status(400).json({ error: 'Invalid place ID' });
-    }
-    const details = await fetchRadioStations(db, id);
-    res.json(details);
-  } catch (err) {
-    const status = (err as any).status ?? 502;
-    res.status(status).json({ error: (err as Error).message });
-  }
-});
-
-app.get('/api/radio/stations/:id/listen', (req, res) => {
-  const { id } = req.params;
-  if (!isValidRadioId(id)) {
-    return res.status(400).json({ error: 'Invalid station channel ID' });
-  }
-  const listenUrl = getProviderListenUrl(id);
-  res.redirect(307, listenUrl);
-});
+// The Radio Garden layer is the media.24thframe.radio-garden plugin (plugins/radio-garden), served under /api/plugins/.
 
 // --- Event Scout: nearby events and busyness --------------------------------------
 
@@ -1587,7 +1603,7 @@ interface CommunityRow {
 const STILL_ON = "COALESCE(e.end_time, strftime('%Y-%m-%dT%H:%M:%fZ', e.start_time, '+12 hours')) > ?";
 const COMMUNITY_SELECT =
   'SELECT e.*, u.username AS owner_name, u.avatar AS owner_avatar, u.banned AS owner_banned, ' +
-  '(SELECT COUNT(*) FROM community_rsvps r WHERE r.event_id = e.id) AS going, ' +
+  '(SELECT COUNT(*) FROM community_rsvps r JOIN users ru ON ru.id = r.user_id WHERE r.event_id = e.id AND ru.banned = 0) AS going, ' +
   'EXISTS (SELECT 1 FROM community_rsvps r WHERE r.event_id = e.id AND r.user_id = ?) AS is_going ' +
   'FROM community_events e JOIN users u ON u.id = e.owner_id';
 
@@ -1615,6 +1631,13 @@ function communityReadable(r: CommunityRow, user: SessionUser | null | undefined
 
 const eventIsOver = (r: CommunityRow) =>
   (r.end_time ? Date.parse(r.end_time) : Date.parse(r.start_time) + 12 * 3_600_000) <= Date.now();
+
+/** Going to a community event, once per person. A public one goes on the feed the first time. */
+function communityGoing(row: CommunityRow, userId: string): void {
+  const added = db.handle.prepare('INSERT OR IGNORE INTO community_rsvps (event_id, user_id, created_at) VALUES (?, ?, ?)')
+    .run(row.id, userId, new Date().toISOString());
+  if (added.changes > 0 && row.visibility === 'public') autoPost(userId, 'rsvp', row.id, row.title, { lat: row.lat, lng: row.lng, place: row.venue_name });
+}
 
 /** What is still on: everyone's public events, and your own unlisted ones. Unlisted events never appear in anyone else's list. */
 app.get('/api/community-events', (req, res) => {
@@ -1684,18 +1707,23 @@ app.delete('/api/community-events/:id', (req, res) => {
   if (!canEdit(row.owner_id, req.user)) return res.status(403).json({ error: 'Forbidden' });
   dropPosts(['event', 'rsvp'], row.id);
   db.handle.prepare('DELETE FROM community_rsvps WHERE event_id = ?').run(row.id);
+  db.handle.prepare("DELETE FROM event_invites WHERE event_kind = 'community' AND event_ref = ?").run(row.id);
   db.handle.prepare('DELETE FROM community_events WHERE id = ?').run(row.id);
   res.json({ ok: true });
+});
+
+app.get('/api/community-events/:id/rsvp', (req, res) => {
+  const row = communityEvent(req.params.id, req.user?.id);
+  if (!row || !communityReadable(row, req.user)) return res.status(404).json({ error: 'No such event' });
+  res.json({ rsvp: communityRsvpSummary(db, row.id, req.user?.id ?? null) });
 });
 
 app.put('/api/community-events/:id/rsvp', (req, res) => {
   const row = communityEvent(req.params.id, req.user!.id);
   if (!row || !communityReadable(row, req.user)) return res.status(404).json({ error: 'No such event' });
   if (eventIsOver(row)) return res.status(409).json({ error: 'That event is over' });
-  const added = db.handle.prepare('INSERT OR IGNORE INTO community_rsvps (event_id, user_id, created_at) VALUES (?, ?, ?)')
-    .run(row.id, req.user!.id, new Date().toISOString());
-  if (added.changes > 0 && row.visibility === 'public') autoPost(req.user!.id, 'rsvp', row.id, row.title, { lat: row.lat, lng: row.lng, place: row.venue_name });
-  res.json(communityJson(communityEvent(row.id, req.user!.id)!));
+  communityGoing(row, req.user!.id);
+  res.json({ rsvp: communityRsvpSummary(db, row.id, req.user!.id) });
 });
 
 app.delete('/api/community-events/:id/rsvp', (req, res) => {
@@ -1703,10 +1731,115 @@ app.delete('/api/community-events/:id/rsvp', (req, res) => {
   if (!row || !communityReadable(row, req.user)) return res.status(404).json({ error: 'No such event' });
   db.handle.prepare('DELETE FROM community_rsvps WHERE event_id = ? AND user_id = ?').run(row.id, req.user!.id);
   db.handle.prepare("DELETE FROM posts WHERE kind = 'rsvp' AND ref_id = ? AND owner_id = ?").run(row.id, req.user!.id);
-  res.json(communityJson(communityEvent(row.id, req.user!.id)!));
+  res.json({ rsvp: communityRsvpSummary(db, row.id, req.user!.id) });
 });
 
-// --- the feed -----------------------------------------------------------------------
+// --- invites ----------------------------------------------------------------------
+// One person asks another to an event. Accepting is an RSVP; nobody else sees an invite.
+
+/** Handles that start with what is typed, for choosing who to invite. Not banned people, and not you. */
+app.get('/api/users/search', (req, res) => {
+  if (!requireUser(req, res)) return;
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (!/^[A-Za-z0-9_]{2,24}$/.test(q)) return res.json([]);
+  // `_` is a wildcard in LIKE and is allowed in a handle, so it is escaped.
+  const rows = db.handle
+    .prepare("SELECT id, username, avatar FROM users WHERE banned = 0 AND id <> ? AND username LIKE ? ESCAPE '\\' ORDER BY username LIMIT 8")
+    .all(req.user!.id, `${q.replace(/_/g, '\\_')}%`);
+  res.json(rows);
+});
+
+/** A picture of the event an invite is for, or null once it has gone or is out of sight for the person it is shown to. */
+function inviteEvent(r: InviteRow, viewer: SessionUser, listed: Map<string, EventItem>) {
+  if (r.event_kind === 'event') {
+    const ev = listed.get(r.event_ref);
+    return ev ? { title: ev.title, startsAt: ev.startTime, venue: ev.venueName, imageUrl: ev.imageUrl } : null;
+  }
+  const row = communityEvent(r.event_ref, viewer.id);
+  return row && communityReadable(row, viewer) ? { title: row.title, startsAt: row.start_time, venue: row.venue_name, imageUrl: '' } : null;
+}
+
+app.post('/api/invites', async (req, res, next) => {
+  try {
+    if (!requireUser(req, res)) return;
+    const me = req.user!;
+    const { kind, ref, username } = (req.body ?? {}) as { kind?: unknown; ref?: unknown; username?: unknown };
+    if (kind !== 'event' && kind !== 'community') return res.status(400).json({ error: 'kind must be event or community' });
+    if (typeof ref !== 'string' || ref === '' || ref.length > MAX_GROUP_LENGTH) return res.status(400).json({ error: 'ref must name an event' });
+    if (typeof username !== 'string') return res.status(400).json({ error: 'username is required' });
+    const target = HANDLE.test(username) ? findUserByUsername(db, username) : undefined;
+    if (!target || target.banned) return res.status(404).json({ error: 'No such user' });
+    if (target.id === me.id) return res.status(400).json({ error: 'You cannot invite yourself' });
+    // The sender must be able to see the event: on the list, or for a community one, readable by them.
+    const community = kind === 'community' ? communityEvent(ref, me.id) : undefined;
+    const found = kind === 'event' ? eventList().some((ev) => ev.group === ref) : Boolean(community && communityReadable(community, me));
+    if (!found) return res.status(404).json({ error: 'No such event' });
+    // Asking again about one already sent is answered with that one, and does not count against the hour.
+    let invite = findInvite(db, kind, ref, me.id, target.id);
+    if (!invite) {
+      if (sentLastHour(db, me.id) >= MAX_INVITES_PER_HOUR) return res.status(429).json({ error: `You can send ${MAX_INVITES_PER_HOUR} invites an hour` });
+      if (waitingBetween(db, me.id, target.id) >= MAX_PENDING_PER_PAIR) return res.status(429).json({ error: `You already have ${MAX_PENDING_PER_PAIR} invites waiting for this person` });
+      invite = addInvite(db, kind, ref, me.id, target.id);
+    }
+    res.status(201).json({
+      invite: {
+        id: invite.id, kind: invite.event_kind, ref: invite.event_ref,
+        to: { id: target.id, username: target.username, avatar: target.avatar },
+        status: invite.status, createdAt: invite.created_at,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+/** Waiting invites from people who are not banned, newest first, with how many there are in all. */
+app.get('/api/invites', async (req, res, next) => {
+  try {
+    if (!requireUser(req, res)) return;
+    const me = req.user!;
+    const listed = new Map(eventList().map((ev) => [ev.group, ev] as const));
+    const invites = waitingInvites(db, me.id).map((r) => ({
+      id: r.id, kind: r.event_kind, ref: r.event_ref,
+      from: { id: r.from_user, username: r.from_name, avatar: r.from_avatar },
+      createdAt: r.created_at,
+      event: inviteEvent(r, me, listed),
+    }));
+    res.json({ invites, pendingCount: waitingInviteCount(db, me.id) });
+  } catch (err) { next(err); }
+});
+
+/** Accepting is going: the recipient is RSVPed as going, the same way the event's own route would have done it. */
+app.post('/api/invites/:id/accept', async (req, res, next) => {
+  try {
+    if (!requireUser(req, res)) return;
+    const me = req.user!;
+    const invite = inviteTo(db, req.params.id, me.id);
+    if (!invite) return res.status(404).json({ error: 'No such invite' });
+    // Only a waiting invite is accepted: a replay must not undo an answer the person has changed since.
+    if (invite.status !== 'pending') return res.json({ ok: true });
+    if (invite.event_kind === 'event') {
+      if (!eventList().some((ev) => ev.group === invite.event_ref)) return res.status(404).json({ error: 'No such event' });
+      setEventRsvp(db, me.id, invite.event_ref, 'going');
+    } else {
+      const row = communityEvent(invite.event_ref, me.id);
+      if (!row || !communityReadable(row, me)) return res.status(404).json({ error: 'No such event' });
+      if (eventIsOver(row)) return res.status(409).json({ error: 'That event is over' });
+      communityGoing(row, me.id);
+    }
+    setInviteStatus(db, invite.id, 'accepted');
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+/** Only a waiting invite is dismissed; one already accepted stays accepted. */
+app.post('/api/invites/:id/dismiss', (req, res) => {
+  if (!requireUser(req, res)) return;
+  const invite = inviteTo(db, req.params.id, req.user!.id);
+  if (!invite) return res.status(404).json({ error: 'No such invite' });
+  if (invite.status === 'pending') setInviteStatus(db, invite.id, 'dismissed');
+  res.json({ ok: true });
+});
+
+// --- the feed-----------------------------------------------------------------------
 // Check-ins by hand, and the auto-posts above. A hidden post, and anything by a suspended
 // account, is out of every read. Votes and comments hang off a post by its id.
 
@@ -2081,6 +2214,10 @@ app.get('/api/calendar/:file', (req, res) => {
   res.set('Cache-Control', 'private, max-age=300');
   res.send(buildIcs(all, { name: starredOnly ? 'PhotoScout - shortlist' : 'PhotoScout events', description: `${all.length} events from PhotoScout` }));
 });
+
+// --- plugins: their routes, the admin API and their static files ------------------
+
+mountPlugins(app, pluginRuntime, { kv: { get: (k) => db.getKv(k), set: (k, v) => db.setKv(k, v) } });
 
 // --- 404 + error handling, then the built frontend -------------------------------
 

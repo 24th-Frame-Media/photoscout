@@ -1,6 +1,8 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { startApp } from './httpHarness.js';
+import { radioBundleDir, RADIO_PLUGIN_ID } from './plugins/radioBundle.js';
 
 // The admin is named the only way one can be: by who a provider says they are.
 const app = await startApp({ ADMIN_IDS: 'discord:900' });
@@ -19,7 +21,7 @@ test('a visitor can read the public map and nothing that costs anything', async 
   const anon = app.client();
   assert.equal((await anon('GET', '/api/version')).status, 200);
   const status = await anon('GET', '/api/auth/status');
-  assert.deepEqual(status.json, { authed: false, user: null, account: null, providers: ['google', 'discord'] });
+  assert.deepEqual(status.json, { authed: false, user: null, account: null, providers: ['google', 'discord'], publicReads: true });
   assert.equal((await anon('GET', '/api/spots')).status, 200);
   for (const closed of ['/api/weather?lat=1&lng=1', '/api/geocode?q=x', '/api/buildings?lat=1&lng=1', '/api/tasks',
     '/api/users', '/api/remotes', '/api/shares', '/api/export.geojson', '/api/export.gpx', '/api/planes', '/api/nope']) {
@@ -246,18 +248,32 @@ test('share links are counted, and what the caller posts is not stored', async (
   assert.equal((await bob('DELETE', `/api/shares/${rows[1].token}`)).status, 403);
 });
 
-test('radio endpoints: public read-only, strict ID validation, and safe redirect', async () => {
+test('radio is a plugin: its routes are open where it declares them, the old /api/radio is gone', async () => {
+  const { installBundled } = await import('../src/plugins/bundled.js');
+  const { pluginRuntime } = await import('../src/plugins/host.js');
+  installBundled(radioBundleDir(path.join(app.dataDir, 'bundled-src')), pluginRuntime.store);
+  await pluginRuntime.loadAll();
+  const RADIO = `/api/plugins/${RADIO_PLUGIN_ID}`;
   const anon = app.client();
 
-  // Redirect validates token and returns 307
-  const badListen = await anon('GET', '/api/radio/stations/invalid..id/listen');
-  assert.equal(badListen.status, 400);
+  const listen = await anon('GET', `${RADIO}/stations/LWYfKJRw/listen`);
+  assert.equal(listen.status, 307, 'a visitor gets the stream redirect');
+  assert.equal(listen.headers.get('location'), 'https://radio.garden/api/ara/content/listen/LWYfKJRw/channel.mp3');
+  assert.equal((await anon('GET', `${RADIO}/stations/invalid..id/listen`)).status, 400);
+  assert.equal((await anon('GET', `${RADIO}/places/invalid..id/stations`)).status, 400);
 
-  const goodListen = await anon('GET', '/api/radio/stations/LWYfKJRw/listen');
-  assert.equal(goodListen.status, 307);
-  assert.equal(goodListen.headers.get('location'), 'https://radio.garden/api/ara/content/listen/LWYfKJRw/channel.mp3');
+  // Anything the plugin does not declare public still needs a sign-in, and writes always do.
+  assert.equal((await anon('GET', `${RADIO}/secret`)).status, 401);
+  assert.equal((await anon('POST', `${RADIO}/places`, {})).status, 401);
+  assert.equal((await alice('GET', `${RADIO}/secret`)).status, 404, 'signed in, it is simply not a route');
 
-  // Place station validation
-  const badPlace = await anon('GET', '/api/radio/places/invalid..id/stations');
-  assert.equal(badPlace.status, 400);
+  // The old front door is gone: a signed-in caller gets 404, a visitor the usual 401 for an unknown /api path.
+  assert.equal((await alice('GET', '/api/radio/places')).status, 404);
+  assert.equal((await anon('GET', '/api/radio/places')).status, 401);
+
+  const list = (await admin('GET', '/api/admin/plugins')).json;
+  const radio = list.plugins.find((p: { id: string }) => p.id === RADIO_PLUGIN_ID);
+  assert.equal(radio.status, 'active');
+  assert.equal(radio.source, 'bundled');
+  assert.equal((await alice('GET', '/api/admin/plugins')).status, 403, 'only an admin lists plugins');
 });

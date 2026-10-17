@@ -1,3 +1,4 @@
+import { activityFetch as fetch } from '../../activity.js';
 import type {
   AdminEvent, CrawlerFind, CrawlerPageRow, CrawlerStatus, CrawlPageReport, DensityArea, DensityGrid, DensityStatus, EventEdit, EventTopic, GeocodeResult,
   IcalPreview, LlmQueueResponse, LlmStatus, LogEntry, NotifyStatus, PhotoConditions, Settings, StatusResponse, TaskStatus, VenueHistory, VenueReading, VersionInfo,
@@ -20,16 +21,17 @@ function failure(res: Response, body: { error?: string }): Error {
   return new Error(body.error ?? `HTTP ${res.status}`);
 }
 
-async function raw(path: string, method = 'GET', body?: unknown): Promise<Response> {
+async function raw(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<Response> {
   return fetch(BASE + path, {
     method,
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
   });
 }
 
-async function call<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-  const res = await raw(path, method, body);
+async function call<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
+  const res = await raw(path, method, body, signal);
   if (!res.ok) throw failure(res, await res.json().catch(() => ({})));
   return res.json() as Promise<T>;
 }
@@ -45,14 +47,14 @@ async function callLenient<T extends object>(path: string, body: unknown, fallba
 type Ok = { ok: boolean; message: string };
 
 export const api = {
-  status: () => call<StatusResponse>('/status'),
+  status: (signal?: AbortSignal) => call<StatusResponse>('/status', 'GET', undefined, signal),
   settings: () => call<Settings>('/settings'),
   saveSettings: (s: Partial<Settings>) => call<Settings>('/settings', 'PUT', s),
   topics: () => call<{ topics: EventTopic[]; categories?: string[] }>('/topics'),
   geocode: (q: string) => call<GeocodeResult[]>(`/geocode?q=${encodeURIComponent(q)}`),
   refresh: () => call<StatusResponse>('/refresh', 'POST', {}),
   version: () => call<VersionInfo>('/version'),
-  crawlerStatus: () => call<CrawlerStatus>('/crawler/status'),
+  crawlerStatus: (signal?: AbortSignal) => call<CrawlerStatus>('/crawler/status', 'GET', undefined, signal),
   crawlerPages: (sort: 'reads' | 'recent' | 'yield') => call<{ pages: CrawlerPageRow[]; problem?: string }>(`/crawler/pages?sort=${sort}`),
   crawlerEvents: () => call<{ events: CrawlerFind[]; count: number; problem?: string }>('/crawler/events'),
   crawlerRun: () => call<{ ok: boolean; message?: string }>('/crawler/run', 'POST', {}),
@@ -67,11 +69,11 @@ export const api = {
   llmReset: () => call<{ cleared: number }>('/llm/reset', 'POST', {}),
   visionReset: () => call<{ cleared: number }>('/vision/reset', 'POST', {}),
   // `since` is the highest sequence number already held, so a poll carries only what is new.
-  tasks: (since = 0) => call<{ tasks: TaskStatus[]; log: LogEntry[]; seq: number }>(`/tasks?since=${since}`),
+  tasks: (since = 0, signal?: AbortSignal) => call<{ tasks: TaskStatus[]; log: LogEntry[]; seq: number }>(`/tasks?since=${since}`, 'GET', undefined, signal),
   // A refused run (already going, or sharing a busy browser) answers 409 with a reason worth showing.
   runTask: (name: string, body: { holdSeconds?: number } = {}) => callLenient<Ok>(`/tasks/${encodeURIComponent(name)}/run`, body, { ok: false, message: '' }),
   enableTask: (name: string, enabled: boolean) => callLenient<Ok>(`/tasks/${encodeURIComponent(name)}/enable`, { enabled }, { ok: false, message: '' }),
-  densityStatus: () => call<DensityStatus>('/density/status'),
+  densityStatus: (signal?: AbortSignal) => call<DensityStatus>('/density/status', 'GET', undefined, signal),
   densityRefresh: () => call<Ok>('/density/refresh', 'POST', {}),
   densityDiscover: () => call<Ok>('/density/discover', 'POST', {}),
   densityAreas: () => call<{ areas: DensityArea[] }>('/density/areas'),

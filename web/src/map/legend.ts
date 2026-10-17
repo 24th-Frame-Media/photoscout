@@ -28,8 +28,6 @@ export interface Category {
 
 /** Rail's colour wherever it's drawn: the highlighted base-map railways, the rail overlay's main lines, the legend. */
 export const RAIL_COLOR = '#f5a623';
-/** Radio Garden layer colour: distinct emerald green. */
-export const RADIO_COLOR = '#10b981';
 
 const sl = (l: LegendLayer) => l['source-layer'];
 const f = (l: LegendLayer) => JSON.stringify(l.filter ?? null);
@@ -68,7 +66,6 @@ export const CATEGORIES: Category[] = [
   { key: 'events', label: 'Events', group: 'Overlays', swatch: 'dot', color: '#c084fc', defaultOn: false, match: ids('event-clusters', 'event-cluster-count', 'event-points') },
   { key: 'road-quality', label: 'Road quality', group: 'Overlays', swatch: 'dot', color: 'conic-gradient(#22c55e 0 33%, #f59e0b 0 66%, #ef4444 0)', defaultOn: false, match: ids('road-quality') },
   { key: 'candidates', label: 'Candidates', group: 'Overlays', swatch: 'dot', color: '#6b7280', defaultOn: false, match: ids('candidates') },
-  { key: 'radio', label: 'Radio', group: 'Overlays', swatch: 'glyph', glyph: '📻', color: RADIO_COLOR, defaultOn: false, match: ids('radio-clusters', 'radio-cluster-count', 'radio-points') },
 ];
 
 /** The category drawn by a map chip, so the chip shows the same swatch and label as its legend row. */

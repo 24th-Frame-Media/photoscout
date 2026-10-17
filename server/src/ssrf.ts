@@ -29,7 +29,10 @@ export async function assertPublicUrl(rawUrl: string, allowPrivate = false): Pro
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new SsrfError('Only http(s) URLs are allowed');
   if (allowPrivate) return url;
 
-  const literal = net.isIP(url.hostname) ? url.hostname : null;
+  // url.hostname keeps the brackets for an IPv6 literal ("[::1]"), which net.isIP rejects; strip them so an
+  // IPv6 literal is classified directly instead of being sent to DNS (which fails, e.g. no IPv6 in CI).
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const literal = net.isIP(host) ? host : null;
   const addresses = literal ? [literal] : (await dns.lookup(url.hostname, { all: true })).map((a) => a.address);
   if (addresses.length === 0) throw new SsrfError('Could not resolve host');
   for (const addr of addresses) {

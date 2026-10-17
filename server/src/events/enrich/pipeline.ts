@@ -1,6 +1,8 @@
 import { db, getKv, getSettings, saveSettings, setKv } from '../db.js';
 import { TaskLog, TaskResult } from '../tasks/registry.js';
-import { chatJson, listModels, OllamaError } from './ollama.js';
+import { checkRole, chatJson, listServiceModels, poolKey } from '../llm/router.js';
+import { allServices, ollamaUrl, servicesFor } from '../llm/services.js';
+import { LlmError, type LlmService, type LlmServiceStatus, type LlmStrategy, type ModelInfo } from '../llm/types.js';
 import { flyerBacklog } from './visionPipeline.js';
 import { cleanAddress, validateAddress } from '../validate.js';
 import { defaultRegionFrom } from '../regions.js';
@@ -51,17 +53,6 @@ function toInput(row: Row): EnrichInput {
     startTime: row.start_time,
     source: row.source,
   };
-}
-
-/**
- * Where Ollama is.
- *
- * The setting wins so it can be changed from the UI; `OLLAMA_URL` is the
- * default for a container, which cannot reach the host on localhost — that is
- * itself. Falls back to the ordinary local install.
- */
-export function ollamaUrl(configured: string | undefined): string {
-  return (configured || '').trim() || process.env.OLLAMA_URL || 'http://localhost:11434';
 }
 
 /**
@@ -166,7 +157,7 @@ export function backlogCount(): number {
   const jobs = enabledJobs();
   if (jobs.length === 0) return 0;
   // Cheap enough at this scale, and only asked for when somebody is looking.
-  return pendingEvents(settings.llmModel || '', jobs, Number.MAX_SAFE_INTEGER).length;
+  return pendingEvents(poolKey('text', settings), jobs, Number.MAX_SAFE_INTEGER).length;
 }
 
 const recordStmt = () =>
@@ -194,21 +185,9 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
   const jobs = enabledJobs();
   if (jobs.length === 0) return { ok: false, message: 'No enrichment jobs are switched on' };
 
-  const url = ollamaUrl(settings.llmUrl);
-  const model = settings.llmModel || '';
-  if (!model) return { ok: false, message: 'No model chosen in Settings' };
-
-  try {
-    const installed = await listModels(url);
-    if (!installed.some((m) => m.name === model)) {
-      return {
-        ok: false,
-        message: `${model} is not installed on ${url} — try: ollama pull ${model}`,
-      };
-    }
-  } catch (err) {
-    return { ok: false, message: (err as Error).message };
-  }
+  const check = await checkRole('text', settings);
+  if (!check.ok) return { ok: false, message: check.message };
+  const model = poolKey('text', settings);
 
   const limit = Math.max(1, settings.llmMaxPerRun ?? 40);
   const rows = pendingEvents(model, jobs, limit);
@@ -239,15 +218,13 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
     const input = toInput(row);
     const hash = contentHash(input, model, jobs);
     try {
-      const raw = await chatJson({
-        url,
-        model,
+      const raw = await chatJson('text', {
         prompt: buildPrompt(input, jobs),
         // Per event, not per run: which fields it may answer depends on which
         // ones this listing left blank.
         schema: buildSchema(jobs, input),
         timeoutMs: EVENT_TIMEOUT_MS,
-      });
+      }, settings);
       const verdict = readVerdict(raw, jobs, input);
       const venueName = cleanExtractedVenue(verdict.venueName);
       const address = cleanExtractedAddress(verdict.address);
@@ -275,7 +252,7 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
       log(`${row.title}: ${message}`);
       // A server that has gone away will fail every remaining event the same
       // way; stop rather than spend the whole budget finding that out.
-      if (err instanceof OllamaError && /cannot reach|No answer/i.test(message)) {
+      if (err instanceof LlmError && /cannot reach|No answer/i.test(message)) {
         return { ok: false, message: `${message} after ${done} event${done === 1 ? '' : 's'}` };
       }
     }
@@ -311,46 +288,94 @@ export interface LlmStatus {
     backlog: number;
     read: number;
   };
+  /** Which service takes the next request when several can do the same job. */
+  strategy: LlmStrategy;
+  /** Every service, with whether it answers and has its model. Never carries a key. */
+  services: LlmServiceStatus[];
+}
+
+interface Probe {
+  reachable: boolean;
+  problem: string;
+  models: ModelInfo[];
+  modelAvailable: boolean;
+}
+
+const NOT_SET_UP: Probe = {
+  reachable: false,
+  problem: 'No service is set up for this job',
+  models: [],
+  modelAvailable: false,
+};
+
+/** Asks one service what it has. Never throws: a failure is the answer. */
+async function probe(s: LlmService): Promise<Probe> {
+  if (!s.enabled) return { reachable: false, problem: 'Switched off', models: [], modelAvailable: false };
+  try {
+    const models = await listServiceModels(s);
+    return { reachable: true, problem: '', models, modelAvailable: models.some((m) => m.name === s.model) };
+  } catch (err) {
+    return { reachable: false, problem: (err as Error).message, models: [], modelAvailable: false };
+  }
 }
 
 export async function getLlmStatus(): Promise<LlmStatus> {
   const settings = getSettings();
-  const url = ollamaUrl(settings.llmUrl);
   const jobs = enabledJobs();
-  const base = {
+  const all = allServices(settings);
+  // Every enabled service asked at once, so one that is down cannot hold up the rest.
+  const settled = await Promise.allSettled(all.map(probe));
+  const probes = settled.map((r) =>
+    r.status === 'fulfilled' ? r.value : { ...NOT_SET_UP, problem: String(r.reason) }
+  );
+  const probeOf = (id: string | undefined): Probe => {
+    const i = all.findIndex((s) => s.id === id);
+    return i >= 0 ? probes[i] : NOT_SET_UP;
+  };
+
+  // The first service each job would use. The top-level fields below report
+  // on these, so the tab reads the same whether it has services or not.
+  const textFirst = servicesFor('text', settings)[0] ?? all.find((s) => s.roles.includes('text'));
+  const visionFirst = servicesFor('vision', settings)[0] ?? all.find((s) => s.roles.includes('vision'));
+  const text = textFirst ? probeOf(textFirst.id) : NOT_SET_UP;
+  const vision = visionFirst ? probeOf(visionFirst.id) : NOT_SET_UP;
+
+  return {
     enabled: Boolean(settings.llmEnabled),
-    url,
-    model: settings.llmModel ?? '',
+    url: textFirst
+      ? textFirst.provider === 'ollama'
+        ? ollamaUrl(textFirst.baseUrl)
+        : textFirst.baseUrl
+      : ollamaUrl(settings.llmUrl),
+    model: textFirst ? textFirst.model : (settings.llmModel ?? ''),
     jobs,
     backlog: jobs.length ? backlogCount() : 0,
     read: countRead('event_enrichment'),
+    reachable: text.reachable,
+    problem: text.problem,
+    models: text.models,
+    modelInstalled: text.modelAvailable,
     vision: {
       enabled: Boolean(settings.visionEnabled),
-      model: settings.visionModel ?? '',
-      modelInstalled: false,
+      model: visionFirst ? visionFirst.model : (settings.visionModel ?? ''),
+      modelInstalled: vision.modelAvailable,
       backlog: flyerBacklog(),
       read: countRead('event_vision'),
     },
+    strategy: settings.llmStrategy ?? 'least_busy',
+    services: all.map((s, i) => ({
+      id: s.id,
+      label: s.label,
+      provider: s.provider,
+      model: s.model,
+      roles: s.roles,
+      enabled: s.enabled,
+      reachable: probes[i].reachable,
+      problem: probes[i].problem,
+      models: probes[i].models,
+      modelAvailable: probes[i].modelAvailable,
+    })),
   };
-  try {
-    const models = await listModels(url);
-    return {
-      ...base,
-      reachable: true,
-      problem: '',
-      models,
-      modelInstalled: models.some((m) => m.name === base.model),
-      vision: { ...base.vision, modelInstalled: models.some((m) => m.name === base.vision.model) },
-    };
-  } catch (err) {
-    return {
-      ...base,
-      reachable: false,
-      problem: (err as Error).message,
-      models: [],
-      modelInstalled: false,
-    };
-  }
 }
 
 /** How many events a pass has already looked at. Table name is ours, not input. */

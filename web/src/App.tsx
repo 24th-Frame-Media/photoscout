@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Link, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { api, AuthStatus } from './api.js';
 import { TimeProvider } from './time.js';
+import { loadWebPlugins } from './plugins/loader.js';
+import { pluginRegistry } from './plugins/registry.js';
 import Login from './pages/Login.js';
 import MapPage from './pages/MapPage.js';
 import PlacePage from './pages/PlacePage.js';
@@ -37,6 +39,14 @@ export default function App() {
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { setMenuOpen(false); setAccountOpen(false); }, [location.pathname]);
 
+  // Web plugins load once the app knows whether this visitor may read anything. A private instance with nobody
+  // signed in never asks, so the sign-in redirect below is not preceded by a 401; signing in re-runs this.
+  const canRead = !!status && (status.authed || status.publicReads);
+  useEffect(() => {
+    pluginRegistry.setUser(status?.authed && status.user ? { id: status.user.id, username: status.user.username, role: status.user.role } : null);
+  }, [status?.authed, status?.user?.id, status?.user?.username, status?.user?.role]);
+  useEffect(() => { if (canRead) void loadWebPlugins(); }, [canRead]);
+
   if (!status) {
     return (
       <div className="page">
@@ -51,6 +61,13 @@ export default function App() {
   if (location.pathname === '/login') {
     if (status.authed) return <Navigate to="/" replace />;
     return <Login providers={status.providers} />;
+  }
+
+  // A private instance (publicReads === false) has no anonymous reads, so a
+  // signed-out visitor would otherwise land on a map where every call 401s.
+  // Send them to sign in; the legal pages stay reachable.
+  if (!status.authed && !status.publicReads && !['/privacy', '/terms'].includes(location.pathname)) {
+    return <Navigate to="/login" replace />;
   }
 
   async function logout() {
@@ -93,8 +110,10 @@ export default function App() {
       <Routes>
         <Route path="/places/:id" element={<PlacePage />} />
         <Route path="/events" element={<Events user={user} />} />
+        <Route path="/events/c/:id" element={<Events user={user} />} />
         <Route path="/events/new" element={<CommunityEventForm user={user} />} />
         <Route path="/events/:id/edit" element={<CommunityEventForm user={user} />} />
+        <Route path="/events/:group" element={<Events user={user} />} />
         <Route path="/drive" element={<Drive user={user}><DriveConvoy /></Drive>} />
         <Route path="/feed" element={<Feed user={user} />} />
         <Route path="/chat" element={<Chat user={user} />} />

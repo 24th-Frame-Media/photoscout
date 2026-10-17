@@ -6,16 +6,25 @@
   "workspaces": [
     "server",
     "web",
-    "crawler"
+    "services/crawler",
+    "services/density",
+    "packages/*",
+    "plugins/*"
   ],
   "scripts": {
-    "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
-    "build": "npm run build -w web && npm run build -w server && npm run build -w crawler",
+    "waze:setup": "node scripts/setup-waze.mjs",
+    "plugin:validate": "node scripts/plugin.mjs validate",
+    "plugin:build": "node scripts/plugin.mjs build",
+    "plugin:sdk-check": "node scripts/plugin.mjs sdk-check",
+    "dev": "npm run build -w @photoscout/plugin-sdk && npm run build -w @photoscout/density && npm run build -w @photoscout-plugin/radio-garden && concurrently -n server,web -c blue,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w @photoscout/plugin-sdk && npm run build -w @photoscout/density && npm run build -w @photoscout-plugin/radio-garden && npm run build -w web && npm run build -w server && npm run build -w crawler",
     "start": "npm run start -w server",
-    "typecheck": "npx tsc --noEmit -p server/tsconfig.test.json && npx tsc --noEmit -p crawler/tsconfig.test.json && npx tsc --noEmit -p web",
-    "test": "npm test --workspaces"
+    "typecheck": "npm run build -w @photoscout/plugin-sdk && npm run build -w @photoscout/density && npx tsc --noEmit -p server/tsconfig.test.json && npx tsc --noEmit -p services/crawler/tsconfig.test.json && npx tsc --noEmit -p packages/plugin-sdk/tsconfig.test.json && npx tsc --noEmit -p web && npx tsc --noEmit -p plugins/radio-garden/tsconfig.json",
+    "test": "npm run build -w @photoscout/plugin-sdk && npm run build -w @photoscout/density && npm test --workspaces"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "esbuild": "^0.28.2",
+    "fflate": "^0.8.3"
   }
 }
