@@ -16,7 +16,10 @@ COPY plugins/radio-garden/package.json plugins/radio-garden/package.json
 RUN npm ci
 
 COPY . .
-RUN npm run build && npm prune --omit=dev
+# npm nests a workspace's dependency under <workspace>/node_modules when the root
+# already holds another major of it (server needs semver 7, the root tree has 6),
+# so server/node_modules must ship too. mkdir keeps the COPY below valid when empty.
+RUN npm run build && npm prune --omit=dev && mkdir -p server/node_modules
 
 
 FROM docker.io/library/node:24-slim
@@ -32,6 +35,7 @@ RUN apt-get update \
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/server/package.json ./server/package.json
+COPY --from=build /app/server/node_modules ./server/node_modules
 COPY --from=build /app/server/dist ./server/dist
 # The plugin contract (@photoscout/plugin-sdk): server/dist imports it at runtime
 # for HOST_API_VERSION, and node_modules links to this folder.
