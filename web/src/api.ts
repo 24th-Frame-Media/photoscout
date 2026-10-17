@@ -459,6 +459,7 @@ export interface WeatherHour {
   precipMm: number | null;
   precipProbPct: number | null;
   windKmh: number | null;
+  windDeg: number | null;
   gustKmh: number | null;
   visibilityM: number | null;
   weatherCode: number | null;
@@ -466,6 +467,15 @@ export interface WeatherHour {
   aod: number | null;
 }
 export interface WeatherForecast { lat: number; lng: number; fetchedAt: string; hourly: WeatherHour[] }
+
+export interface WindGridPoint { lat: number; lng: number; windKmh: number; windDeg: number }
+export interface WindGridResponse {
+  bounds: { south: number; west: number; north: number; east: number };
+  cols: number;
+  rows: number;
+  time: string;
+  grid: WindGridPoint[];
+}
 
 export const api = {
   // --- auth ---
@@ -559,6 +569,8 @@ export const api = {
 
   // --- weather (Open-Meteo, hourly, UTC) ---
   weather: (lat: number, lng: number, days = 7) => fetch(`/api/weather?lat=${lat}&lng=${lng}&days=${days}`).then((r) => json<WeatherForecast>(r)),
+  windGrid: (bounds: { south: number; west: number; north: number; east: number }, time?: string) =>
+    fetch(`/api/weather/wind-grid?south=${bounds.south}&west=${bounds.west}&north=${bounds.north}&east=${bounds.east}${time ? `&time=${encodeURIComponent(time)}` : ''}`).then((r) => json<WindGridResponse>(r)),
   // --- marine (Open-Meteo, tides & swell) ---
   marine: (lat: number, lng: number) => fetch(`/api/marine?lat=${lat}&lng=${lng}`).then((r) => json<MarineData>(r)),
   // --- fires (NSW RFS) ---

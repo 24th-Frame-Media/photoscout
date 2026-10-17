@@ -26,7 +26,7 @@ import { routing } from './routing.js';
 import { bboxFromRadius, haversine, parseBbox, parseLatLng } from './geo.js';
 import { parseGoodTimes, GoodTimesError, DEFAULT_GOOD_TIMES } from './goodTimes.js';
 import { fetchPlanes, fetchPlaneInfo, isValidHex, isValidCallsign } from './feeds/planes.js';
-import { fetchWeather } from './feeds/weather.js';
+import { fetchWeather, fetchWindGrid } from './feeds/weather.js';
 import { fetchMarine } from './feeds/marine.js';
 import { fetchFires } from './feeds/rfs.js';
 import { fetchAurora } from './feeds/spaceWeather.js';
@@ -894,6 +894,25 @@ app.get('/api/weather', async (req, res, next) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return res.status(400).json({ error: 'lat and lng are required' });
     const baseUrl = process.env.OPEN_METEO_URL ?? 'https://api.open-meteo.com';
     res.json(await fetchWeather(baseUrl, lat, lng, Number.isFinite(days) ? days : 7));
+  } catch (err) { next(err); }
+});
+
+app.get('/api/weather/wind-grid', async (req, res, next) => {
+  try {
+    const south = Number(req.query.south);
+    const west = Number(req.query.west);
+    const north = Number(req.query.north);
+    const east = Number(req.query.east);
+    const cols = Number(req.query.cols ?? 4);
+    const rows = Number(req.query.rows ?? 4);
+    const time = req.query.time == null ? undefined : Date.parse(String(req.query.time));
+    if (!Number.isFinite(south) || !Number.isFinite(west) || !Number.isFinite(north) || !Number.isFinite(east)
+      || south < -90 || north > 90 || west < -180 || east > 180 || south >= north || west >= east
+      || (time != null && !Number.isFinite(time))) {
+      return res.status(400).json({ error: 'valid south, west, north, east bounds and optional time are required' });
+    }
+    const baseUrl = process.env.OPEN_METEO_URL ?? 'https://api.open-meteo.com';
+    res.json(await fetchWindGrid(baseUrl, { south, west, north, east }, cols, rows, time));
   } catch (err) { next(err); }
 });
 

@@ -8,9 +8,10 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { locateControl } from '../map/locateControl.js';
 import SuggestSpot from '../components/SuggestSpot.js';
-import { api, Candidate, type EventItem, FireIncident, Place, Plane, type PlaneInfo, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast } from '../api.js';
+import { api, Candidate, type EventItem, FireIncident, Place, Plane, type PlaneInfo, Route, Spot, type TrafficCamera, TrainPosition, User, type WeatherForecast, type WindGridResponse } from '../api.js';
 import { sunLook } from '../map/sunLook.js';
 import { hourAt, pickRadarFrame, RAINVIEWER_INDEX, radarTileUrl, weatherIcon, type RadarIndex } from '../map/weather.js';
+import { AirCurrentsOverlay } from '../map/airCurrents.js';
 import {
   CLICKABLE, initFeedLayers, initLayers, PLANE_LAYERS, setImagery, setLayerVisible, setTerrain3d, STYLE_URL, updateCandidates, updateDraft, updateRoads, ROADS_MIN_ZOOM,
   updateMood, updatePlacesAndSpots, updatePlanes, updateRail, updateRays, setNearbyHighlight, updateShadows, updateTrains, updateWedges,
@@ -859,6 +860,28 @@ export default function MapPage({ user }: { user: User | null }) {
   }, [map, time, centre.lat, centre.lng, forecast]);
   const wxHour = weatherOn ? hourAt(forecast, time.getTime()) : null;
   const wxNight = sunPos(time, centre.lat, centre.lng).altitude < 0;
+  const [windGrid, setWindGrid] = useState<WindGridResponse | null>(null);
+  useEffect(() => {
+    if (!map || !weatherOn) { setWindGrid(null); return; }
+    const load = () => {
+      const b = map.getBounds();
+      api.windGrid({ south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() }, time.toISOString())
+        .then(setWindGrid).catch(() => setWindGrid(null));
+    };
+    const timer = setTimeout(load, 500);
+    map.on('moveend', load);
+    return () => { clearTimeout(timer); map.off('moveend', load); };
+  }, [map, weatherOn, time]);
+  const airCurrents = useRef<AirCurrentsOverlay | null>(null);
+  useEffect(() => {
+    if (!map) return;
+    const overlay = new AirCurrentsOverlay(map);
+    airCurrents.current = overlay;
+    return () => { overlay.destroy(); airCurrents.current = null; };
+  }, [map]);
+  useEffect(() => {
+    airCurrents.current?.update({ visible: weatherOn, windKmh: wxHour?.windKmh ?? null, windDeg: wxHour?.windDeg ?? null, windGrid });
+  }, [weatherOn, wxHour?.windKmh, wxHour?.windDeg, windGrid]);
   // Categories without their own feed effect: apply straight from the legend state.
   useEffect(() => {
     if (!map) return;

@@ -1,5 +1,6 @@
 /** Weather overlay helpers: RainViewer radar frame choice and the map-centre readout. Pure, no MapLibre. */
 import type { WeatherForecast, WeatherHour } from '../api.js';
+export type { WeatherForecast, WeatherHour };
 
 export const RAINVIEWER_INDEX = 'https://api.rainviewer.com/public/weather-maps.json';
 export const RADAR_MAX_NATIVE_Z = 7;
@@ -113,4 +114,37 @@ export function burnScore(
   }
 
   return { score, label };
+}
+
+export interface WeatherHeatmapTier { id: string; label: string; minRateMm: number; maxRateMm: number; color: string }
+export const RAIN_HEATMAP_TIERS: WeatherHeatmapTier[] = [
+  { id: 'drizzle', label: 'Drizzle', minRateMm: 0.1, maxRateMm: 2, color: '#00d4ff' },
+  { id: 'light', label: 'Light rain', minRateMm: 2, maxRateMm: 5, color: '#10b981' },
+  { id: 'moderate', label: 'Moderate rain', minRateMm: 5, maxRateMm: 15, color: '#facc15' },
+  { id: 'heavy', label: 'Heavy rain', minRateMm: 15, maxRateMm: 35, color: '#f97316' },
+  { id: 'severe', label: 'Severe / hail', minRateMm: 35, maxRateMm: Infinity, color: '#d946ef' },
+];
+export const RAIN_HEATMAP_GRADIENT = 'linear-gradient(90deg, #00d4ff 0%, #10b981 25%, #facc15 50%, #f97316 75%, #d946ef 100%)';
+
+export interface WindTier { id: string; label: string; minKmh: number; maxKmh: number; color: string }
+export const WIND_HEATMAP_TIERS: WindTier[] = [
+  { id: 'calm', label: 'Light breeze', minKmh: 0, maxKmh: 15, color: '#7dd3fc' },
+  { id: 'moderate', label: 'Moderate', minKmh: 15, maxKmh: 35, color: '#38bdf8' },
+  { id: 'strong', label: 'Strong breeze', minKmh: 35, maxKmh: 55, color: '#fbbf24' },
+  { id: 'gale', label: 'Gale / storm', minKmh: 55, maxKmh: Infinity, color: '#f43f5e' },
+];
+export const WIND_HEATMAP_GRADIENT = 'linear-gradient(90deg, #7dd3fc 0%, #38bdf8 33%, #fbbf24 66%, #f43f5e 100%)';
+
+export function rainTierFor(precipMm: number | null): WeatherHeatmapTier | null {
+  if (precipMm == null || precipMm < 0.05) return null;
+  return RAIN_HEATMAP_TIERS.find((tier) => precipMm <= tier.maxRateMm) ?? RAIN_HEATMAP_TIERS.at(-1)!;
+}
+export function windTierFor(windKmh: number | null): WindTier {
+  const speed = windKmh ?? 0;
+  return WIND_HEATMAP_TIERS.find((tier) => speed < tier.maxKmh) ?? WIND_HEATMAP_TIERS.at(-1)!;
+}
+export function windDirectionLabel(deg: number | null): string {
+  if (deg == null || !Number.isFinite(deg)) return '–';
+  const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+  return dirs[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 }
