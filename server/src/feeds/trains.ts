@@ -7,7 +7,7 @@
 import { strFromU8, unzipSync } from 'fflate';
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 import { Db } from '../db.js';
-import { parseCsvObjects } from '../csv.js';
+import { forEachCsvRow, parseCsvObjects } from '../csv.js';
 import { Bbox, bboxFromRadius, inBbox } from '../geo.js';
 import { projectOntoLine, pointAtDistanceOnLine, LatLng } from './freight.js';
 import type { TaskLog } from '../tasks/registry.js';
@@ -352,14 +352,7 @@ async function fetchWithAuth(url: string, apiKey: string, timeoutMs = 20_000): P
   }
 }
 
-function parseStaticZip(buf: Buffer) {
-  const files = unzipSync(new Uint8Array(buf));
-  const read = (name: string) => (files[name] ? parseCsvObjects(strFromU8(files[name])) : []);
-  return {
-    routes: read('routes.txt'), trips: read('trips.txt'), stopTimes: read('stop_times.txt'),
-    stops: read('stops.txt'), shapes: read('shapes.txt'), calendar: read('calendar.txt'),
-  };
-}
+const WANTED_GTFS_FILES = new Set(['routes.txt', 'trips.txt', 'stop_times.txt', 'stops.txt', 'shapes.txt', 'calendar.txt']);
 
 /**
  * Rail rather than road: TfNSW's nswtrains feed also carries NSW TrainLink coaches (route ids "4T.C.<n>", GTFS route_type
@@ -373,45 +366,93 @@ export function isTrainRoute(routeId: string | null | undefined, routeType?: str
 
 export interface TrainArea { lat: number; lng: number; radiusKm: number }
 
-/** Fetch, filter to trips touching `areas`, and store this feed's static GTFS data, replacing what was there. */
-export async function importStaticGtfs(db: Db, feedName: TrainFeedName, apiKey: string, areas: TrainArea[], log: TaskLog): Promise<{ ok: boolean; message: string }> {
-  const zip = await fetchWithAuth(STATIC_URL[feedName], apiKey);
-  const parsed = parseStaticZip(zip);
+/**
+ * Filter a GTFS zip to trips touching `areas` and store this feed's static data, replacing what was there.
+ *
+ * `stop_times.txt` and `shapes.txt` are streamed row-by-row from their raw UTF-8 bytes rather than parsed into full
+ * object arrays: Sydney Trains' timetable carries over 1.5 million stop_times rows, which would blow a 512 MB V8 heap
+ * if materialised before filtering to the trips that actually touch the configured areas.
+ */
+export function storeStaticGtfsZip(db: Db, feedName: TrainFeedName, zip: Buffer, areas: TrainArea[], log: TaskLog): { ok: boolean; message: string } {
+  const files = unzipSync(new Uint8Array(zip), { filter: (f) => WANTED_GTFS_FILES.has(f.name) });
+  const readSmall = (name: string) => {
+    const raw = files[name];
+    delete files[name];
+    return raw ? parseCsvObjects(strFromU8(raw)) : [];
+  };
+  const routes = readSmall('routes.txt');
+  const trips = readSmall('trips.txt');
+  const stops = readSmall('stops.txt');
+  const calendar = readSmall('calendar.txt');
+
   const bboxes: Bbox[] = areas.map((a) => bboxFromRadius(a.lat, a.lng, a.radiusKm));
   const inArea = (lat: number, lng: number) => bboxes.some((b) => inBbox(b, lat, lng));
 
-  const stopsById = new Map(parsed.stops.map((s) => [s.stop_id, { id: s.stop_id, lat: Number(s.stop_lat), lng: Number(s.stop_lon), name: s.stop_name || '' }]));
-  const shapePointsById = new Map<string, { seq: number; lat: number; lng: number }[]>();
-  for (const row of parsed.shapes) {
-    const list = shapePointsById.get(row.shape_id) ?? [];
-    list.push({ seq: Number(row.shape_pt_sequence), lat: Number(row.shape_pt_lat), lng: Number(row.shape_pt_lon) });
-    shapePointsById.set(row.shape_id, list);
+  const stopsById = new Map<string, { id: string; lat: number; lng: number; name: string }>();
+  const stopsInArea = new Set<string>();
+  for (const s of stops) {
+    const lat = Number(s.stop_lat);
+    const lng = Number(s.stop_lon);
+    stopsById.set(s.stop_id, { id: s.stop_id, lat, lng, name: s.stop_name || '' });
+    if (inArea(lat, lng)) stopsInArea.add(s.stop_id);
   }
-  for (const pts of shapePointsById.values()) pts.sort((a, b) => a.seq - b.seq);
 
-  const stopTimesByTrip = new Map<string, typeof parsed.stopTimes>();
-  for (const row of parsed.stopTimes) {
-    const list = stopTimesByTrip.get(row.trip_id) ?? [];
-    list.push(row);
-    stopTimesByTrip.set(row.trip_id, list);
-  }
-  for (const list of stopTimesByTrip.values()) list.sort((a, b) => Number(a.stop_sequence) - Number(b.stop_sequence));
+  // Pass 1: find which shapes and trips enter any configured area without storing every point or stop time.
+  const shapesInArea = new Set<string>();
+  forEachCsvRow(files['shapes.txt'], (get) => {
+    const shapeId = get('shape_id');
+    if (shapeId && !shapesInArea.has(shapeId) && inArea(Number(get('shape_pt_lat')), Number(get('shape_pt_lon')))) {
+      shapesInArea.add(shapeId);
+    }
+  });
 
-  const touchesArea = (trip: (typeof parsed.trips)[number]): boolean => {
-    const shape = shapePointsById.get(trip.shape_id);
-    if (shape?.some((p) => inArea(p.lat, p.lng))) return true;
-    return (stopTimesByTrip.get(trip.trip_id) ?? []).some((st) => {
-      const s = stopsById.get(st.stop_id);
-      return s ? inArea(s.lat, s.lng) : false;
-    });
-  };
-  const routeTypeById = new Map(parsed.routes.map((r) => [r.route_id, r.route_type]));
-  const keptTrips = parsed.trips.filter((t) => isTrainRoute(t.route_id, routeTypeById.get(t.route_id)) && touchesArea(t));
+  const tripsInArea = new Set<string>();
+  forEachCsvRow(files['stop_times.txt'], (get) => {
+    const tripId = get('trip_id');
+    if (tripId && !tripsInArea.has(tripId) && stopsInArea.has(get('stop_id'))) {
+      tripsInArea.add(tripId);
+    }
+  });
+
+  const routeTypeById = new Map(routes.map((r) => [r.route_id, r.route_type]));
+  const keptTrips = trips.filter((t) =>
+    isTrainRoute(t.route_id, routeTypeById.get(t.route_id)) && (shapesInArea.has(t.shape_id) || tripsInArea.has(t.trip_id))
+  );
   const keptTripIds = new Set(keptTrips.map((t) => t.trip_id));
   const keptShapeIds = new Set(keptTrips.map((t) => t.shape_id).filter(Boolean));
   const keptServiceIds = new Set(keptTrips.map((t) => t.service_id));
   const keptRouteIds = new Set(keptTrips.map((t) => t.route_id));
-  const keptStopIds = new Set([...stopTimesByTrip.entries()].filter(([id]) => keptTripIds.has(id)).flatMap(([, sts]) => sts.map((s) => s.stop_id)));
+
+  // Pass 2: collect points and stop times only for the trips that survived.
+  const shapePointsById = new Map<string, { seq: number; lat: number; lng: number }[]>();
+  forEachCsvRow(files['shapes.txt'], (get) => {
+    const shapeId = get('shape_id');
+    if (!keptShapeIds.has(shapeId)) return;
+    const list = shapePointsById.get(shapeId) ?? [];
+    list.push({ seq: Number(get('shape_pt_sequence')), lat: Number(get('shape_pt_lat')), lng: Number(get('shape_pt_lon')) });
+    shapePointsById.set(shapeId, list);
+  });
+  delete files['shapes.txt'];
+  for (const pts of shapePointsById.values()) pts.sort((a, b) => a.seq - b.seq);
+
+  const stopTimesByTrip = new Map<string, { stopId: string; seq: number; arrivalSec: number; departureSec: number }[]>();
+  const keptStopIds = new Set<string>();
+  forEachCsvRow(files['stop_times.txt'], (get) => {
+    const tripId = get('trip_id');
+    if (!keptTripIds.has(tripId)) return;
+    const stopId = get('stop_id');
+    keptStopIds.add(stopId);
+    const list = stopTimesByTrip.get(tripId) ?? [];
+    list.push({
+      stopId,
+      seq: Number(get('stop_sequence')),
+      arrivalSec: parseGtfsTime(get('arrival_time')),
+      departureSec: parseGtfsTime(get('departure_time')),
+    });
+    stopTimesByTrip.set(tripId, list);
+  });
+  delete files['stop_times.txt'];
+  for (const list of stopTimesByTrip.values()) list.sort((a, b) => a.seq - b.seq);
 
   // node:sqlite autocommits every write unless told otherwise. A timetable has
   // tens of thousands of rows; without one transaction this can block the API
@@ -426,7 +467,7 @@ export async function importStaticGtfs(db: Db, feedName: TrainFeedName, apiKey: 
     db.handle.prepare('DELETE FROM gtfs_calendar WHERE feed = ?').run(feedName);
 
     const insRoute = db.handle.prepare('INSERT INTO gtfs_routes (feed, route_id, short_name, long_name) VALUES (?, ?, ?, ?)');
-    for (const r of parsed.routes) if (keptRouteIds.has(r.route_id)) insRoute.run(feedName, r.route_id, r.route_short_name || '', r.route_long_name || '');
+    for (const r of routes) if (keptRouteIds.has(r.route_id)) insRoute.run(feedName, r.route_id, r.route_short_name || '', r.route_long_name || '');
 
     const insTrip = db.handle.prepare('INSERT INTO gtfs_trips (feed, trip_id, route_id, service_id, shape_id, headsign) VALUES (?, ?, ?, ?, ?, ?)');
     for (const t of keptTrips) insTrip.run(feedName, t.trip_id, t.route_id, t.service_id, t.shape_id || '', t.trip_headsign || '');
@@ -436,18 +477,16 @@ export async function importStaticGtfs(db: Db, feedName: TrainFeedName, apiKey: 
 
     const insStopTime = db.handle.prepare('INSERT INTO gtfs_stop_times (feed, trip_id, stop_id, seq, arrival_sec, departure_sec) VALUES (?, ?, ?, ?, ?, ?)');
     for (const [tripId, sts] of stopTimesByTrip) {
-      if (!keptTripIds.has(tripId)) continue;
-      for (const st of sts) insStopTime.run(feedName, tripId, st.stop_id, Number(st.stop_sequence), parseGtfsTime(st.arrival_time), parseGtfsTime(st.departure_time));
+      for (const st of sts) insStopTime.run(feedName, tripId, st.stopId, st.seq, st.arrivalSec, st.departureSec);
     }
 
     const insShape = db.handle.prepare('INSERT INTO gtfs_shapes (feed, shape_id, seq, lat, lng) VALUES (?, ?, ?, ?, ?)');
     for (const [shapeId, pts] of shapePointsById) {
-      if (!keptShapeIds.has(shapeId)) continue;
       for (const p of pts) insShape.run(feedName, shapeId, p.seq, p.lat, p.lng);
     }
 
     const insCal = db.handle.prepare('INSERT INTO gtfs_calendar (feed, service_id, days, start_date, end_date) VALUES (?, ?, ?, ?, ?)');
-    for (const c of parsed.calendar) {
+    for (const c of calendar) {
       if (!keptServiceIds.has(c.service_id)) continue;
       const days = [c.monday, c.tuesday, c.wednesday, c.thursday, c.friday, c.saturday, c.sunday].map((v) => (v === '1' ? '1' : '0')).join('');
       insCal.run(feedName, c.service_id, days, c.start_date, c.end_date);
@@ -459,8 +498,14 @@ export async function importStaticGtfs(db: Db, feedName: TrainFeedName, apiKey: 
     db.handle.exec('ROLLBACK');
     throw err;
   }
-  log(`${feedName}: ${keptTrips.length} of ${parsed.trips.length} trips touch the configured areas`);
+  log(`${feedName}: ${keptTrips.length} of ${trips.length} trips touch the configured areas`);
   return { ok: true, message: `${keptTrips.length} trips` };
+}
+
+/** Fetch, filter to trips touching `areas`, and store this feed's static GTFS data, replacing what was there. */
+export async function importStaticGtfs(db: Db, feedName: TrainFeedName, apiKey: string, areas: TrainArea[], log: TaskLog): Promise<{ ok: boolean; message: string }> {
+  const zip = await fetchWithAuth(STATIC_URL[feedName], apiKey);
+  return storeStaticGtfsZip(db, feedName, zip, areas, log);
 }
 
 /** This feed's static data, in the shape the pure prediction functions take. */

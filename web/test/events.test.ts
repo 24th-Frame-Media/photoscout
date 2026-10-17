@@ -42,12 +42,13 @@ test('applyFilters: search, date chip, category, shortlist and hidden', () => {
   assert.deepEqual(run({ showHidden: true }), ['a', 'b', 'c', 'd']);
   assert.deepEqual(run({ search: ' panorama ', showHidden: true }), ['a', 'c'], 'title, venue and description, any case');
   assert.deepEqual(run({ search: 'kings' }), ['b']);
-  assert.deepEqual(run({ category: 'Market' }), ['b', 'd']);
+  assert.deepEqual(run({ categories: ['Market'] }), ['b', 'd']);
+  assert.deepEqual(run({ categories: ['Market', 'Motorsport'] }), ['a', 'b', 'd']);
   assert.deepEqual(run({ starredOnly: true }), ['b']);
   assert.deepEqual(run({ dateChip: 'weekend' }), ['b']);
   assert.deepEqual(run({ dateChip: 'week' }), ['a', 'b']);
   assert.deepEqual(run({ dateChip: 'month' }), ['a', 'b'], 'to the same day next month, exclusive');
-  assert.deepEqual(run({ dateChip: 'week', category: 'Market', starredOnly: true }), ['b']);
+  assert.deepEqual(run({ dateChip: 'week', categories: ['Market'], starredOnly: true }), ['b']);
 });
 
 test('categoriesOf: the distinct non-empty ones, sorted', () => {
@@ -154,7 +155,7 @@ test('mergeEvents: one list in start order, scraped first on a tie, community ev
 
 test('merged community events flow through the filters, the series fold and the map layer like any other', () => {
   const merged = mergeEvents([event('s', { startTime: at(10, 8), lat: 1, lng: 2 })], [community('c', { startTime: at(10, 9) })]);
-  assert.deepEqual(groups(applyFilters(merged, { ...DEFAULT_FILTERS, category: COMMUNITY_CATEGORY }, NOW)), ['community:c']);
+  assert.deepEqual(groups(applyFilters(merged, { ...DEFAULT_FILTERS, categories: [COMMUNITY_CATEGORY] }, NOW)), ['community:c']);
   assert.deepEqual(groups(applyFilters(merged, { ...DEFAULT_FILTERS, search: 'showground' }, NOW)), ['community:c']);
   assert.deepEqual(groups(applyFilters(merged, { ...DEFAULT_FILTERS, starredOnly: true }, NOW)), [], 'a community event cannot be on the shortlist');
   assert.equal(foldSeries(merged).length, 2, 'an empty series does not fold two events together');
@@ -197,14 +198,15 @@ test('placeLabel: a street address gives up its locality, a community event fall
   assert.equal(placeLabel(event('d')), '');
 });
 
-test('filters: hide online, nearby, elsewhere, unknown and a town', () => {
+test('filters: hide online, nearby, elsewhere, unknown and towns (single and multiple)', () => {
   const list = sortList();
   const run = (patch: Partial<Filters>) => groups(applyFilters(list, { ...DEFAULT_FILTERS, ...patch }, NOW, GEO));
   assert.deepEqual(run({ hideOnline: false }), ['nowhere', 'far', 'mid', 'near', 'online']);
-  assert.deepEqual(run({ place: NEARBY }), ['mid', 'near']);
-  assert.deepEqual(run({ place: ELSEWHERE }), ['far']);
-  assert.deepEqual(run({ place: UNKNOWN }), ['nowhere']);
-  assert.deepEqual(run({ place: 'Bathurst' }), ['mid', 'near']);
+  assert.deepEqual(run({ places: [NEARBY] }), ['mid', 'near']);
+  assert.deepEqual(run({ places: [ELSEWHERE] }), ['far']);
+  assert.deepEqual(run({ places: [UNKNOWN] }), ['nowhere']);
+  assert.deepEqual(run({ places: ['Bathurst'] }), ['mid', 'near']);
+  assert.deepEqual(run({ places: ['Bathurst', ELSEWHERE] }), ['far', 'mid', 'near']);
   assert.deepEqual(placesOf(list, GEO).places, [{ name: 'Bathurst', count: 2 }]);
   const counts = placesOf(list, GEO);
   assert.deepEqual([counts.nearby, counts.elsewhere, counts.unknown], [2, 2, 1], 'the online one has a name only, so it is elsewhere');
@@ -218,12 +220,12 @@ test('community events keep working under every sort and filter', () => {
   assert.equal(sorted('photo', merged).at(-1), 'community:c', 'a score of 0 sorts last');
   assert.equal(sorted('distance', merged)[0], 'community:c', 'it is the nearest');
   const run = (patch: Partial<Filters>) => groups(applyFilters(merged, { ...DEFAULT_FILTERS, ...patch }, NOW, GEO));
-  assert.ok(run({ place: NEARBY }).includes('community:c'));
+  assert.ok(run({ places: [NEARBY] }).includes('community:c'));
   assert.ok(run({ hideOnline: true }).includes('community:c'), 'a community event is never online');
-  assert.ok(!run({ place: ELSEWHERE }).includes('community:c'));
+  assert.ok(!run({ places: [ELSEWHERE] }).includes('community:c'));
 });
 
-test('loadFilters: defaults on nothing or junk, keeps what is valid, round-trips a save', () => {
+test('loadFilters: defaults on nothing or junk, keeps what is valid, migrates single strings, round-trips a save', () => {
   const store = new Map<string, string>();
   (globalThis as { localStorage?: unknown }).localStorage = {
     getItem: (k: string) => store.get(k) ?? null,
@@ -236,8 +238,10 @@ test('loadFilters: defaults on nothing or junk, keeps what is valid, round-trips
     store.set('photoscout.eventFilters', '42');
     assert.deepEqual(loadFilters(), DEFAULT_FILTERS);
     store.set('photoscout.eventFilters', JSON.stringify({ sort: 'sideways', dateChip: 9, hideOnline: 'yes', place: 7, category: 'Market', starredOnly: true }));
-    assert.deepEqual(loadFilters(), { ...DEFAULT_FILTERS, category: 'Market', starredOnly: true });
-    const chosen: Filters = { ...DEFAULT_FILTERS, sort: 'place', place: NEARBY, hideOnline: false, dateChip: 'week' };
+    assert.deepEqual(loadFilters(), { ...DEFAULT_FILTERS, categories: ['Market'], starredOnly: true });
+    store.set('photoscout.eventFilters', JSON.stringify({ categories: ['Market', 42, '', 'Air'], places: [NEARBY, null, 'Bathurst'] }));
+    assert.deepEqual(loadFilters(), { ...DEFAULT_FILTERS, categories: ['Market', 'Air'], places: [NEARBY, 'Bathurst'] });
+    const chosen: Filters = { ...DEFAULT_FILTERS, sort: 'place', places: [NEARBY, 'Bathurst'], categories: ['Market', 'Motorsport'], hideOnline: false, dateChip: 'week' };
     saveFilters(chosen);
     assert.deepEqual(loadFilters(), chosen);
   } finally {

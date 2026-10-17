@@ -90,6 +90,7 @@ function trainsStaticTask(feed: TrainFeedName, cron: string) {
     description: `Pull the ${feed} GTFS static timetable and keep only trips touching the configured areas.`,
     schedule: cron,
     intervalMinutes: () => 7 * 24 * 60,
+    lockGroup: 'trains-static',
     enabled: () => Boolean(tfnswKey(db)),
     run: (log) => {
       const key = tfnswKey(db);
