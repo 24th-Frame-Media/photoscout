@@ -509,29 +509,60 @@ export async function importStaticGtfs(db: Db, feedName: TrainFeedName, apiKey: 
 }
 
 /** This feed's static data, in the shape the pure prediction functions take. */
-export function loadFeedData(db: Db, feedName: TrainFeedName): TrainsFeedData {
-  const data = emptyFeedData();
-  for (const r of db.handle.prepare('SELECT * FROM gtfs_routes WHERE feed = ?').all(feedName) as any[]) {
+export function loadFeedData(db: Db, feedName: TrainFeedName, data: TrainsFeedData = emptyFeedData()): TrainsFeedData {
+  for (const r of db.handle.prepare('SELECT route_id, short_name, long_name FROM gtfs_routes WHERE feed = ?').iterate(feedName) as Iterable<{ route_id: string; short_name: string; long_name: string }>) {
     data.routes.set(r.route_id, { id: r.route_id, shortName: r.short_name, longName: r.long_name });
   }
-  for (const t of db.handle.prepare('SELECT * FROM gtfs_trips WHERE feed = ?').all(feedName) as any[]) {
+  for (const t of db.handle.prepare('SELECT trip_id, route_id, service_id, shape_id, headsign FROM gtfs_trips WHERE feed = ?').iterate(feedName) as Iterable<{ trip_id: string; route_id: string; service_id: string; shape_id: string; headsign: string }>) {
     data.trips.push({ id: t.trip_id, routeId: t.route_id, serviceId: t.service_id, shapeId: t.shape_id, headsign: t.headsign, feed: feedName });
   }
-  for (const s of db.handle.prepare('SELECT * FROM gtfs_stops WHERE feed = ?').all(feedName) as any[]) {
+  for (const s of db.handle.prepare('SELECT stop_id, name, lat, lng FROM gtfs_stops WHERE feed = ?').iterate(feedName) as Iterable<{ stop_id: string; name: string; lat: number; lng: number }>) {
     data.stopsById.set(s.stop_id, { id: s.stop_id, name: s.name, lat: s.lat, lng: s.lng });
   }
-  for (const st of db.handle.prepare('SELECT * FROM gtfs_stop_times WHERE feed = ? ORDER BY trip_id, seq').all(feedName) as any[]) {
-    const list = data.stopTimesByTrip.get(st.trip_id) ?? [];
-    list.push({ stopId: st.stop_id, seq: st.seq, arrivalSec: st.arrival_sec, departureSec: st.departure_sec });
-    data.stopTimesByTrip.set(st.trip_id, list);
+
+  let currentTripId: string | null = null;
+  let currentStopTimes: StopTimeRow[] = [];
+  const stopTimesIter = db.handle.prepare(
+    'SELECT trip_id, stop_id, seq, arrival_sec, departure_sec FROM gtfs_stop_times WHERE feed = ? ORDER BY trip_id, seq'
+  ).iterate(feedName) as Iterable<{ trip_id: string; stop_id: string; seq: number; arrival_sec: number; departure_sec: number }>;
+
+  for (const st of stopTimesIter) {
+    if (st.trip_id !== currentTripId) {
+      if (currentTripId !== null) {
+        data.stopTimesByTrip.set(currentTripId, currentStopTimes);
+      }
+      currentTripId = st.trip_id;
+      currentStopTimes = [];
+    }
+    const internedStopId = data.stopsById.get(st.stop_id)?.id ?? st.stop_id;
+    currentStopTimes.push({ stopId: internedStopId, seq: st.seq, arrivalSec: st.arrival_sec, departureSec: st.departure_sec });
   }
-  for (const sh of db.handle.prepare('SELECT * FROM gtfs_shapes WHERE feed = ? ORDER BY shape_id, seq').all(feedName) as any[]) {
-    const list = data.shapesById.get(sh.shape_id) ?? [];
-    list.push({ lat: sh.lat, lng: sh.lng });
-    data.shapesById.set(sh.shape_id, list);
+  if (currentTripId !== null) {
+    data.stopTimesByTrip.set(currentTripId, currentStopTimes);
   }
-  for (const c of db.handle.prepare('SELECT * FROM gtfs_calendar WHERE feed = ?').all(feedName) as any[]) {
-    const days = [...(c.days as string)].map((c2) => c2 === '1') as CalendarRow['days'];
+
+  let currentShapeId: string | null = null;
+  let currentShapePoints: ShapePoint[] = [];
+  const shapesIter = db.handle.prepare(
+    'SELECT shape_id, lat, lng FROM gtfs_shapes WHERE feed = ? ORDER BY shape_id, seq'
+  ).iterate(feedName) as Iterable<{ shape_id: string; lat: number; lng: number }>;
+
+  for (const sh of shapesIter) {
+    if (sh.shape_id !== currentShapeId) {
+      if (currentShapeId !== null) {
+        data.shapesById.set(currentShapeId, currentShapePoints);
+      }
+      currentShapeId = sh.shape_id;
+      currentShapePoints = [];
+    }
+    currentShapePoints.push({ lat: sh.lat, lng: sh.lng });
+  }
+  if (currentShapeId !== null) {
+    data.shapesById.set(currentShapeId, currentShapePoints);
+  }
+
+  for (const c of db.handle.prepare('SELECT service_id, days, start_date, end_date FROM gtfs_calendar WHERE feed = ?').iterate(feedName) as Iterable<{ service_id: string; days: string; start_date: string; end_date: string }>) {
+    const days = [...c.days].map((c2) => c2 === '1') as CalendarRow['days'];
     data.calendarByService.set(c.service_id, { serviceId: c.service_id, days, startDate: c.start_date, endDate: c.end_date });
   }
   return data;
@@ -550,7 +581,10 @@ export function combinedFeedData(db: Db): TrainsFeedData {
   const stamp = TRAIN_FEEDS.map((f) => db.getKv(`trains:lastImport:${f}`) ?? '').join('|');
   if (combinedCache && combinedCache.db === db && combinedCache.stamp === stamp) return combinedCache.data;
   combinedCache = null; // release the old timetable before building its replacement
-  const data = TRAIN_FEEDS.map((f) => loadFeedData(db, f)).reduce(mergeFeedData, emptyFeedData());
+  const data = emptyFeedData();
+  for (const f of TRAIN_FEEDS) {
+    loadFeedData(db, f, data);
+  }
   combinedCache = { db, stamp, data };
   return data;
 }

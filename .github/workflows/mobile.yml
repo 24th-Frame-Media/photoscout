@@ -45,8 +45,8 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android Licenses
+        run: yes | sdkmanager --licenses || true
 
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
@@ -134,28 +134,20 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
-      - name: Package Unsigned IPA (AltStore / Sideloadly / TrollStore)
+      - name: Package Unsigned IPA & App Bundle
         run: |
+          mkdir -p dist-mobile
           mkdir -p ios/build/Payload
           cp -R ios/build/Build/Products/Release-iphoneos/PhotoScout.app ios/build/Payload/
-          cd ios/build
-          zip -r PhotoScout-unsigned.ipa Payload
-          cd ../..
-          mkdir -p dist-mobile
+          (cd ios/build && zip -r PhotoScout-unsigned.ipa Payload)
           cp ios/build/PhotoScout-unsigned.ipa dist-mobile/PhotoScout-unsigned.ipa
-
-      - name: Archive PhotoScout.app
-        run: |
-          cd ios/build/Build/Products/Release-iphoneos
-          zip -r ../../../../dist-mobile/PhotoScout-app.zip PhotoScout.app
+          (cd ios/build/Build/Products/Release-iphoneos && zip -r "$GITHUB_WORKSPACE/dist-mobile/PhotoScout-app.zip" PhotoScout.app)
 
       - name: Upload iOS IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PhotoScout-iOS-IPA
-          path: |
-            dist-mobile/PhotoScout-unsigned.ipa
-            dist-mobile/PhotoScout-app.zip
+          path: dist-mobile/*
           retention-days: 30
 
   release:
