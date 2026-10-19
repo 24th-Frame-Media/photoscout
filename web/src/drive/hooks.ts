@@ -41,7 +41,17 @@ export function useGeolocation(): { fix: Fix | null; error: GpsError | null } {
 export function useWakeLock(active: boolean): 'on' | 'off' | 'unsupported' {
   const [state, setState] = useState<'on' | 'off' | 'unsupported'>('off');
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      window.PhotoScoutNative?.setKeepAwake?.(false);
+      return;
+    }
+    if (window.PhotoScoutNative?.setKeepAwake) {
+      window.PhotoScoutNative.setKeepAwake(true);
+      setState('on');
+      return () => {
+        window.PhotoScoutNative?.setKeepAwake?.(false);
+      };
+    }
     if (!('wakeLock' in navigator)) { setState('unsupported'); return; }
     let sentinel: WakeLockSentinel | null = null;
     let gone = false;
