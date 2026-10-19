@@ -1,4 +1,4 @@
-import { CODE_PATTERN, MAX_LABEL, MAX_NAME, normalizeCode } from './convoy.js';
+import { CODE_PATTERN, DEFAULT_REGROUP_SEPARATION_M, MAX_CONVOY_MESSAGE_LENGTH, MAX_CONVOY_ROUTE_STOPS, MAX_LABEL, MAX_NAME, MAX_REGROUP_SEPARATION_M, MIN_REGROUP_SEPARATION_M, normalizeCode } from './convoy.js';
 
 /**
  * What a client may say on the socket, checked field by field before anything
@@ -11,13 +11,17 @@ import { CODE_PATTERN, MAX_LABEL, MAX_NAME, normalizeCode } from './convoy.js';
 const MAX_SPEED = 120;
 
 export type ClientMessage =
+  | { t: 'ping' }
+  | { t: 'convoy.message'; room: string; text: string; clientId: string }
   | { t: 'chat.sub' }
   | { t: 'chat.unsub' }
-  | { t: 'convoy.create'; name: string }
+  | { t: 'convoy.create'; name: string; automaticRegroup: { enabled: boolean; separationM: number } }
   | { t: 'convoy.join'; code: string }
   | { t: 'convoy.cruise'; eventId: string }
   | { t: 'convoy.leave'; room: string }
   | { t: 'convoy.dest'; room: string; destination: { lat: number; lng: number; label: string } | null }
+  | { t: 'convoy.rest'; room: string; action: 'find' | 'continue' }
+  | { t: 'convoy.route'; room: string; route: { name: string; stops: [number, number][] } | null }
   | { t: 'convoy.lead'; room: string; to: string }
   | { t: 'convoy.remove'; room: string; id: string }
   | { t: 'pos.stop' }
@@ -52,18 +56,42 @@ function str(o: Record<string, unknown>, field: string, max: number, required = 
 
 const id = (o: Record<string, unknown>, field: string): string => str(o, field, 64, true);
 
+function convoyRoute(raw: unknown): { name: string; stops: [number, number][] } | null {
+  if (raw === null || raw === undefined) return null;
+  if (!isObject(raw)) return bad('route must be an object or null');
+  if (!Array.isArray(raw.stops) || raw.stops.length < 2 || raw.stops.length > MAX_CONVOY_ROUTE_STOPS) return bad(`route needs 2 to ${MAX_CONVOY_ROUTE_STOPS} stops`);
+  const stops = raw.stops.map((point) => {
+    if (!Array.isArray(point) || point.length !== 2 || !point.every((n) => typeof n === 'number' && Number.isFinite(n))) return bad('each route stop must be [lng, lat]');
+    const [lng, lat] = point as number[];
+    if (Math.abs(lng) > 180 || Math.abs(lat) > 90) return bad('route stop is outside valid lng/lat bounds');
+    return [lng, lat] as [number, number];
+  });
+  return { name: str(raw, 'name', MAX_NAME), stops };
+}
+
+function automaticRegroup(raw: unknown): { enabled: boolean; separationM: number } {
+  if (raw === undefined) return { enabled: false, separationM: DEFAULT_REGROUP_SEPARATION_M };
+  if (!isObject(raw) || typeof raw.enabled !== 'boolean') return bad('automatic regroup must include enabled');
+  const separationM = num(raw, 'separationM', MIN_REGROUP_SEPARATION_M, MAX_REGROUP_SEPARATION_M);
+  return { enabled: raw.enabled, separationM };
+}
+
 export function parseClientMessage(raw: string): ParsedMessage {
   let o: unknown;
   try { o = JSON.parse(raw); } catch { return { ok: false, error: 'Messages are JSON' }; }
   if (!isObject(o) || typeof o.t !== 'string') return { ok: false, error: 'Expected an object with a t' };
   try {
     switch (o.t) {
+      case 'ping':
+        return { ok: true, message: { t: 'ping' } };
+      case 'convoy.message':
+        return { ok: true, message: { t: o.t, room: id(o, 'room'), text: str(o, 'text', MAX_CONVOY_MESSAGE_LENGTH, true), clientId: id(o, 'clientId') } };
       case 'chat.sub':
       case 'chat.unsub':
       case 'pos.stop':
         return { ok: true, message: { t: o.t } };
       case 'convoy.create':
-        return { ok: true, message: { t: o.t, name: str(o, 'name', MAX_NAME) } };
+        return { ok: true, message: { t: o.t, name: str(o, 'name', MAX_NAME), automaticRegroup: automaticRegroup(o.automaticRegroup) } };
       case 'convoy.join': {
         const code = normalizeCode(str(o, 'code', 32, true));
         if (!CODE_PATTERN.test(code)) return bad('That is not a convoy code');
@@ -81,6 +109,13 @@ export function parseClientMessage(raw: string): ParsedMessage {
         }
         return { ok: true, message: { t: o.t, room: id(o, 'room'), destination } };
       }
+      case 'convoy.rest': {
+        const action = o.action;
+        if (action !== 'find' && action !== 'continue') return bad('rest action must be find or continue');
+        return { ok: true, message: { t: o.t, room: id(o, 'room'), action } };
+      }
+      case 'convoy.route':
+        return { ok: true, message: { t: o.t, room: id(o, 'room'), route: convoyRoute(o.route) } };
       case 'convoy.remove':
         return { ok: true, message: { t: o.t, room: id(o, 'room'), id: id(o, 'id') } };
       case 'convoy.lead':

@@ -1,5 +1,6 @@
 import { Marker, type Map as MlMap } from 'maplibre-gl';
 import type { Destination, Member } from './types.js';
+import { ConvoyMotion } from './motion.js';
 
 /**
  * Draw a convoy on any MapLibre map: a pin per member who is sharing, an
@@ -19,7 +20,7 @@ import type { Destination, Member } from './types.js';
 /** A pin gone quiet this long is drawn faded: the phone has stopped reporting, though it has not dropped off. */
 export const STALE_MS = 30_000;
 
-export interface ConvoyPin { id: string; username: string; lat: number; lng: number; heading: number | null; leader: boolean; me: boolean; stale: boolean }
+export interface ConvoyPin { id: string; username: string; lat: number; lng: number; heading: number | null; leader: boolean; me: boolean; stale: boolean; predicted?: boolean }
 
 export interface ConvoyOptions { me?: string | null; leader?: string | null; destination?: Destination | null; now?: () => number }
 
@@ -58,22 +59,35 @@ function paint(el: HTMLElement, pin: ConvoyPin): void {
   el.classList.toggle('is-me', pin.me);
   el.classList.toggle('is-leader', pin.leader);
   el.classList.toggle('is-stale', pin.stale);
+  el.classList.toggle('is-predicted', !!pin.predicted);
   const arrow = el.querySelector<HTMLElement>('.convoy-pin__arrow')!;
   arrow.hidden = pin.heading === null;
   if (pin.heading !== null) arrow.style.transform = `rotate(${pin.heading}deg)`;
   // textContent, never innerHTML: the name is somebody else's.
-  el.querySelector<HTMLElement>('.convoy-pin__label')!.textContent = pin.me ? 'You' : pin.username;
-  el.title = pin.username;
+  const label = el.querySelector<HTMLElement>('.convoy-pin__label')!;
+  const text = `${pin.me ? 'You' : pin.username}${pin.predicted ? ' ~' : ''}`;
+  if (label.textContent !== text) label.textContent = text;
+  el.title = `${pin.username}${pin.predicted ? ' · estimated position; waiting for GPS' : ''}${pin.stale ? ' · location is stale' : ''}`;
 }
 
 export function attachConvoyLayer(map: MlMap, members: Member[] = [], opts: ConvoyOptions = {}): ConvoyLayer {
   const markers = new Map<string, Marker>();
+  const motion = new ConvoyMotion();
+  let latestMembers: Member[] = members;
+  let frame: number | null = null;
+  let lastPaint = 0;
+  let settledTimer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
   let flag: Marker | null = null;
   let current: ConvoyOptions = opts;
   let points: [number, number][] = [];
 
   function update(next: Member[], nextOpts: ConvoyOptions = current): void {
+    if (disposed) return;
     current = nextOpts;
+    latestMembers = next;
+    if (settledTimer) { clearTimeout(settledTimer); settledTimer = null; }
+    motion.update(next, current.now?.() ?? Date.now());
     const pins = pinsFor(next, current, current.now?.() ?? Date.now());
     const alive = new Set(pins.map((p) => p.id));
     for (const [id, marker] of markers) if (!alive.has(id)) { marker.remove(); markers.delete(id); }
@@ -83,11 +97,18 @@ export function attachConvoyLayer(map: MlMap, members: Member[] = [], opts: Conv
         marker = new Marker({ element: pinElement(), rotationAlignment: 'viewport' }).setLngLat([pin.lng, pin.lat]).addTo(map);
         markers.set(pin.id, marker);
       } else {
-        marker.setLngLat([pin.lng, pin.lat]);
+        const pose = motion.pose(pin.id, current.now?.() ?? Date.now());
+        if (pose) marker.setLngLat([pose.lng, pose.lat]);
       }
       paint(marker.getElement(), pin);
     }
     points = pins.map((p) => [p.lng, p.lat]);
+    if (!markers.size && frame !== null) { cancelAnimationFrame(frame); frame = null; }
+    if (motion.isAnimating(current.now?.() ?? Date.now())) startAnimation();
+    else {
+      if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
+      if (markers.size && document.visibilityState === 'visible') settledTimer = setTimeout(() => update(latestMembers, current), 5000);
+    }
     const dest = current.destination ?? null;
     if (!dest) { flag?.remove(); flag = null; return; }
     if (!flag) {
@@ -102,7 +123,40 @@ export function attachConvoyLayer(map: MlMap, members: Member[] = [], opts: Conv
     points.push([dest.lng, dest.lat]);
   }
 
+  function animate(): void {
+    frame = null;
+    if (disposed || !markers.size || document.visibilityState !== 'visible') return;
+    // Browsers pause RAF in hidden tabs; explicitly skip work there as well.
+    if ((current.now?.() ?? Date.now()) - lastPaint >= 32) {
+      const now = current.now?.() ?? Date.now();
+      lastPaint = now;
+      points = [];
+      for (const pin of pinsFor(latestMembers, current, now)) {
+        const pose = motion.pose(pin.id, now);
+        const marker = markers.get(pin.id);
+        if (!pose || !marker) continue;
+        marker.setLngLat([pose.lng, pose.lat]);
+        paint(marker.getElement(), { ...pin, ...pose });
+        points.push([pose.lng, pose.lat]);
+      }
+      if (current.destination) points.push([current.destination.lng, current.destination.lat]);
+    }
+    if (motion.isAnimating(current.now?.() ?? Date.now())) startAnimation();
+    else settledTimer = setTimeout(() => update(latestMembers, current), 5000);
+  }
+
+  function startAnimation(): void {
+    if (!disposed && markers.size && frame === null && document.visibilityState === 'visible') frame = requestAnimationFrame(animate);
+  }
+  function visibility(): void {
+    if (document.visibilityState !== 'visible') {
+      if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
+      if (settledTimer) { clearTimeout(settledTimer); settledTimer = null; }
+    } else startAnimation();
+  }
+
   update(members, opts);
+  document.addEventListener('visibilitychange', visibility);
   return {
     update,
     fit() {
@@ -112,6 +166,10 @@ export function attachConvoyLayer(map: MlMap, members: Member[] = [], opts: Conv
       map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 60, maxZoom: 16, duration: 600 });
     },
     remove() {
+      disposed = true;
+      if (settledTimer) clearTimeout(settledTimer);
+      if (frame !== null) cancelAnimationFrame(frame);
+      document.removeEventListener('visibilitychange', visibility);
       for (const marker of markers.values()) marker.remove();
       markers.clear();
       flag?.remove();

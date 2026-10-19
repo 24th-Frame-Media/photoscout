@@ -14,6 +14,7 @@
     { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
+    { "name": "Convoy", "short_name": "Convoy", "description": "Your active convoy and private chat", "url": "/convoy", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
     { "name": "Drive", "short_name": "Drive", "description": "Turn-by-turn navigation", "url": "/drive", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
   ]
 }

@@ -22,6 +22,9 @@ const pick = (rooms: Room[], wanted: string | null): string | null =>
 
 export function reduce(state: ConvoyState, m: ServerMessage): ConvoyState {
   switch (m.t) {
+    case 'convoy.message':
+      return { ...state, rooms: state.rooms.map((r) => r.code !== m.room || r.messages.some((x) => x.id === m.message.id)
+        ? r : { ...r, messages: [...r.messages, m.message].slice(-50) }) };
     case 'hello':
       return { ...state, me: m.me, rooms: m.rooms, active: pick(m.rooms, state.active), error: '' };
     case 'room': {
@@ -59,10 +62,10 @@ export function withMine(room: Room, me: string | null, mine: Position | null): 
 }
 
 /** The pieces of a room the map draws, in the one shape any map can be handed. */
-export interface ConvoyView { members: Member[]; leader: string; me: string | null; destination: Destination | null }
+export interface ConvoyView { members: Member[]; leader: string; me: string | null; destination: Destination | null; route: import('./types.js').ConvoyRoute | null }
 
 export const viewOf = (room: Room, me: string | null, mine: Position | null): ConvoyView =>
-  ({ members: withMine(room, me, mine), leader: room.leader, me, destination: room.destination });
+  ({ members: withMine(room, me, mine), leader: room.leader, me, destination: room.destination, route: room.route });
 
 /** "just now", "3 min ago", "2 h ago" for a last-seen time given in ms. */
 export function lastSeenText(ms: number, now = Date.now()): string {

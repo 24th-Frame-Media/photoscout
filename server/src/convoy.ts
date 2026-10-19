@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { haversine } from './geo.js';
 
 /**
  * Convoy rooms: who is driving together, where they are and where they are going.
@@ -25,6 +26,13 @@ export const POSITION_GAP_MS = 900;
 export const MAX_REMOVED = 100;
 export const MAX_NAME = 40;
 export const MAX_LABEL = 80;
+export const DEFAULT_REGROUP_SEPARATION_M = 5_000;
+export const MIN_REGROUP_SEPARATION_M = 1_000;
+export const MAX_REGROUP_SEPARATION_M = 20_000;
+/** A wide reading must persist this long before GPS lag can trigger a regroup. */
+export const AUTO_REGROUP_DELAY_MS = 90_000;
+/** Do not decide a group is split from a stale phone location. */
+export const AUTO_REGROUP_FRESH_MS = 35_000;
 
 /** No 0/O, 1/I/L: a code is read aloud and typed on a phone. 31^8 is about 8.5e11. */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -43,6 +51,15 @@ export const normalizeCode = (raw: string): string => raw.replace(/[\s-]/g, '').
 export interface Who { id: string; username: string; avatar: string }
 export interface Position { lat: number; lng: number; heading: number | null; speed: number | null; ts: number }
 export interface Destination { lat: number; lng: number; label: string }
+/** A shared driving itinerary. A circuit includes its first stop again at the end. */
+export interface ConvoyRoute { name: string; stops: [number, number][] }
+export const MAX_CONVOY_ROUTE_STOPS = 25;
+export interface AutomaticRegroup { enabled: boolean; separationM: number }
+export interface ConvoyMessage { id: string; clientId: string; userId: string; username: string; text: string; ts: number }
+export const MAX_CONVOY_MESSAGES = 50;
+export const CONVOY_MESSAGE_TTL_MS = 30 * 60_000;
+export const MAX_CONVOY_MESSAGE_LENGTH = 500;
+export const CONVOY_CHAT_GAP_MS = 2_000;
 
 interface Member extends Who {
   online: boolean;
@@ -51,6 +68,7 @@ interface Member extends Who {
   lastPositionAt: number;
   position: Position | null;
   joinedAt: number;
+  lastMessageAt?: number;
 }
 
 interface Room {
@@ -60,6 +78,16 @@ interface Room {
   eventId: string | null;
   leader: string;
   destination: Destination | null;
+  /** The original destination while the convoy is temporarily paused at a rest stop. */
+  resumeDestination: Destination | null;
+  resting: boolean;
+  route: ConvoyRoute | null;
+  automaticRegroup: AutomaticRegroup;
+  separatedSince: number | null;
+  regroupPending: boolean;
+  messages: ConvoyMessage[];
+  navigationVersion: number;
+  lastRestLookupAt?: number;
   members: Map<string, Member>;
   /** People the leader removed: they cannot come back in with the code. */
   removed: Set<string>;
@@ -70,11 +98,15 @@ interface Room {
 
 /** What goes to a client: ids and public profile only, the same as chat shows. */
 export interface RoomView {
+  messages: ConvoyMessage[];
   code: string;
   name: string;
   eventId: string | null;
   leader: string;
   destination: Destination | null;
+  resting: boolean;
+  route: ConvoyRoute | null;
+  automaticRegroup: AutomaticRegroup;
   members: { id: string; username: string; avatar: string; online: boolean; lastSeen: number; position: Position | null }[];
 }
 
@@ -95,8 +127,12 @@ export class Rooms {
   view(code: string): RoomView | undefined {
     const room = this.room(code);
     if (!room) return undefined;
+    room.messages = room.messages.filter((m) => this.now() - m.ts < CONVOY_MESSAGE_TTL_MS);
     return {
-      code: room.code, name: room.name, eventId: room.eventId, leader: room.leader, destination: room.destination,
+      messages: room.messages.map((m) => ({ ...m })),
+      code: room.code, name: room.name, eventId: room.eventId, leader: room.leader, destination: room.destination, resting: room.resting,
+      route: room.route && { name: room.route.name, stops: room.route.stops.map((p) => [...p] as [number, number]) },
+      automaticRegroup: { ...room.automaticRegroup },
       members: [...room.members.values()].sort((a, b) => a.joinedAt - b.joinedAt).map((m) => ({
         id: m.id, username: m.username, avatar: m.avatar, online: m.online, lastSeen: m.lastSeen, position: m.online ? m.position : null,
       })),
@@ -113,7 +149,25 @@ export class Rooms {
 
   isLeader(code: string, userId: string): boolean { return this.room(code)?.leader === userId; }
 
-  create(who: Who, opts: { name?: string; eventId?: string | null; destination?: Destination | null } = {}): Outcome {
+  /** Private room chat, bounded in memory; retries with the same client id are idempotent. */
+  message(code: string, userId: string, text: string, clientId: string): Outcome<ConvoyMessage> {
+    const room = this.room(code);
+    const member = room?.members.get(userId);
+    if (!room || !member) return fail('You are not in that convoy');
+    const now = this.now();
+    room.messages = room.messages.filter((m) => now - m.ts < CONVOY_MESSAGE_TTL_MS);
+    const duplicate = room.messages.find((m) => m.userId === userId && m.clientId === clientId);
+    if (duplicate) return { ok: true, value: { ...duplicate } };
+    const clean = text.trim();
+    if (!clean || clean.length > MAX_CONVOY_MESSAGE_LENGTH) return fail('Messages need 1 to 500 characters');
+    if (member.lastMessageAt !== undefined && now - member.lastMessageAt < CONVOY_CHAT_GAP_MS) return fail('Wait a moment before sending another message');
+    const message = { id: crypto.randomUUID(), clientId, userId, username: member.username, text: clean, ts: now };
+    member.lastMessageAt = now;
+    room.messages = [...room.messages, message].slice(-MAX_CONVOY_MESSAGES);
+    return { ok: true, value: { ...message } };
+  }
+
+  create(who: Who, opts: { name?: string; eventId?: string | null; destination?: Destination | null; route?: ConvoyRoute | null; automaticRegroup?: AutomaticRegroup } = {}): Outcome {
     if (this.rooms.size >= MAX_ROOMS) return fail('Convoys are very busy right now. Try again shortly.');
     if ((this.byUser.get(who.id)?.size ?? 0) >= MAX_ROOMS_PER_USER) return fail(`You can be in ${MAX_ROOMS_PER_USER} convoys at once: leave one first`);
     if (opts.eventId && this.byEvent.has(opts.eventId)) return fail('That cruise already has a convoy');
@@ -122,7 +176,16 @@ export class Rooms {
     const now = this.now();
     const room: Room = {
       code, name: (opts.name ?? '').trim().slice(0, MAX_NAME) || 'Convoy', eventId: opts.eventId ?? null, leader: who.id,
-      destination: opts.destination ?? null, members: new Map(), removed: new Set(), createdAt: now, emptySince: null,
+      destination: opts.destination ?? null,
+      resumeDestination: null,
+      resting: false,
+      route: opts.route ? { name: opts.route.name.trim().slice(0, MAX_NAME) || 'Convoy route', stops: opts.route.stops.map((p) => [...p] as [number, number]) } : null,
+      automaticRegroup: opts.automaticRegroup ?? { enabled: false, separationM: DEFAULT_REGROUP_SEPARATION_M },
+      separatedSince: null,
+      regroupPending: false,
+      messages: [],
+      navigationVersion: 0,
+      members: new Map(), removed: new Set(), createdAt: now, emptySince: null,
     };
     this.rooms.set(code, room);
     if (room.eventId) this.byEvent.set(room.eventId, code);
@@ -163,7 +226,7 @@ export class Rooms {
     mine?.delete(code);
     if (mine?.size === 0) this.byUser.delete(userId);
     if (room.members.size === 0) { this.drop(room); return undefined; }
-    if (room.leader === userId) room.leader = this.successor(room);
+    if (room.leader === userId) { room.leader = this.successor(room); room.navigationVersion++; room.regroupPending = false; }
     this.settle(room);
     return this.view(code);
   }
@@ -183,7 +246,79 @@ export class Rooms {
     const room = this.room(code);
     if (!room?.members.has(userId)) return fail('You are not in that convoy');
     if (room.leader !== userId) return fail('Only the leader can set the destination');
+    room.navigationVersion++;
     room.destination = destination && { ...destination, label: destination.label.trim().slice(0, MAX_LABEL) };
+    room.resumeDestination = null;
+    room.resting = false;
+    room.separatedSince = null;
+    room.regroupPending = false;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** Temporarily replace the destination with a rest stop, remembering where the convoy was headed. */
+  setRestStop(code: string, userId: string, destination: Destination): Outcome {
+    const room = this.room(code);
+    if (!room?.members.has(userId)) return fail('You are not in that convoy');
+    if (room.resting) return fail('The convoy is already in rest mode');
+    room.navigationVersion++;
+    room.resumeDestination = room.destination && { ...room.destination };
+    room.destination = { ...destination, label: destination.label.trim().slice(0, MAX_LABEL) };
+    room.resting = true;
+    room.separatedSince = null;
+    room.regroupPending = false;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** Leave rest mode and restore the destination that was active before the stop. */
+  continueDestination(code: string, userId: string): Outcome {
+    const room = this.room(code);
+    if (!room?.members.has(userId)) return fail('You are not in that convoy');
+    if (room.leader !== userId) return fail('Only the leader can set the destination');
+    if (!room.resting) return fail('The convoy is not in rest mode');
+    room.navigationVersion++;
+    room.destination = room.resumeDestination;
+    room.resumeDestination = null;
+    room.resting = false;
+    room.separatedSince = null;
+    room.regroupPending = false;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** The leader shares a route as ordered driving stops, including a circuit's closing stop when applicable. */
+  setRoute(code: string, userId: string, route: ConvoyRoute | null): Outcome {
+    const room = this.room(code);
+    if (!room?.members.has(userId)) return fail('You are not in that convoy');
+    if (room.leader !== userId) return fail('Only the leader can set the route');
+    room.navigationVersion++;
+    room.route = route && { name: route.name.trim().slice(0, MAX_NAME) || 'Convoy route', stops: route.stops.map((p) => [...p] as [number, number]) };
+    room.separatedSince = null;
+    room.regroupPending = false;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** Shared cooldown covers every member and socket, including automatic regroup. */
+  reserveRestLookup(code: string, userId: string): Outcome<number> {
+    const room = this.room(code);
+    if (!room?.members.has(userId)) return fail('You are not in that convoy');
+    if (!room.route || room.resting) return fail('A shared route outside rest mode is required');
+    if (room.lastRestLookupAt !== undefined && this.now() - room.lastRestLookupAt < 30_000) return fail('A rest-stop search was just requested. Try again in a moment.');
+    room.lastRestLookupAt = this.now();
+    return { ok: true, value: room.navigationVersion };
+  }
+
+  navigationVersion(code: string): number | undefined { return this.room(code)?.navigationVersion; }
+
+  /** Complete an automatic rest-stop lookup atomically, so repeated position updates cannot queue duplicates. */
+  completeAutomaticRegroup(code: string, destination: Destination | null): Outcome {
+    const room = this.room(code);
+    if (!room?.regroupPending) return fail('That automatic regroup is no longer pending');
+    room.regroupPending = false;
+    if (!destination) return { ok: true, value: this.view(code)! };
+    if (!room.automaticRegroup.enabled || !room.route || room.resting) return fail('That automatic regroup is no longer available');
+    room.navigationVersion++;
+    room.resumeDestination = room.destination && { ...room.destination };
+    room.destination = { ...destination, label: destination.label.trim().slice(0, MAX_LABEL) };
+    room.resting = true;
     return { ok: true, value: this.view(code)! };
   }
 
@@ -193,6 +328,8 @@ export class Rooms {
     if (room.leader !== userId) return fail('Only the leader can hand over');
     if (!room.members.has(to)) return fail('They are not in this convoy');
     room.leader = to;
+    room.navigationVersion++;
+    room.regroupPending = false;
     return { ok: true, value: this.view(code)! };
   }
 
@@ -213,7 +350,7 @@ export class Rooms {
    * A position from a member: kept as their latest and returned with the rooms
    * it goes to, or null when it came too soon after the last (throttled).
    */
-  position(userId: string, p: Omit<Position, 'ts'>): { position: Position; codes: string[] } | null {
+  position(userId: string, p: Omit<Position, 'ts'>): { position: Position; codes: string[]; automaticRegroupCodes: string[] } | null {
     const codes = this.roomsOf(userId);
     if (codes.length === 0) return null;
     const now = this.now();
@@ -226,7 +363,24 @@ export class Rooms {
       m.lastPositionAt = now;
       m.lastSeen = now;
     }
-    return { position, codes };
+    return { position, codes, automaticRegroupCodes: codes.filter((code) => this.automaticRegroupDue(this.room(code)!, now)) };
+  }
+
+  private automaticRegroupDue(room: Room, now: number): boolean {
+    if (!room.automaticRegroup.enabled || !room.route || room.resting || room.regroupPending) {
+      room.separatedSince = null;
+      return false;
+    }
+    const positions = [...room.members.values()].filter((m) => m.online && m.position && now - m.position.ts <= AUTO_REGROUP_FRESH_MS).map((m) => m.position!);
+    if (positions.length < 2) { room.separatedSince = null; return false; }
+    let widest = 0;
+    for (let i = 0; i < positions.length; i++) for (let j = i + 1; j < positions.length; j++) widest = Math.max(widest, haversine(positions[i].lat, positions[i].lng, positions[j].lat, positions[j].lng));
+    if (widest < room.automaticRegroup.separationM) { room.separatedSince = null; return false; }
+    if (room.separatedSince === null) { room.separatedSince = now; return false; }
+    if (now - room.separatedSince < AUTO_REGROUP_DELAY_MS) return false;
+    room.separatedSince = null;
+    room.regroupPending = true;
+    return true;
   }
 
   /** They stopped sharing but are still in the room: their dot goes. Returns the rooms that changed. */
@@ -276,6 +430,7 @@ export class Rooms {
     const changed: string[] = [];
     const gone: string[] = [];
     for (const room of [...this.rooms.values()]) {
+      room.messages = room.messages.filter((m) => now - m.ts < CONVOY_MESSAGE_TTL_MS);
       for (const m of [...room.members.values()]) {
         if (!m.online && now - m.lastSeen >= MEMBER_GRACE_MS && this.leave(room.code, m.id) && !changed.includes(room.code)) changed.push(room.code);
       }

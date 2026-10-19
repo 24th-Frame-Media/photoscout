@@ -2,6 +2,7 @@ import { canRead } from './auth.js';
 import type { Db } from './db.js';
 import { findUserById } from './authStore.js';
 import { parseRouteVertices, isRouteType, type RouteRow, type RouteType, type RouteVertex } from './routes.js';
+import { MAX_CONVOY_ROUTE_STOPS, type ConvoyRoute } from './convoy.js';
 
 /**
  * A cruise is a community event with a route to drive, a place to meet and a
@@ -121,8 +122,20 @@ export function cruiseJson(cruise: Cruise | null, full: boolean) {
  * The organiser starts it; anyone who has said they are going joins it. The
  * event has to be on, shown, and have a cruise.
  */
+function convoyRoute(cruise: Cruise): ConvoyRoute {
+  const closes = cruise.route.type === 'circuit';
+  const maxVertices = MAX_CONVOY_ROUTE_STOPS - (closes ? 1 : 0);
+  const vertices = cruise.route.vertices.length <= maxVertices
+    ? cruise.route.vertices
+    : Array.from({ length: maxVertices }, (_, i) => cruise.route.vertices[Math.round((i * (cruise.route.vertices.length - 1)) / (maxVertices - 1))]);
+  const stops = vertices.map(([lng, lat]) => [lng, lat] as [number, number]);
+  const first = stops[0], last = stops.at(-1)!;
+  if (closes && (first[0] !== last[0] || first[1] !== last[1])) stops.push([...first]);
+  return { name: cruise.route.name, stops };
+}
+
 export function cruiseAccess(db: Db, eventId: string, userId: string, now = Date.now()):
-  { ok: true; title: string; isOwner: boolean; meet: Cruise['meet'] } | { ok: false; error: string } {
+  { ok: true; title: string; isOwner: boolean; meet: Cruise['meet']; route: ConvoyRoute } | { ok: false; error: string } {
   const r = db.handle.prepare(
     `SELECT e.owner_id, e.title, e.start_time, e.end_time, e.hidden, e.cruise, u.banned,
             EXISTS (SELECT 1 FROM community_rsvps s WHERE s.event_id = e.id AND s.user_id = ?) AS going
@@ -134,5 +147,5 @@ export function cruiseAccess(db: Db, eventId: string, userId: string, now = Date
   if (end <= now) return fail('That cruise is over');
   const isOwner = r.owner_id === userId;
   if (!isOwner && r.going !== 1) return fail('Say you are going to join the convoy');
-  return { ok: true, title: r.title, isOwner, meet: cruise.meet };
+  return { ok: true, title: r.title, isOwner, meet: cruise.meet, route: convoyRoute(cruise) };
 }

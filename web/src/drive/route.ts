@@ -159,9 +159,15 @@ export function parseNavRoute(data: unknown): NavRoute | null {
 /**
  * The stops still ahead of the driver: those that sit on the route beyond
  * where they are, so a reroute does not send them back for one they have passed.
+ * Repeated stops (the start at the end of a circuit) are matched in route order.
  */
 export function stopsAhead(route: NavRoute, stops: LngLat[], alongM: number): LngLat[] {
-  return stops.filter((stop) => snapToPolyline(route.coords, route.cum, stop).along > alongM + 30);
+  let afterAlong = 0;
+  return stops.filter((stop) => {
+    const snap = snapToPolyline(route.coords, route.cum, stop, { afterAlong });
+    afterAlong = snap.along + 0.001;
+    return snap.along > alongM + 30;
+  });
 }
 
 /**

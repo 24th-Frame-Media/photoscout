@@ -106,6 +106,10 @@ test('join by code works, a wrong code fails, and the convoy shows everyone', as
   const dest = await b.next((m) => m.t === 'room' && m.room.destination);
   assert.deepEqual(dest.room.destination, { lat: -33.4, lng: 149.5, label: 'Mount Panorama' });
 
+  a.send({ t: 'convoy.route', room: room.code, route: { name: 'Mountain loop', stops: [[149.5, -33.4], [149.6, -33.5], [149.5, -33.4]] } });
+  const sharedRoute = await b.next((m) => m.t === 'room' && m.room.route);
+  assert.deepEqual(sharedRoute.room.route, { name: 'Mountain loop', stops: [[149.5, -33.4], [149.6, -33.5], [149.5, -33.4]] });
+
   // Leading can be handed over.
   const bobId = await idOf(bob);
   a.send({ t: 'convoy.lead', room: room.code, to: bobId });

@@ -22,10 +22,11 @@ import Drive from './pages/Drive.js';
 import DriveConvoy from './convoy/DriveConvoy.js';
 import Moderation from './pages/Moderation.js';
 import Convoy from './pages/Convoy.js';
+import ConvoySession, { ConvoyNav } from './convoy/ConvoySession.js';
 
 /** What everybody comes for sits in the bar; what is yours, or is a tool, sits under your name. */
 const NAV = [['/', 'Map'], ['/events', 'Events'], ['/feed', 'Feed'], ['/chat', 'Chat']] as const;
-const MORE = [['/drive', 'Drive'], ['/convoy', 'Convoy'], ['/kit', 'Kit'], ['/plan', 'Plan a shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
+const MORE = [['/drive', 'Drive'], ['/kit', 'Kit'], ['/plan', 'Plan a shoot'], ['/import', 'Import / export'], ['/settings', 'Settings']] as const;
 
 export default function App() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -89,6 +90,9 @@ export default function App() {
             <Link key={path} to={path} className={active(path) ? 'active' : ''}>{label}</Link>
           ))}
           {user && (
+            <ConvoyNav key={`convoy-nav-${user.id}`} />
+          )}
+          {user && (
             <div className="account">
               <button type="button" className={`account__button${MORE.some(([p]) => active(p)) || active('/u/') || active('/moderation') ? ' active' : ''}`}
                 aria-haspopup="menu" aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}>{user.username} ▾</button>
@@ -107,6 +111,7 @@ export default function App() {
       </div>
       {accountOpen && <div className="account__scrim" onClick={() => setAccountOpen(false)} />}
       {menuOpen && <div className="topbar__scrim" onClick={() => setMenuOpen(false)} />}
+      {user && <ConvoySession key={user.id} />}
       <Routes>
         <Route path="/places/:id" element={<PlacePage />} />
         <Route path="/events" element={<Events user={user} />} />

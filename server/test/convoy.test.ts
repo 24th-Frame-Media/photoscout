@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CODE_LENGTH, CODE_PATTERN, MAX_MEMBERS, MAX_ROOMS_PER_USER, MEMBER_GRACE_MS, MissLimiter, newCode, normalizeCode, POSITION_GAP_MS, ROOM_IDLE_MS, Rooms,
+  AUTO_REGROUP_DELAY_MS, CODE_LENGTH, CODE_PATTERN, MAX_MEMBERS, MAX_ROOMS_PER_USER, MEMBER_GRACE_MS, MissLimiter, newCode, normalizeCode, POSITION_GAP_MS, ROOM_IDLE_MS, Rooms,
 } from '../src/convoy.js';
 import { parseClientMessage } from '../src/wsMessages.js';
 
@@ -38,6 +38,79 @@ test('the creator leads; joining twice is harmless; a stranger cannot set the de
   assert.equal(rooms.handOver(room.code, 'u2', 'u1').ok, false, 'only the leader hands over');
   assert.equal(rooms.handOver(room.code, 'u1', 'nobody').ok, false);
   assert.equal(rooms.handOver(room.code, 'u1', 'u2').ok && rooms.view(room.code)!.leader, 'u2');
+});
+
+test('the leader can share a route, including a circuit closing stop', () => {
+  const rooms = new Rooms();
+  const made = rooms.create(who(1));
+  assert.ok(made.ok);
+  const route = { name: 'Mountain loop', stops: [[149.57, -33.42], [149.58, -33.43], [149.57, -33.42]] as [number, number][] };
+  const setRoute = (rooms as unknown as { setRoute: (code: string, userId: string, route: { name: string; stops: [number, number][] } | null) => { ok: boolean } }).setRoute;
+
+  assert.equal(setRoute.call(rooms, made.value.code, 'u2', route).ok, false);
+  assert.equal(setRoute.call(rooms, made.value.code, 'u1', route).ok, true);
+  assert.deepEqual(rooms.view(made.value.code)!.route, route);
+});
+
+test('any convoy member can pause at a rest stop, while the leader resumes the saved destination', () => {
+  const rooms = new Rooms();
+  const made = rooms.create(who(1), { destination: { lat: -33.4, lng: 149.5, label: 'Final lookout' } });
+  assert.ok(made.ok);
+  assert.ok(rooms.join(made.value.code, who(2)).ok);
+  const rest = { lat: -33.3, lng: 149.4, label: 'Macca\'s — restrooms tagged' };
+  const api = rooms as unknown as {
+    setRestStop: (code: string, userId: string, destination: { lat: number; lng: number; label: string }) => { ok: boolean };
+    continueDestination: (code: string, userId: string) => { ok: boolean };
+  };
+
+  assert.equal(api.setRestStop(made.value.code, 'u2', rest).ok, true);
+  assert.deepEqual(rooms.view(made.value.code)!.destination, rest);
+  assert.equal((rooms.view(made.value.code)! as { resting?: boolean }).resting, true);
+  assert.equal(api.continueDestination(made.value.code, 'u2').ok, false);
+  assert.equal(api.continueDestination(made.value.code, 'u1').ok, true);
+  assert.deepEqual(rooms.view(made.value.code)!.destination, { lat: -33.4, lng: 149.5, label: 'Final lookout' });
+  assert.equal((rooms.view(made.value.code)! as { resting?: boolean }).resting, false);
+});
+
+test('automatic regroup waits for sustained fresh GPS separation, and is off by default', () => {
+  const c = clock();
+  const rooms = new Rooms(c.now);
+  const route = { name: 'Mountain loop', stops: [[149.5, -33.4], [149.6, -33.5]] as [number, number][] };
+  const made = rooms.create(who(1), { route, automaticRegroup: { enabled: true, separationM: 5_000 } });
+  assert.ok(made.ok);
+  if (!made.ok) return;
+  const code = made.value.code;
+  assert.deepEqual(made.value.automaticRegroup, { enabled: true, separationM: 5_000 });
+  assert.ok(rooms.join(code, who(2)).ok);
+  const send = (id: string, lat: number, lng: number) => rooms.position(id, { lat, lng, heading: null, speed: null })!;
+
+  assert.deepEqual(send('u1', -33.4, 149.5).automaticRegroupCodes, []);
+  c.t += POSITION_GAP_MS;
+  assert.deepEqual(send('u2', -33.3, 149.5).automaticRegroupCodes, [], 'the first wide reading only starts the delay');
+  for (let elapsed = 0; elapsed < AUTO_REGROUP_DELAY_MS; elapsed += 31_000) {
+    c.t += 30_000;
+    const first = send('u1', -33.4, 149.5);
+    c.t += POSITION_GAP_MS;
+    const out = send('u2', -33.3, 149.5);
+    if (elapsed + 31_000 < AUTO_REGROUP_DELAY_MS) {
+      assert.deepEqual(first.automaticRegroupCodes, []);
+      assert.deepEqual(out.automaticRegroupCodes, []);
+    } else {
+      assert.deepEqual([...first.automaticRegroupCodes, ...out.automaticRegroupCodes], [code]);
+    }
+  }
+  const regrouped = rooms.completeAutomaticRegroup(code, { lat: -33.35, lng: 149.52, label: 'Regroup stop' });
+  assert.ok(regrouped.ok);
+  if (regrouped.ok) {
+    assert.equal(regrouped.value.resting, true);
+    assert.equal(regrouped.value.destination?.label, 'Regroup stop');
+  }
+  c.t += POSITION_GAP_MS;
+  assert.deepEqual(send('u1', -33.4, 149.5).automaticRegroupCodes, [], 'a resting convoy does not queue another regroup');
+
+  const plain = rooms.create(who(3), { route });
+  assert.ok(plain.ok);
+  assert.deepEqual(plain.value.automaticRegroup, { enabled: false, separationM: 5_000 });
 });
 
 test('a convoy holds 30, and a user is in 3', () => {
@@ -167,6 +240,8 @@ test('every client message is checked, and unlisted fields are dropped', () => {
   assert.deepEqual(ok({ t: 'pos', lat: 1, lng: 2, speed: 3, extra: 'x' }), { ok: true, message: { t: 'pos', lat: 1, lng: 2, heading: null, speed: 3 } });
   assert.deepEqual(ok({ t: 'convoy.join', code: 'abcd efgh' }), { ok: true, message: { t: 'convoy.join', code: 'ABCDEFGH' } });
   assert.deepEqual(ok({ t: 'convoy.dest', room: 'R', destination: null }), { ok: true, message: { t: 'convoy.dest', room: 'R', destination: null } });
+  assert.deepEqual(ok({ t: 'convoy.rest', room: 'R', action: 'find' }), { ok: true, message: { t: 'convoy.rest', room: 'R', action: 'find' } });
+  assert.deepEqual(ok({ t: 'convoy.create', name: 'Run', automaticRegroup: { enabled: true, separationM: 7_000 } }), { ok: true, message: { t: 'convoy.create', name: 'Run', automaticRegroup: { enabled: true, separationM: 7_000 } } });
   for (const bad of [
     'not json', '[]', '7', '{}', { t: 7 }, { t: 'nope' },
     { t: 'pos', lat: 91, lng: 0 }, { t: 'pos', lat: 0, lng: 181 }, { t: 'pos', lat: '1', lng: 0 }, { t: 'pos', lat: null, lng: 0 },
@@ -174,6 +249,7 @@ test('every client message is checked, and unlisted fields are dropped', () => {
     { t: 'pos', lat: Number.NaN, lng: 0 },
     { t: 'convoy.join', code: 'short' }, { t: 'convoy.join', code: 'ABCDEFG0' }, { t: 'convoy.join' },
     { t: 'convoy.create', name: 'x'.repeat(41) }, { t: 'convoy.create', name: 5 },
+    { t: 'convoy.create', name: 'Run', automaticRegroup: { enabled: true, separationM: 999 } }, { t: 'convoy.create', name: 'Run', automaticRegroup: { enabled: 'yes', separationM: 5_000 } },
     { t: 'convoy.dest', room: 'R', destination: { lat: 0, lng: 0, label: 'x'.repeat(81) } }, { t: 'convoy.dest', room: 'R', destination: 'home' },
     { t: 'convoy.lead', room: 'R' }, { t: 'convoy.cruise', eventId: '' },
   ]) {

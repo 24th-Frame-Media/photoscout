@@ -6,6 +6,7 @@ import { originAllowed, readCookie, SESSION_COOKIE } from './auth.js';
 import { findUserById, hashOf, onSessionsRevoked, sessionUser } from './authStore.js';
 import { publicUrl } from './oauth.js';
 import { MAX_LABEL, MissLimiter, Rooms, type Who } from './convoy.js';
+import { findRestStop, restStopLabel } from './sources/restStops.js';
 import { cruiseAccess } from './cruise.js';
 import { parseClientMessage, type ClientMessage } from './wsMessages.js';
 
@@ -59,6 +60,8 @@ let rooms = new Rooms();
 const misses = new MissLimiter();
 
 const send = (conn: Conn, message: unknown): void => {
+  // A stalled phone must not accumulate an unbounded queue of positions or chat.
+  if (conn.ws.bufferedAmount > 256 * 1024) { conn.ws.terminate(); return; }
   if (conn.ws.readyState === conn.ws.OPEN) conn.ws.send(JSON.stringify(message));
 };
 const sendUser = (userId: string, message: unknown): void => {
@@ -70,6 +73,21 @@ function announce(code: string): void {
   const view = rooms.view(code);
   if (!view) return;
   for (const id of rooms.memberIds(code)) sendUser(id, { t: 'room', room: view });
+}
+
+/** A sustained split queued by Rooms: look up one advisory stop and apply it only if it is still pending. */
+function automaticRegroup(code: string): void {
+  const room = rooms.view(code);
+  if (!room?.route || room.resting) return;
+  const reserved = rooms.reserveRestLookup(code, room.leader);
+  if (!reserved.ok) { rooms.completeAutomaticRegroup(code, null); return; }
+  const leader = room.members.find((member) => member.id === room.leader)?.position;
+  const from: [number, number] = leader ? [leader.lng, leader.lat] : room.route.stops[0];
+  void findRestStop(room.route.stops, from).then((stop) => {
+    if (rooms.navigationVersion(code) !== reserved.value) return;
+    const done = rooms.completeAutomaticRegroup(code, stop ? { lat: stop.lat, lng: stop.lng, label: `Regroup: ${restStopLabel(stop)}` } : null);
+    if (done.ok && stop) announce(code);
+  }).catch(() => { rooms.completeAutomaticRegroup(code, null); });
 }
 
 function reject(socket: Duplex, status: number, reason: string): void {
@@ -99,6 +117,14 @@ function handle(conn: Conn, m: ClientMessage): void {
   const reply = (message: unknown) => send(conn, message);
   const error = (text: string) => reply({ t: 'error', error: text, in: m.t });
   switch (m.t) {
+    case 'ping':
+      return reply({ t: 'pong' });
+    case 'convoy.message': {
+      const done = rooms.message(m.room, conn.userId, m.text, m.clientId);
+      if (!done.ok) return error(done.error);
+      for (const id of rooms.memberIds(m.room)) sendUser(id, { t: 'convoy.message', room: m.room, message: done.value });
+      return;
+    }
     case 'chat.sub':
       conn.chat = true;
       return reply({ t: 'chat.ready' });
@@ -115,6 +141,7 @@ function handle(conn: Conn, m: ClientMessage): void {
         const packet = { t: 'pos', room: code, id: conn.userId, ...out.position };
         for (const id of rooms.memberIds(code)) if (id !== conn.userId) sendUser(id, packet);
       }
+      for (const code of out.automaticRegroupCodes) automaticRegroup(code);
       return;
     }
     case 'convoy.leave': {
@@ -130,9 +157,36 @@ function handle(conn: Conn, m: ClientMessage): void {
       return announce(m.room);
     }
     case 'convoy.dest':
+    case 'convoy.route':
     case 'convoy.lead': {
-      const done = m.t === 'convoy.dest' ? rooms.setDestination(m.room, conn.userId, m.destination) : rooms.handOver(m.room, conn.userId, m.to);
+      const done = m.t === 'convoy.dest'
+        ? rooms.setDestination(m.room, conn.userId, m.destination)
+        : m.t === 'convoy.route'
+          ? rooms.setRoute(m.room, conn.userId, m.route)
+          : rooms.handOver(m.room, conn.userId, m.to);
       return done.ok ? announce(m.room) : error(done.error);
+    }
+    case 'convoy.rest': {
+      const room = rooms.view(m.room);
+      if (!room || !room.members.some((member) => member.id === conn.userId)) return error('You are not in that convoy');
+      if (m.action === 'continue') {
+        if (room.leader !== conn.userId) return error('Only the leader can continue to the destination');
+        const done = rooms.continueDestination(m.room, conn.userId);
+        return done.ok ? announce(m.room) : error(done.error);
+      }
+      if (!room.route) return error('Set a convoy route before finding a rest stop');
+      const reserved = rooms.reserveRestLookup(m.room, conn.userId);
+      if (!reserved.ok) return error(reserved.error);
+      const leader = room.members.find((member) => member.id === room.leader)?.position;
+      const from: [number, number] = leader ? [leader.lng, leader.lat] : room.route.stops[0];
+      void findRestStop(room.route.stops, from).then((stop) => {
+        if (!sessionUser(db, conn.token)) return;
+        if (rooms.navigationVersion(m.room) !== reserved.value) return error('The convoy route or destination changed. Search again.');
+        if (!stop) return error('No suitable rest stop was found close to the remaining route');
+        const done = rooms.setRestStop(m.room, conn.userId, { lat: stop.lat, lng: stop.lng, label: restStopLabel(stop) });
+        if (done.ok) announce(m.room); else error(done.error);
+      }).catch(() => error('Could not look up rest stops right now'));
+      return;
     }
     case 'convoy.create':
     case 'convoy.join':
@@ -141,7 +195,7 @@ function handle(conn: Conn, m: ClientMessage): void {
       if (!who) return close(conn, CLOSE_SESSION_ENDED, 'Session ended');
       let done;
       if (m.t === 'convoy.create') {
-        done = rooms.create(who, { name: m.name });
+        done = rooms.create(who, { name: m.name, automaticRegroup: m.automaticRegroup });
       } else if (m.t === 'convoy.join') {
         if (misses.blocked(conn.userId)) return error('Too many wrong codes. Try again in a few minutes.');
         done = rooms.join(m.code, who);
@@ -152,7 +206,12 @@ function handle(conn: Conn, m: ClientMessage): void {
         const code = rooms.forEvent(m.eventId);
         if (code) done = rooms.join(code, who);
         else if (!access.isOwner) return error('The organiser has not started this convoy yet');
-        else done = rooms.create(who, { name: access.title, eventId: m.eventId, destination: { lat: access.meet.lat, lng: access.meet.lng, label: (access.meet.note || 'Meeting point').slice(0, MAX_LABEL) } });
+        else done = rooms.create(who, {
+          name: access.title,
+          eventId: m.eventId,
+          destination: { lat: access.meet.lat, lng: access.meet.lng, label: (access.meet.note || 'Meeting point').slice(0, MAX_LABEL) },
+          route: access.route,
+        });
       }
       if (!done.ok) return error(done.error);
       announce(done.value.code);
@@ -204,6 +263,7 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions = {}):
 
     ws.on('pong', () => { conn.alive = true; });
     ws.on('message', (data, isBinary) => {
+      if (!sessionUser(db, conn.token)) return close(conn, CLOSE_SESSION_ENDED, 'Session ended');
       conn.alive = true;
       if (isBinary) return close(conn, 1003, 'Text only');
       if (!allowed(conn, Date.now())) return;

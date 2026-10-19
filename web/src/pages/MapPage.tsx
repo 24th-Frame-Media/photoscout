@@ -1,5 +1,6 @@
 import { loadRoads, type RoadsStatus } from '../map/roadQuality';
 import ActivityLog from '../components/ActivityLog.js';
+import { MapConvoy } from '../convoy/ConvoySession.js';
 import { logActivity, logSuccessIfNews } from '../activity.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -1242,6 +1243,7 @@ export default function MapPage({ user }: { user: User | null }) {
   return (
     <div className={`mapshell${isPanelActive ? ' mapshell--panel' : ''}${editing ? ' mapshell--editing' : ''}${weatherOn && forecast ? ' mapshell--has-weather' : ''}`}>
       <div ref={container} className="mapshell__map" />
+      {user && <MapConvoy map={map} />}
       {follow && (
         <div className="followpill" role="status">
           <span>Following <strong>{follow.name}</strong></span>
@@ -1448,6 +1450,7 @@ export default function MapPage({ user }: { user: User | null }) {
               </ul>
               <div className="panel__actions">
                 <Link to={`/places/${selectedPlace.id}`}><button>Place page</button></Link>
+                {user && <Link to={`/convoy?to=${selectedPlace.lat},${selectedPlace.lng}&label=${encodeURIComponent(selectedPlace.name)}`}><button>Set convoy destination</button></Link>}
                 {canEdit(selectedPlace.ownerId) && <>
                   <button className="primary" onClick={() => setEditing({ type: 'place', draft: placeToDraft(selectedPlace) })}>Edit</button>
                   <button onClick={() => { setSelected(null); setEditing({ type: 'spot', draft: newSpot(selectedPlace.lat, selectedPlace.lng, selectedPlace.id) }); }}>+ Spot in place</button>
@@ -1463,6 +1466,7 @@ export default function MapPage({ user }: { user: User | null }) {
               <div className="panel__actions">
                 <Link to={`/plan?route=${selectedRoute.id}`}><button>Plan shoot</button></Link>
                 {user && <Link to={`/drive?route=${selectedRoute.id}`}><button>Drive it</button></Link>}
+                {user && <Link to={`/convoy?route=${selectedRoute.id}`}><button>Share with convoy</button></Link>}
                 {canEdit(selectedRoute.ownerId) && <><button className="primary" onClick={() => openRouteEdit(routeToDraft(selectedRoute))}>Edit</button><button className="danger" onClick={() => void deleteRoute(selectedRoute)}>Delete</button></>}
               </div>
             </>

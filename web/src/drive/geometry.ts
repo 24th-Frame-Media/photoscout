@@ -49,6 +49,8 @@ export interface SnapOptions {
   backtrackM?: number;
   /** How far ahead of `fromAlong` is tried first. */
   aheadM?: number;
+  /** Only consider a later occurrence of a position on a route that overlaps or closes a loop. */
+  afterAlong?: number;
 }
 
 function nearest(line: LngLat[], cum: number[], pos: LngLat, lo: number, hi: number): Snap | null {
@@ -80,6 +82,7 @@ export function snapToPolyline(line: LngLat[], cum: number[], pos: LngLat, opts:
   if (line.length === 0) return { along: 0, distM: Infinity, segment: 0, point: pos };
   if (line.length === 1) return { along: 0, distM: distanceM(line[0], pos), segment: 0, point: line[0] };
   const total = cum[cum.length - 1];
+  if (opts.afterAlong !== undefined) return nearest(line, cum, pos, opts.afterAlong, total) ?? nearest(line, cum, pos, 0, total)!;
   if (opts.fromAlong !== undefined) {
     const local = nearest(line, cum, pos, opts.fromAlong - (opts.backtrackM ?? 150), opts.fromAlong + (opts.aheadM ?? 2000));
     if (local && local.distM <= 100) return local;
