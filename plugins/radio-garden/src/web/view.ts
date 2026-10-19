@@ -39,23 +39,18 @@ export interface StationsContentProps {
   onStation(station: RadioStation): void;
   onStop(): void;
   onRetry(): void;
+  favorites?: readonly RadioFavorite[];
+  showFavorites?: boolean;
+  onShowFavorites?(show: boolean): void;
+  onToggleFavorite?(station: RadioStation): void;
 }
 
 export function createStationsContent(react: typeof React): React.FunctionComponent<StationsContentProps> {
   const h = react.createElement;
 
-  return function RadioStationsContent({ place, stations, loading, error, player, onStation, onStop, onRetry }: StationsContentProps) {
+  return function RadioStationsContent({ place, stations, loading, error, player, onStation, onStop, onRetry, favorites = [], showFavorites = false, onShowFavorites, onToggleFavorite }: StationsContentProps) {
     const { activeStation, playbackState, playbackError } = player;
-    const [favorites, setFavorites] = react.useState<RadioFavorite[]>(() => loadRadioFavorites());
-    const [showFavorites, setShowFavorites] = react.useState(false);
-    react.useEffect(() => {
-      const refresh = (): void => setFavorites(loadRadioFavorites());
-      window.addEventListener(RADIO_FAVORITES_EVENT, refresh);
-      window.addEventListener('storage', refresh);
-      return () => { window.removeEventListener(RADIO_FAVORITES_EVENT, refresh); window.removeEventListener('storage', refresh); };
-    }, []);
     const isFavorite = (station: RadioStation): boolean => favorites.some((favorite) => favorite.id === station.id);
-    const toggleFavorite = (station: RadioStation): void => setFavorites(toggleRadioFavorite(station, favorites));
 
     const playerCard = activeStation && h('div', { className: `radiopanel__player-card${playbackState === 'error' ? ' has-error' : ''}`, role: 'status' },
       h('div', { className: 'radiopanel__player-meta' },
@@ -88,7 +83,7 @@ export function createStationsContent(react: typeof React): React.FunctionCompon
         h('div', { className: 'radiopanel__item-info' },
           h('div', { className: 'radiopanel__item-name' }, st.title),
           st.streamDomain && h('span', { className: 'radiopanel__station-domain' }, st.streamDomain)),
-        h('button', { type: 'button', className: 'radiopanel__item-fav', onClick: () => toggleFavorite(st), 'aria-label': isFavorite(st) ? `Remove ${st.title} from favorites` : `Save ${st.title} as a favorite`, title: isFavorite(st) ? 'Remove favorite' : 'Save favorite' }, isFavorite(st) ? '★' : '☆'),
+        h('button', { type: 'button', className: 'radiopanel__item-fav', onClick: () => onToggleFavorite?.(st), 'aria-label': isFavorite(st) ? `Remove ${st.title} from favorites` : `Save ${st.title} as a favorite`, title: isFavorite(st) ? 'Remove favorite' : 'Save favorite' }, isFavorite(st) ? '★' : '☆'),
         h('button', { type: 'button', className: `radiopanel__item-btn${isPlaying ? ' primary' : ''}`, onClick: () => onStation(st), 'aria-label': label },
           isLoading && '⌛ Loading',
           isPlaying && '⏸ Pause',
@@ -114,8 +109,8 @@ export function createStationsContent(react: typeof React): React.FunctionCompon
       playerCard,
 
       h('div', { className: 'radiopanel__tabs', role: 'tablist', 'aria-label': 'Radio stations' },
-        h('button', { type: 'button', className: `radiopanel__tab${!showFavorites ? ' is-active' : ''}`, onClick: () => setShowFavorites(false), role: 'tab', 'aria-selected': !showFavorites }, 'Stations'),
-        h('button', { type: 'button', className: `radiopanel__tab${showFavorites ? ' is-active' : ''}`, onClick: () => setShowFavorites(true), role: 'tab', 'aria-selected': showFavorites }, `Favorites (${favorites.length})`)),
+        h('button', { type: 'button', className: `radiopanel__tab${!showFavorites ? ' is-active' : ''}`, onClick: () => onShowFavorites?.(false), role: 'tab', 'aria-selected': !showFavorites }, 'Stations'),
+        h('button', { type: 'button', className: `radiopanel__tab${showFavorites ? ' is-active' : ''}`, onClick: () => onShowFavorites?.(true), role: 'tab', 'aria-selected': showFavorites }, `Favorites (${favorites.length})`)),
 
       showFavorites && favorites.length === 0 && h('p', { className: 'hint radiopanel__empty' }, 'No saved stations yet. Use ☆ beside a station to keep it here on this device.'),
       showFavorites && favorites.length > 0 && h('ul', { className: 'plainlist radiopanel__list' }, favorites.map(stationRow)),
@@ -143,6 +138,8 @@ export function createStationsPanel(deps: RadioViewDeps): React.ComponentType<Si
     const [stations, setStations] = useState<RadioStation[]>([]);
     const [loadingStations, setLoadingStations] = useState(true);
     const [stationsError, setStationsError] = useState<string | null>(null);
+    const [favorites, setFavorites] = useState<RadioFavorite[]>(() => loadRadioFavorites());
+    const [showFavorites, setShowFavorites] = useState(false);
     const playerState = useSyncExternalStore(store.subscribe, store.get, store.get);
 
     // Close with Escape key.
@@ -178,6 +175,13 @@ export function createStationsPanel(deps: RadioViewDeps): React.ComponentType<Si
       };
     }, [place.id]);
 
+    useEffect(() => {
+      const refresh = (): void => setFavorites(loadRadioFavorites());
+      window.addEventListener(RADIO_FAVORITES_EVENT, refresh);
+      window.addEventListener('storage', refresh);
+      return () => { window.removeEventListener(RADIO_FAVORITES_EVENT, refresh); window.removeEventListener('storage', refresh); };
+    }, []);
+
     const retryStations = (): void => {
       setLoadingStations(true);
       setStationsError(null);
@@ -201,6 +205,10 @@ export function createStationsPanel(deps: RadioViewDeps): React.ComponentType<Si
       onStation: (st) => player.handleStationClick(st),
       onStop: () => player.stop(),
       onRetry: retryStations,
+      favorites,
+      showFavorites,
+      onShowFavorites: setShowFavorites,
+      onToggleFavorite: (station) => setFavorites(toggleRadioFavorite(station, favorites)),
     });
   };
 }
