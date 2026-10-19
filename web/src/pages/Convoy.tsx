@@ -37,9 +37,16 @@ function ConvoyPage() {
   const routeId = params.get('route');
   const to = params.get('to');
   const label = params.get('label') ?? '';
+  const requestedRoom = params.get('room');
   const asked = useRef(false);
   const applied = useRef<string | null>(null);
   const [selectionError, setSelectionError] = useState('');
+  useEffect(() => {
+    if (requestedRoom && convoy.status === 'open' && convoy.rooms.some((r) => r.code === requestedRoom)) {
+      convoy.setActive(requestedRoom);
+      setParams({}, { replace: true });
+    }
+  }, [requestedRoom, convoy.status, convoy.rooms]);
 
   // From a cruise's "Start convoy": go straight in once the connection is up.
   useEffect(() => {

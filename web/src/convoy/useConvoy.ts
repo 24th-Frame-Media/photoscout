@@ -67,6 +67,7 @@ function syncWatch(): void {
 function onFix(p: GeolocationPosition): void {
   const c = p.coords;
   const now = Date.now();
+  if (now - p.timestamp > 5000) { set({ geoError: 'Waiting for a fresh GPS position…' }); return; }
   const heading = c.heading !== null && Number.isFinite(c.heading) ? c.heading : null;
   const speed = c.speed !== null && Number.isFinite(c.speed) ? Math.max(0, c.speed) : null;
   const mine: Position = { lat: c.latitude, lng: c.longitude, heading, speed, ts: now };

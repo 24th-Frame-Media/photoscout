@@ -1997,6 +1997,7 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
 .convoy-pin.is-me { background: var(--green); }
 .convoy-pin.is-leader { background: var(--accent); }
 .convoy-pin.is-stale { opacity: 0.45; }
+.convoy-pin.is-predicted { border-style: dashed; }
 .convoy-pin__arrow { position: absolute; left: 50%; top: 50%; width: 0; height: 0; margin: -17px 0 0 -6px; transform-origin: 6px 17px; border: 6px solid transparent; border-bottom: 10px solid var(--on-dark); border-top: 0; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6)); pointer-events: none; }
 .convoy-pin__label { position: absolute; left: 50%; top: 20px; transform: translateX(-50%); padding: 0 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; color: var(--on-dark); background: rgba(5, 7, 15, 0.78); border-radius: var(--pill); pointer-events: none; }
 .convoy-flag { font-size: 30px; line-height: 1; color: var(--red); text-shadow: 0 0 3px var(--on-dark), 0 1px 4px rgba(0, 0, 0, 0.6); }

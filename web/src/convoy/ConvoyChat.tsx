@@ -29,6 +29,11 @@ export function ConvoyAudio() {
       } catch { setNotificationError('This browser cannot enable device notifications. In-app notifications still work.'); }
     }} /> Device notifications when another tab is open</label>}
     {notificationError && <p className="hint" role="status">{notificationError}</p>}
+    <details className="convoy-mobile"><summary>Android &amp; iPhone background use</summary>
+      <p className="hint">Install PhotoScout using your browser’s Install app or Add to Home Screen option. On iPhone, open the installed app before enabling device notifications.</p>
+      <p className="hint">Keep PhotoScout on screen for live position sharing. Screen awake helps while it is visible; locking your phone or switching apps can pause GPS, messages and speech. The convoy reconnects and catches up when you return. Notifications here still depend on the app running.</p>
+      <p className="hint">Member pins glide between GPS fixes. A ~ marks a brief position estimate; prediction stops after 3 seconds or 90 metres, and old locations fade.</p>
+    </details>
     <p className="hint">Uses your device audio, including a paired headset. Directions take priority. Keep the app visible; phones may suspend it when locked.</p>
   </fieldset>;
 }

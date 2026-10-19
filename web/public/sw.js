@@ -1,4 +1,4 @@
-// PhotoScout's service worker. It does one thing: keep the app shell (the page
+// PhotoScout's service worker keeps the app shell (the page
 // and its scripts, styles and icons) so an installed copy opens with no signal.
 // Everything else, above all /api, goes to the network and is never stored:
 // spots, photos and sign-in state must come from the server, not from here.
@@ -7,6 +7,19 @@ const CACHE = 'photoscout-shell-v1';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 // Built scripts and styles have a new name each build, so old ones pile up; keep the newest.
 const MAX_ASSETS = 80;
+
+// A notification may outlive its page; reopen only this site's convoy screen.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const requested = new URL(event.notification.data?.url || '/convoy', self.location.origin);
+    const url = requested.origin === self.location.origin && requested.pathname === '/convoy' ? requested.href : new URL('/convoy', self.location.origin).href;
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existing = windows.find((client) => new URL(client.url).origin === self.location.origin);
+    if (existing) { await existing.navigate(url); await existing.focus(); }
+    else await self.clients.openWindow(url);
+  })());
+});
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {

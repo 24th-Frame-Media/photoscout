@@ -7,6 +7,7 @@ import { realtime } from './client.js';
 import { attachConvoyLayer } from './layer.js';
 import ConvoyChat, { ConvoyAudio } from './ConvoyChat.js';
 import { useConvoy } from './useConvoy.js';
+import { showConvoyNotification } from './notifications.js';
 
 export function ConvoyNav() {
   const convoy = useConvoy();
@@ -35,10 +36,17 @@ export default function ConvoySession() {
   const now = useTick(1000);
   const wake = useWakeLock(!!convoy.room && convoy.keepAwake && pathname !== '/drive');
   useEffect(() => {
-    const wake = () => { if (document.visibilityState === 'visible') realtime.reconnect(); };
+    let lastWake = 0;
+    const wake = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastWake < 500) return;
+      lastWake = Date.now();
+      realtime.reconnect();
+    };
+    const restored = (event: PageTransitionEvent) => { if (event.persisted) wake(); };
     window.addEventListener('online', wake);
+    window.addEventListener('pageshow', restored);
     document.addEventListener('visibilitychange', wake);
-    return () => { window.removeEventListener('online', wake); document.removeEventListener('visibilitychange', wake); stopConvoyAudio(); };
+    return () => { window.removeEventListener('online', wake); window.removeEventListener('pageshow', restored); document.removeEventListener('visibilitychange', wake); stopConvoyAudio(); };
   }, []);
   useEffect(() => {
     for (const notice of convoy.notices) {
@@ -46,11 +54,7 @@ export default function ConvoySession() {
       seen.current.add(notice.id);
       if (now - notice.ts < 10_000 && (notice.kind === 'message' ? convoy.readMessages : convoy.announceEvents)) readConvoy(notice.text);
       if (now - notice.ts < 10_000 && convoy.desktopAlerts && document.visibilityState === 'hidden' && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        try {
-          const notification = new Notification('PhotoScout convoy', { body: notice.text, tag: `convoy-${notice.room}` });
-          notification.onclick = () => { window.focus(); notification.close(); };
-          setTimeout(() => notification.close(), 10_000);
-        } catch { /* Mobile browsers may only support service-worker notifications. */ }
+        void showConvoyNotification(notice);
       }
     }
     const kept = new Set(convoy.notices.map((n) => n.id));
