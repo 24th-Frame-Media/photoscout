@@ -537,8 +537,22 @@ export function loadFeedData(db: Db, feedName: TrainFeedName): TrainsFeedData {
   return data;
 }
 
+let combinedCache: { db: Db; stamp: string; data: TrainsFeedData } | null = null;
+
+/** Drop the cached timetable, e.g. after tests rewrite the tables directly. */
+export function clearFeedDataCache(): void { combinedCache = null; }
+
+/**
+ * Every feed's static timetable, merged. Building it reads millions of rows, so it is built once and reused until
+ * an import changes a feed's `trains:lastImport` stamp. Callers must treat the result as read-only.
+ */
 export function combinedFeedData(db: Db): TrainsFeedData {
-  return TRAIN_FEEDS.map((f) => loadFeedData(db, f)).reduce(mergeFeedData, emptyFeedData());
+  const stamp = TRAIN_FEEDS.map((f) => db.getKv(`trains:lastImport:${f}`) ?? '').join('|');
+  if (combinedCache && combinedCache.db === db && combinedCache.stamp === stamp) return combinedCache.data;
+  combinedCache = null; // release the old timetable before building its replacement
+  const data = TRAIN_FEEDS.map((f) => loadFeedData(db, f)).reduce(mergeFeedData, emptyFeedData());
+  combinedCache = { db, stamp, data };
+  return data;
 }
 
 export function tripCount(db: Db): number {
