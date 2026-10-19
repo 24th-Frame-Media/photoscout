@@ -1,4 +1,4 @@
-import { CODE_PATTERN, MAX_CONVOY_ROUTE_STOPS, MAX_LABEL, MAX_NAME, normalizeCode } from './convoy.js';
+import { CODE_PATTERN, DEFAULT_REGROUP_SEPARATION_M, MAX_CONVOY_ROUTE_STOPS, MAX_LABEL, MAX_NAME, MAX_REGROUP_SEPARATION_M, MIN_REGROUP_SEPARATION_M, normalizeCode } from './convoy.js';
 
 /**
  * What a client may say on the socket, checked field by field before anything
@@ -13,7 +13,7 @@ const MAX_SPEED = 120;
 export type ClientMessage =
   | { t: 'chat.sub' }
   | { t: 'chat.unsub' }
-  | { t: 'convoy.create'; name: string }
+  | { t: 'convoy.create'; name: string; automaticRegroup: { enabled: boolean; separationM: number } }
   | { t: 'convoy.join'; code: string }
   | { t: 'convoy.cruise'; eventId: string }
   | { t: 'convoy.leave'; room: string }
@@ -67,6 +67,13 @@ function convoyRoute(raw: unknown): { name: string; stops: [number, number][] } 
   return { name: str(raw, 'name', MAX_NAME), stops };
 }
 
+function automaticRegroup(raw: unknown): { enabled: boolean; separationM: number } {
+  if (raw === undefined) return { enabled: false, separationM: DEFAULT_REGROUP_SEPARATION_M };
+  if (!isObject(raw) || typeof raw.enabled !== 'boolean') return bad('automatic regroup must include enabled');
+  const separationM = num(raw, 'separationM', MIN_REGROUP_SEPARATION_M, MAX_REGROUP_SEPARATION_M);
+  return { enabled: raw.enabled, separationM };
+}
+
 export function parseClientMessage(raw: string): ParsedMessage {
   let o: unknown;
   try { o = JSON.parse(raw); } catch { return { ok: false, error: 'Messages are JSON' }; }
@@ -78,7 +85,7 @@ export function parseClientMessage(raw: string): ParsedMessage {
       case 'pos.stop':
         return { ok: true, message: { t: o.t } };
       case 'convoy.create':
-        return { ok: true, message: { t: o.t, name: str(o, 'name', MAX_NAME) } };
+        return { ok: true, message: { t: o.t, name: str(o, 'name', MAX_NAME), automaticRegroup: automaticRegroup(o.automaticRegroup) } };
       case 'convoy.join': {
         const code = normalizeCode(str(o, 'code', 32, true));
         if (!CODE_PATTERN.test(code)) return bad('That is not a convoy code');

@@ -73,6 +73,18 @@ function announce(code: string): void {
   for (const id of rooms.memberIds(code)) sendUser(id, { t: 'room', room: view });
 }
 
+/** A sustained split queued by Rooms: look up one advisory stop and apply it only if it is still pending. */
+function automaticRegroup(code: string): void {
+  const room = rooms.view(code);
+  if (!room?.route || room.resting) return;
+  const leader = room.members.find((member) => member.id === room.leader)?.position;
+  const from: [number, number] = leader ? [leader.lng, leader.lat] : room.route.stops[0];
+  void findRestStop(room.route.stops, from).then((stop) => {
+    const done = rooms.completeAutomaticRegroup(code, stop ? { lat: stop.lat, lng: stop.lng, label: `Regroup: ${restStopLabel(stop)}` } : null);
+    if (done.ok && stop) announce(code);
+  }).catch(() => { rooms.completeAutomaticRegroup(code, null); });
+}
+
 function reject(socket: Duplex, status: number, reason: string): void {
   socket.write(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
   socket.destroy();
@@ -116,6 +128,7 @@ function handle(conn: Conn, m: ClientMessage): void {
         const packet = { t: 'pos', room: code, id: conn.userId, ...out.position };
         for (const id of rooms.memberIds(code)) if (id !== conn.userId) sendUser(id, packet);
       }
+      for (const code of out.automaticRegroupCodes) automaticRegroup(code);
       return;
     }
     case 'convoy.leave': {
@@ -165,7 +178,7 @@ function handle(conn: Conn, m: ClientMessage): void {
       if (!who) return close(conn, CLOSE_SESSION_ENDED, 'Session ended');
       let done;
       if (m.t === 'convoy.create') {
-        done = rooms.create(who, { name: m.name });
+        done = rooms.create(who, { name: m.name, automaticRegroup: m.automaticRegroup });
       } else if (m.t === 'convoy.join') {
         if (misses.blocked(conn.userId)) return error('Too many wrong codes. Try again in a few minutes.');
         done = rooms.join(m.code, who);

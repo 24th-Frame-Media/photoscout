@@ -98,14 +98,29 @@ function ConvoyPage() {
 
 function Entry({ convoy, code, setCode }: { convoy: ConvoyApi; code: string; setCode: (c: string) => void }) {
   const [name, setName] = useState('');
+  const [automaticRegroup, setAutomaticRegroup] = useState(false);
+  const [separationKm, setSeparationKm] = useState(5);
   const ready = convoy.status === 'open';
-  const create = (e: FormEvent) => { e.preventDefault(); convoy.create(name); setName(''); };
+  const create = (e: FormEvent) => {
+    e.preventDefault();
+    convoy.create(name, { enabled: automaticRegroup, separationM: separationKm * 1_000 });
+    setName('');
+  };
   const join = (e: FormEvent) => { e.preventDefault(); convoy.join(code); setCode(''); };
   return (
     <div className="convoy__entry">
       <form className="convoy__card" onSubmit={create}>
         <h2>Start a convoy</h2>
         <input value={name} maxLength={40} placeholder="Name (optional)" onChange={(e) => setName(e.target.value)} />
+        <label className="toggle">
+          <input type="checkbox" checked={automaticRegroup} onChange={(e) => setAutomaticRegroup(e.target.checked)} />
+          Automatic regroup when the group spreads out
+        </label>
+        {automaticRegroup && <label>
+          Regroup distance: <strong>{separationKm} km</strong>
+          <input type="range" min="1" max="20" step="1" value={separationKm} onChange={(e) => setSeparationKm(Number(e.target.value))} />
+          <span className="hint">Creates a rest-stop suggestion only after positions stay this far apart for 90 seconds. A shared route is required.</span>
+        </label>}
         <button className="primary" disabled={!ready}>Start</button>
       </form>
       <form className="convoy__card" onSubmit={join}>

@@ -4,6 +4,7 @@ export interface Position { lat: number; lng: number; heading: number | null; sp
 export interface Destination { lat: number; lng: number; label: string }
 /** Shared Drive stops; a circuit repeats its first stop as the final stop. */
 export interface ConvoyRoute { name: string; stops: [number, number][] }
+export interface AutomaticRegroup { enabled: boolean; separationM: number }
 
 export interface Member {
   id: string;
@@ -26,6 +27,7 @@ export interface Room {
   destination: Destination | null;
   resting: boolean;
   route: ConvoyRoute | null;
+  automaticRegroup: AutomaticRegroup;
   members: Member[];
 }
 
@@ -43,7 +45,7 @@ export type ServerMessage =
 export type ClientMessage =
   | { t: 'chat.sub' }
   | { t: 'chat.unsub' }
-  | { t: 'convoy.create'; name: string }
+  | { t: 'convoy.create'; name: string; automaticRegroup: AutomaticRegroup }
   | { t: 'convoy.join'; code: string }
   | { t: 'convoy.cruise'; eventId: string }
   | { t: 'convoy.leave'; room: string }

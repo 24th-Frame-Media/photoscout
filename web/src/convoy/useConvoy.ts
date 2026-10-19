@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { realtime, type Status } from './client.js';
 import { activeRoom, emptyState, reduce, viewOf, type ConvoyState, type ConvoyView } from './state.js';
-import type { ConvoyRoute, Destination, Position, Room } from './types.js';
+import type { AutomaticRegroup, ConvoyRoute, Destination, Position, Room } from './types.js';
 
 /**
  * The convoy for any page: connect, reconnect, say where you are while you are
@@ -114,7 +114,7 @@ export interface Convoy {
   geoError: string;
   setSharing(on: boolean): void;
   setActive(code: string): void;
-  create(name: string): void;
+  create(name: string, automaticRegroup: AutomaticRegroup): void;
   join(code: string): void;
   joinCruise(eventId: string): void;
   leave(code?: string): void;
@@ -152,7 +152,7 @@ export function useConvoy(): Convoy {
       set({ sharing: on });
     },
     setActive: (code) => set({ state: { ...snap.state, active: code } }),
-    create: (name) => send({ t: 'convoy.create', name }),
+    create: (name, automaticRegroup) => send({ t: 'convoy.create', name, automaticRegroup }),
     join: (code) => send({ t: 'convoy.join', code }),
     joinCruise: (eventId) => send({ t: 'convoy.cruise', eventId }),
     leave: (code) => { const c = code ?? room?.code; if (c) send({ t: 'convoy.leave', room: c }); },
