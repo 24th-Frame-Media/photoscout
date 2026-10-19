@@ -243,6 +243,22 @@ class MainActivity : AppCompatActivity() {
                     return true
                 }
 
+                // If OAuth redirects back to localhost/127.0.0.1 callback, route it to the configured server URL
+                val host = url.host ?: ""
+                val path = url.path ?: ""
+                if ((host == "localhost" || host == "127.0.0.1") && path.startsWith("/api/auth/")) {
+                    val serverUri = Uri.parse(preferencesManager.serverUrl)
+                    val serverHost = serverUri.host ?: ""
+                    if (serverHost.isNotEmpty() && serverHost != "localhost" && serverHost != "127.0.0.1") {
+                        val redirectedUri = url.buildUpon()
+                            .scheme(serverUri.scheme)
+                            .encodedAuthority(serverUri.encodedAuthority)
+                            .build()
+                        view?.loadUrl(redirectedUri.toString())
+                        return true
+                    }
+                }
+
                 return false
             }
 

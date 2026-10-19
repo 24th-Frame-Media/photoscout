@@ -17,8 +17,10 @@ The Android app is distributed directly as an APK without going through the Goog
 ### Installing the APK
 
 1. **Download the APK**:
-   - Go to your GitHub repository's **Actions** tab -> select the latest **mobile** run -> download the **PhotoScout-Android-APKs** artifact (or download from the GitHub **Releases** page if you tagged a release).
-   - You will find `PhotoScout-release.apk` (signed with a release key) and `PhotoScout-debug.apk`.
+   - Download directly from [**GitHub Releases (Latest)**](https://github.com/kapsikkum/photoscout/releases/latest):
+     - [**`PhotoScout-release.apk`**](https://github.com/kapsikkum/photoscout/releases/latest/download/PhotoScout-release.apk) (Ready for immediate install on any Android 8.0+ device)
+     - `PhotoScout-debug.apk` (For testing and ADB logcat debugging)
+   - Or download from the **Actions** tab -> latest **mobile** run -> **PhotoScout-Android-APKs**.
 2. **Install on Phone**:
    - Transfer or download the `.apk` file to your Android phone.
    - Tap the `.apk` file to install.
@@ -56,7 +58,7 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 
 Apple requires a \$99/year developer membership **only** to publish on the App Store or public TestFlight. You **do not** need to pay \$99 to install and use PhotoScout on your iPhone or share it with friends.
 
-The GitHub Actions workflow automatically builds an unsigned IPA (`PhotoScout-unsigned.ipa`) and application bundle on a macOS runner.
+The GitHub Actions workflow automatically builds an unsigned IPA ([`PhotoScout-unsigned.ipa`](https://github.com/kapsikkum/photoscout/releases/latest/download/PhotoScout-unsigned.ipa)) and application bundle on a macOS runner, published directly to [**GitHub Releases**](https://github.com/kapsikkum/photoscout/releases/latest).
 
 ### Sideloading Options ($0 Cost)
 
@@ -65,8 +67,8 @@ AltStore and SideStore use your free Apple ID to sign and install apps directly 
 
 1. Download and install **AltServer** on your computer (Windows or Mac) from [altstore.io](https://altstore.io).
 2. Connect your iPhone via USB, open AltServer, and choose **Install AltStore** -> select your phone.
-3. Download `PhotoScout-unsigned.ipa` from the GitHub Actions artifacts or Releases on your iPhone (e.g. via Safari).
-4. In the Files app or Safari Downloads, tap **Share** -> **AltStore** (or open AltStore -> My Apps -> tap `+` and choose `PhotoScout-unsigned.ipa`).
+3. Download [**`PhotoScout-unsigned.ipa`**](https://github.com/kapsikkum/photoscout/releases/latest/download/PhotoScout-unsigned.ipa) directly from [Releases](https://github.com/kapsikkum/photoscout/releases/latest) on your iPhone (e.g. via Safari).
+4. In the Files app or Safari Downloads, tap **Share** -> **AltStore** (or open AltStore -> My Apps -> tap `+` and choose `PhotoScout-unsigned.ipa`). Or on PC, hold **Shift** and left-click the AltServer tray icon -> **Sideload .ipa...** -> pick `PhotoScout-unsigned.ipa`.
 5. AltStore signs the IPA with your free Apple ID and installs PhotoScout to your home screen!
 
 *(SideStore note: [sidestore.io](https://sidestore.io) is a fork of AltStore that refreshes apps using WireGuard VPN directly on your phone without needing a computer running AltServer).*

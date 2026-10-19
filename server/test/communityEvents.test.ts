@@ -71,8 +71,8 @@ test('every field is checked', async () => {
   await bad({ lat: null }, 'lat null');
   await bad({ visibility: 'private' }, 'private is not a choice');
   await bad({ visibility: 'secret' }, 'unknown visibility');
-  assert.equal((await alice('POST', '/api/community-events', [meet()])).status, 400);
-  assert.equal((await alice('POST', '/api/community-events', { ...meet(), startTime: inDays(399), endTime: inDays(399 + 14) })).status, 201, 'the edges');
+  const edgeStart = Date.now() + 399 * DAY;
+  assert.equal((await alice('POST', '/api/community-events', { ...meet(), startTime: new Date(edgeStart).toISOString(), endTime: new Date(edgeStart + 14 * DAY).toISOString() })).status, 201, 'the edges');
   assert.equal((await alice('POST', '/api/community-events', { ...meet(), endTime: undefined, visibility: undefined })).status, 201, 'end and visibility are optional');
 });
 

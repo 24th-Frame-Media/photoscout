@@ -10,7 +10,9 @@ const isWin = process.platform === 'win32';
 function run(cmd, args, cwd = root) {
   return new Promise((resolve, reject) => {
     console.log(`> ${cmd} ${args.join(' ')}`);
-    const proc = spawn(cmd, args, { cwd, stdio: 'inherit', shell: isWin });
+    const proc = isWin && cmd.endsWith('.bat')
+      ? spawn('cmd.exe', ['/c', cmd, ...args], { cwd, stdio: 'inherit' })
+      : spawn(cmd, args, { cwd, stdio: 'inherit' });
     proc.on('close', (code) => {
       if (code === 0) resolve();
       else reject(new Error(`Command failed with exit code ${code}`));

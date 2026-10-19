@@ -42,6 +42,7 @@ struct WebViewContainer: UIViewRepresentable {
         webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
 
         context.coordinator.webView = webView
+        context.coordinator.currentServerUrl = url
 
         let request = URLRequest(url: url)
         webView.load(request)
@@ -49,7 +50,9 @@ struct WebViewContainer: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        if uiView.url != url && uiView.url?.absoluteString != url.absoluteString + "/" {
+        // Only reload if the configured server URL actually changed in settings
+        if context.coordinator.currentServerUrl != url {
+            context.coordinator.currentServerUrl = url
             uiView.load(URLRequest(url: url))
         }
     }
@@ -58,6 +61,7 @@ struct WebViewContainer: UIViewRepresentable {
         var parent: WebViewContainer
         weak var webView: WKWebView?
         var bridge: NativeBridge?
+        var currentServerUrl: URL?
 
         init(_ parent: WebViewContainer) {
             self.parent = parent
@@ -99,6 +103,11 @@ struct WebViewContainer: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            let nsError = error as NSError
+            // Ignore NSURLErrorCancelled (-999): fires on redirects, 302s, and superseded requests
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                return
+            }
             DispatchQueue.main.async {
                 self.parent.isLoading = false
                 self.parent.errorMessage = error.localizedDescription
@@ -106,6 +115,10 @@ struct WebViewContainer: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                return
+            }
             DispatchQueue.main.async {
                 self.parent.isLoading = false
                 self.parent.errorMessage = error.localizedDescription
@@ -113,16 +126,31 @@ struct WebViewContainer: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            guard let url = navigationAction.request.url else {
+            guard let reqUrl = navigationAction.request.url else {
                 decisionHandler(.allow)
                 return
             }
 
-            let scheme = url.scheme?.lowercased() ?? ""
+            let scheme = reqUrl.scheme?.lowercased() ?? ""
             if scheme == "mailto" || scheme == "tel" || scheme == "sms" {
-                UIApplication.shared.open(url)
+                UIApplication.shared.open(reqUrl)
                 decisionHandler(.cancel)
                 return
+            }
+
+            // If OAuth provider redirects to localhost/127.0.0.1 callback, route it to the active server
+            if (reqUrl.host == "localhost" || reqUrl.host == "127.0.0.1") && reqUrl.path.hasPrefix("/api/auth/") {
+                if let serverHost = parent.url.host, serverHost != "localhost" && serverHost != "127.0.0.1" {
+                    var components = URLComponents(url: reqUrl, resolvingAgainstBaseURL: false)
+                    components?.scheme = parent.url.scheme
+                    components?.host = parent.url.host
+                    components?.port = parent.url.port
+                    if let targetUrl = components?.url {
+                        decisionHandler(.cancel)
+                        webView?.load(URLRequest(url: targetUrl))
+                        return
+                    }
+                }
             }
 
             decisionHandler(.allow)
