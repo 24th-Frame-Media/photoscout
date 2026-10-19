@@ -14,7 +14,7 @@ import { useConvoy } from './useConvoy.js';
  * Your own car is Drive's arrow, so your pin is left off.
  */
 export default function DriveConvoy() {
-  const { map, hasTarget, goTo, goRoute } = useDriveMap();
+  const { map, goTo, goRoute } = useDriveMap();
   const convoy = useConvoy();
   const layer = useRef<ConvoyLayer | null>(null);
   const view = convoy.view;
@@ -35,23 +35,25 @@ export default function DriveConvoy() {
   if (!view) return null;
   const dest = view.destination;
   return (
-    <div className="driveconvoy">
+    <div className={`driveconvoy${expanded ? ' is-expanded' : ''}`} onKeyDown={(event) => { if (event.key === 'Escape') setExpanded(false); }}>
       <button className="driveconvoy__name" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-        {convoy.room?.name ?? 'Convoy'} · {view.members.filter((m) => m.online).length} on
-        {!!convoy.unread[convoy.room!.code] && <b className="convoy-unread">{convoy.unread[convoy.room!.code]} new</b>} {expanded ? '▴' : '▾'}
+        <span className="driveconvoy__title">{convoy.room?.name ?? 'Convoy'}</span>
+        <span className="driveconvoy__count">{view.members.filter((m) => m.online).length} on</span>
+        {!!convoy.unread[convoy.room!.code] && <b className="convoy-unread">{convoy.unread[convoy.room!.code]} new</b>}
+        <span aria-hidden="true">{expanded ? '▴' : '▾'}</span>
       </button>
-      {dest && (!hasTarget || convoy.room?.resting || expanded) && (
+      {expanded && <div className="driveconvoy__panel" role="region" aria-label="Convoy controls">
+        <ConvoyConnection />
+      {dest && (
         <button type="button" className="primary" onClick={() => goTo(dest.lat, dest.lng, dest.label || 'Convoy destination')}>
           {convoy.room?.resting ? 'Preview rest stop' : 'Drive to'} {dest.label || 'the convoy’s destination'}
         </button>
       )}
-      {view.route && (!hasTarget || expanded) && (
+      {view.route && (
         <button type="button" className="primary" onClick={() => goRoute(view.route!.stops, view.route!.name)}>
           Drive convoy route
         </button>
       )}
-      {expanded && <div className="driveconvoy__panel">
-        <ConvoyConnection />
         <ConvoyChat key={convoy.room!.code} compact />
         <details><summary>Riding &amp; audio</summary><ConvoyAudio /></details>
         <Link to="/convoy">Manage convoy</Link>

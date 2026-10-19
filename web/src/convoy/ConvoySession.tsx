@@ -71,7 +71,7 @@ export default function ConvoySession() {
       </div>)}
     </div>
     {convoy.status === 'ended' && <div className="convoy-session-error" role="alert">Convoy disconnected: your session ended. <a href="/login">Sign in again</a></div>}
-    {convoy.room && !['/convoy', '/drive'].includes(pathname) && <aside className="convoy-dock" aria-label="Active convoy">
+    {convoy.room && !['/convoy', '/drive'].includes(pathname) && <aside className={`convoy-dock${pathname === '/' ? ' convoy-dock--map' : ''}${expanded ? ' is-expanded' : ''}`} aria-label="Active convoy">
       <button className="convoy-dock__toggle" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
         <span>Convoy · <strong>{convoy.room.name}</strong></span>
         <span>{unread > 0 && <b className="convoy-unread">{unread}</b>} {expanded ? '▴' : '▾'}</span>

@@ -2034,6 +2034,7 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
 .convoy-session-error { position: fixed; z-index: 86; top: var(--topbar-h); width: 100%; padding: 12px; background: var(--panel); border-bottom: 1px solid var(--red); }
 .convoy-dock { position: fixed; z-index: 45; right: 60px; top: calc(var(--topbar-h) + 12px); width: min(340px, calc(100vw - 24px)); background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 28px #0005; }
 .convoy-dock__toggle { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 10px; border: 0; background: none; text-align: left; min-height: 48px; }
+.convoy-dock__toggle, .convoy-dock > .convoy-connection { flex-shrink: 0; }
 .convoy-dock__toggle > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .convoy-dock__body { padding: 0 12px 12px; max-height: calc(100dvh - var(--topbar-h) - 120px); overflow-y: auto; }
 .convoy-dock__body > p { font-size: 13px; }
@@ -2051,7 +2052,7 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
 .convoy-chat__form button { min-height: 48px; }
 .convoy-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
 .convoy-quick button { min-height: 48px; padding: 8px; font-size: 13px; }
-.convoy-audio { border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 12px 0; padding: 10px; }
+.convoy-audio { min-inline-size: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 12px 0; padding: 10px; }
 .convoy-audio label { display: flex; gap: 10px; align-items: center; min-height: 48px; font-size: 13px; }
 .convoy-audio input[type=checkbox] { width: 20px; height: 20px; flex-shrink: 0; }
 .convoy-audio legend { font-size: 13px; color: var(--muted); }
@@ -2061,11 +2062,46 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
 .driveconvoy > button { min-height: 48px; max-width: 100%; white-space: normal; }
 .driveconvoy__panel { width: 100%; padding: 10px 12px; background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius); max-height: min(52dvh, 500px); overflow-y: auto; }
 .driveconvoy__panel .convoy-connection { padding-left: 0; }
+.driveconvoy__name { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.driveconvoy__title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.driveconvoy__count { flex-shrink: 0; white-space: nowrap; }
+.driveconvoy__panel > button { width: 100%; margin: 4px 0; overflow-wrap: anywhere; }
+.convoy__head > div { min-width: 0; max-width: 100%; }
+.convoy__head h2, .convoy__dest, .convoy__members a { overflow-wrap: anywhere; }
+.convoy__entry { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
+.convoy__card { min-width: 0; }
 @media (max-width: 640px) {
-  .convoy-dock { top: auto; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + var(--timebar-h) + 64px); width: min(320px, calc(100vw - 24px)); }
-  .convoy-dock__body { max-height: 55dvh; }
+  .convoy-dock { top: auto; left: 8px; right: 8px; bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); width: auto; display: flex; flex-direction: column; max-height: calc(100dvh - var(--topbar-h) - 24px); }
+  .convoy-dock--map { top: calc(var(--topbar-h) + 52px); bottom: auto; right: 52px; max-height: calc(100dvh - var(--topbar-h) - 52px - 86px); }
+  .convoy-dock--map.is-expanded { right: 8px; }
+  .convoy-dock__body { min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; }
+  #root:has(.convoy-dock:not(.convoy-dock--map)) .page { padding-bottom: 120px; }
+  .convoy-chat__form input, .convoy__card input { font-size: 16px; }
+  .convoy button, .convoy .button { min-height: 44px; }
+  .maptools .chip { min-height: 40px; }
   .convoy-notices { top: calc(var(--topbar-h) + 6px); }
-  .driveconvoy { max-width: calc(100% - 2 * var(--drive-gap) - 64px); }
+  .driveconvoy { left: calc(env(safe-area-inset-left, 0px) + var(--drive-gap)); right: calc(env(safe-area-inset-right, 0px) + var(--drive-gap)); width: auto; max-width: none; bottom: calc(var(--drive-bar-h) + env(safe-area-inset-bottom, 0px) + 3 * var(--drive-gap) + 56px); }
+  .driveconvoy.is-expanded { top: calc(env(safe-area-inset-top, 0px) + var(--drive-gap)); align-items: stretch; }
+  .driveconvoy__name { flex-shrink: 0; }
+  .driveconvoy__panel { flex: 1; min-height: 0; max-height: none; overscroll-behavior: contain; }
+  .drive__tools { top: auto; left: calc(env(safe-area-inset-left, 0px) + var(--drive-gap)); right: calc(env(safe-area-inset-right, 0px) + var(--drive-gap)); bottom: calc(var(--drive-bar-h) + env(safe-area-inset-bottom, 0px) + 2 * var(--drive-gap)); transform: none; flex-direction: row; gap: 6px; overflow-x: auto; }
+  .drive .drive__tools > * { flex: 1 0 56px; min-width: 56px; min-height: 48px; padding: 4px 6px; font-size: 14px; line-height: 1.15; }
+  .driveconvoy .convoy-quick button { font-size: 14px; padding: 6px; }
+  .driveconvoy .convoy-chat__form button { padding: 0 10px; font-size: 15px; }
+  .drivesearch__row { flex-wrap: wrap; }
+  .drivesearch__row input { flex: 1 1 100%; }
+  .drivesearch__row button { flex: 1; }
+  .drive__bar { column-gap: 10px; padding: 10px; }
+  .drive__hint { font-size: 15px; }
+  .drive__gps { font-size: 13px; }
+}
+@media (orientation: landscape) and (max-height: 600px) {
+  .driveconvoy { left: 12px; right: auto; bottom: 12px; width: calc(50% - 24px); max-width: none; }
+  .driveconvoy.is-expanded { top: 12px; bottom: 12px; align-items: stretch; }
+  .driveconvoy__panel { flex: 1; min-height: 0; max-height: none; }
+  .driveconvoy__name { flex-shrink: 0; }
+  .drive__tools { left: 50%; right: 12px; top: 12px; bottom: auto; transform: none; flex-direction: row; gap: 6px; overflow-x: auto; }
+  .drive .drive__tools > * { flex: 1 0 52px; min-width: 52px; padding: 4px 6px; font-size: 14px; min-height: 48px; }
 }
 
 /* ==== Settings: grouped side menu, and the list of areas ==== */
