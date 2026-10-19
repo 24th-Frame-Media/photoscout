@@ -15,6 +15,8 @@ struct WebViewContainer: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
+        config.websiteDataStore = WKWebsiteDataStore.default()
+        config.preferences.javaScriptCanOpenWindowsAutomatically = true
 
         // Inject Native JavaScript Bridge
         let userScript = WKUserScript(
@@ -35,6 +37,9 @@ struct WebViewContainer: UIViewRepresentable {
         webView.backgroundColor = UIColor(red: 0.055, green: 0.063, blue: 0.078, alpha: 1.0)
         webView.isOpaque = false
         webView.scrollView.backgroundColor = UIColor(red: 0.055, green: 0.063, blue: 0.078, alpha: 1.0)
+
+        // Custom Safari User-Agent to allow Google & Discord OAuth logins
+        webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
 
         context.coordinator.webView = webView
 
@@ -121,6 +126,14 @@ struct WebViewContainer: UIViewRepresentable {
             }
 
             decisionHandler(.allow)
+        }
+
+        // Support target="_blank" and popup windows for OAuth
+        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+            if navigationAction.targetFrame == nil {
+                webView.load(navigationAction.request)
+            }
+            return nil
         }
 
         // JavaScript Alerts & Confirms

@@ -217,7 +217,14 @@ app.use(['/api/places', '/api/spots', '/api/routes'], (req, res, next) => {
 
 // --- auth -------------------------------------------------------------------
 
-const secureCookie = { httpOnly: true, secure: true, sameSite: 'lax' as const, path: '/' };
+const secureCookie = {
+  httpOnly: true,
+  get secure() {
+    return publicUrl().startsWith('https:');
+  },
+  sameSite: 'lax' as const,
+  path: '/',
+};
 
 app.get('/api/auth/status', (req, res) => {
   res.json({
