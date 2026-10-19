@@ -147,7 +147,7 @@ struct WebViewContainer: UIViewRepresentable {
                     components?.port = parent.url.port
                     if let targetUrl = components?.url {
                         decisionHandler(.cancel)
-                        webView?.load(URLRequest(url: targetUrl))
+                        webView.load(URLRequest(url: targetUrl))
                         return
                     }
                 }

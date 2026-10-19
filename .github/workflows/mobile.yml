@@ -152,7 +152,7 @@ jobs:
 
   release:
     needs: [android, ios]
-    if: (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && always() && (needs.android.result == 'success' || needs.ios.result == 'success')
+    if: (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && needs.android.result == 'success' && needs.ios.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
