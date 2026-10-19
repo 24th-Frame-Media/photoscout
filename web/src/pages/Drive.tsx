@@ -306,7 +306,13 @@ function DriveScreen({ children }: { children?: ReactNode }) {
   const eta = progress && route ? Date.now() + progress.remainingS * 1000 : route ? Date.now() + route.durationS * 1000 : 0;
 
   return (
-    <DriveMapContext.Provider value={{ map, fix, hasTarget: target !== null, goTo: (lat, lng, name) => void choose({ kind: 'point', lat, lng, name }) }}>
+    <DriveMapContext.Provider value={{
+      map,
+      fix,
+      hasTarget: target !== null,
+      goTo: (lat, lng, name) => void choose({ kind: 'point', lat, lng, name }),
+      goRoute: (stops, name) => void choose({ kind: 'saved', id: 'convoy-route', name, stops }),
+    }}>
       <div className="drive" data-phase={phase} ref={root}>
         <div className="drive__map" ref={mapEl} />
 

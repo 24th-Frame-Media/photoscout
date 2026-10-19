@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { arrowFor, describeManeuver, fetchNavRoute, parseNavRoute, parseTo, stopsAhead, stopsForSavedRoute } from '../src/drive/route.js';
+import { cumulativeM } from '../src/drive/geometry.js';
 import { at, densify, navL, osrmL, step } from './driveFixtures.js';
 
 const near = (a: number, b: number, eps = 1) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -96,6 +97,17 @@ test('stopsAhead: keeps the stops the car has not yet passed', () => {
   assert.deepEqual(stopsAhead(r, stops, 0), stops);
   assert.deepEqual(stopsAhead(r, stops, 1500), stops.slice(1));
   assert.deepEqual(stopsAhead(r, stops, 3400), stops.slice(2));
+});
+
+test('stopsAhead: retains a circuit’s closing return to the duplicated start', () => {
+  const a: [number, number] = [151, -33];
+  const b: [number, number] = [151.01, -33];
+  const c: [number, number] = [151.01, -33.01];
+  const coords = [a, b, c, a];
+  const cum = cumulativeM(coords);
+  const route = { coords, cum, distanceM: cum.at(-1)!, durationS: 0, steps: [] };
+
+  assert.deepEqual(stopsAhead(route, [a, b, c, a], (cum[2] + cum[3]) / 2), [a]);
 });
 
 test('stopsForSavedRoute: starts from the driver unless already at the start, and stays within the limit', () => {

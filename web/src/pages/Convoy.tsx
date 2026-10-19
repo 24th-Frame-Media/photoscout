@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { User } from '../api.js';
+import { api, type User } from '../api.js';
+import { routeStops, routingWaypoints } from '../map/routeGeometry.js';
 import ConvoyMap from '../convoy/ConvoyMap.js';
 import { lastSeenText, speedText } from '../convoy/state.js';
 import { useConvoy, type Convoy as ConvoyApi } from '../convoy/useConvoy.js';
@@ -31,7 +32,12 @@ function ConvoyPage() {
   const [params, setParams] = useSearchParams();
   const [code, setCode] = useState(() => params.get('code') ?? '');
   const cruise = params.get('cruise');
+  const routeId = params.get('route');
+  const to = params.get('to');
+  const label = params.get('label') ?? '';
   const asked = useRef(false);
+  const applied = useRef<string | null>(null);
+  const [selectionError, setSelectionError] = useState('');
 
   // From a cruise's "Start convoy": go straight in once the connection is up.
   useEffect(() => {
@@ -44,12 +50,40 @@ function ConvoyPage() {
     if (cruise && asked.current && (convoy.rooms.length > 0 || convoy.error)) setParams({}, { replace: true });
   }, [cruise, convoy.rooms.length, convoy.error]);
 
+  // Links from a place/spot or a saved route wait until the leader has a room, then apply once.
+  useEffect(() => {
+    if ((!routeId && !to) || !convoy.room || convoy.status !== 'open') return;
+    if (convoy.room.leader !== convoy.me) { setSelectionError('Only the convoy leader can apply a shared place or route.'); return; }
+    const key = `${convoy.room.code}|${routeId ?? ''}|${to ?? ''}|${label}`;
+    if (applied.current === key) return;
+    applied.current = key;
+    setSelectionError('');
+    void (async () => {
+      try {
+        if (routeId) {
+          const route = await api.route(routeId);
+          convoy.setRoute({ name: route.name, stops: routingWaypoints(routeStops(route), route.type) });
+          if (route.staging) convoy.setDestination({ lat: route.staging.lat, lng: route.staging.lng, label: `${route.name} staging` });
+        } else if (to) {
+          const [lat, lng] = to.split(',').map(Number);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) throw new Error('That place has invalid coordinates.');
+          convoy.setDestination({ lat, lng, label: label || 'Convoy destination' });
+        }
+        setParams({}, { replace: true });
+      } catch (err) {
+        applied.current = null;
+        setSelectionError((err as Error).message || 'Could not apply the shared convoy selection.');
+      }
+    })();
+  }, [convoy.room, convoy.status, convoy.me, routeId, to, label]);
+
   const waiting = STATUS_TEXT[convoy.status];
   return (
     <div className="page convoy">
       <h1>Convoy</h1>
       {waiting && <p className={`status-line ${convoy.status === 'ended' ? 'error' : 'disabled'}`}>{waiting}</p>}
       {convoy.error && <p className="status-line error">{convoy.error}</p>}
+      {selectionError && <p className="status-line error">{selectionError}</p>}
       {convoy.room ? <InRoom convoy={convoy} /> : (
         <p className="hint">Start a convoy and send the code to the people you are driving with, or enter the code you were sent. While you are in one, your position is shared with the others in it, and only with them.</p>
       )}
@@ -139,6 +173,12 @@ function InRoom({ convoy }: { convoy: ConvoyApi }) {
         {room.destination
           ? <p>⚑ <strong>{room.destination.label || 'Destination'}</strong> <span className="hint">{room.destination.lat.toFixed(4)}, {room.destination.lng.toFixed(4)}</span></p>
           : <p className="hint">No destination yet.{iLead ? ' Choose one on the map.' : ' The leader can set one.'}</p>}
+        {room.route && <p>🛣️ <strong>{room.route.name}</strong> <span className="hint">{room.route.stops.length - 1} leg{room.route.stops.length === 2 ? '' : 's'} shared with Drive</span></p>}
+        {room.route && !room.resting && !picking && (
+          <div className="eventcard__actions">
+            <button className="primary" onClick={() => convoy.rest('find')}>Find nearest rest stop</button>
+          </div>
+        )}
         {iLead && (
           <div className="eventcard__actions">
             {picking
@@ -148,6 +188,10 @@ function InRoom({ convoy }: { convoy: ConvoyApi }) {
                 </>
               : <button onClick={() => setPicking(true)}>{room.destination ? 'Move destination' : 'Set destination'}</button>}
             {room.destination && !picking && <button onClick={() => convoy.setDestination(null)}>Clear</button>}
+            {room.route && room.resting && !picking && (
+              <button className="primary" onClick={() => convoy.rest('continue')}>Continue to destination</button>
+            )}
+            {room.route && !picking && <button onClick={() => convoy.setRoute(null)}>Clear route</button>}
           </div>
         )}
       </div>

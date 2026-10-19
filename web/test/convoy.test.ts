@@ -114,7 +114,7 @@ test('messages go to listeners, and garbage is ignored', () => {
 });
 
 const member = (id: string, patch: Partial<Member> = {}): Member => ({ id, username: id.toUpperCase(), avatar: '', online: true, lastSeen: 1000, position: null, ...patch });
-const room = (code: string, members: Member[], patch: Partial<Room> = {}): Room => ({ code, name: code, eventId: null, leader: 'a', destination: null, members, ...patch });
+const room = (code: string, members: Member[], patch: Partial<Room> = {}): Room => ({ code, name: code, eventId: null, leader: 'a', destination: null, resting: false, route: null, members, ...patch });
 
 test('the reducer follows hello, room, pos and left, and shows a room you have just joined', () => {
   let s = reduce(emptyState, { t: 'hello', me: 'a', rooms: [] });

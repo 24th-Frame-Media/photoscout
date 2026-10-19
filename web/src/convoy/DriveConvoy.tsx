@@ -9,7 +9,7 @@ import { useConvoy } from './useConvoy.js';
  * Your own car is Drive's arrow, so your pin is left off.
  */
 export default function DriveConvoy() {
-  const { map, hasTarget, goTo } = useDriveMap();
+  const { map, hasTarget, goTo, goRoute } = useDriveMap();
   const convoy = useConvoy();
   const layer = useRef<ConvoyLayer | null>(null);
   const view = convoy.view;
@@ -33,6 +33,11 @@ export default function DriveConvoy() {
       {dest && !hasTarget && (
         <button type="button" className="primary" onClick={() => goTo(dest.lat, dest.lng, dest.label || 'Convoy destination')}>
           Drive to {dest.label || 'the convoy’s destination'}
+        </button>
+      )}
+      {view.route && !hasTarget && (
+        <button type="button" className="primary" onClick={() => goRoute(view.route!.stops, view.route!.name)}>
+          Drive convoy route
         </button>
       )}
     </div>

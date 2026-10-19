@@ -40,6 +40,38 @@ test('the creator leads; joining twice is harmless; a stranger cannot set the de
   assert.equal(rooms.handOver(room.code, 'u1', 'u2').ok && rooms.view(room.code)!.leader, 'u2');
 });
 
+test('the leader can share a route, including a circuit closing stop', () => {
+  const rooms = new Rooms();
+  const made = rooms.create(who(1));
+  assert.ok(made.ok);
+  const route = { name: 'Mountain loop', stops: [[149.57, -33.42], [149.58, -33.43], [149.57, -33.42]] as [number, number][] };
+  const setRoute = (rooms as unknown as { setRoute: (code: string, userId: string, route: { name: string; stops: [number, number][] } | null) => { ok: boolean } }).setRoute;
+
+  assert.equal(setRoute.call(rooms, made.value.code, 'u2', route).ok, false);
+  assert.equal(setRoute.call(rooms, made.value.code, 'u1', route).ok, true);
+  assert.deepEqual(rooms.view(made.value.code)!.route, route);
+});
+
+test('any convoy member can pause at a rest stop, while the leader resumes the saved destination', () => {
+  const rooms = new Rooms();
+  const made = rooms.create(who(1), { destination: { lat: -33.4, lng: 149.5, label: 'Final lookout' } });
+  assert.ok(made.ok);
+  assert.ok(rooms.join(made.value.code, who(2)).ok);
+  const rest = { lat: -33.3, lng: 149.4, label: 'Macca\'s — restrooms tagged' };
+  const api = rooms as unknown as {
+    setRestStop: (code: string, userId: string, destination: { lat: number; lng: number; label: string }) => { ok: boolean };
+    continueDestination: (code: string, userId: string) => { ok: boolean };
+  };
+
+  assert.equal(api.setRestStop(made.value.code, 'u2', rest).ok, true);
+  assert.deepEqual(rooms.view(made.value.code)!.destination, rest);
+  assert.equal((rooms.view(made.value.code)! as { resting?: boolean }).resting, true);
+  assert.equal(api.continueDestination(made.value.code, 'u2').ok, false);
+  assert.equal(api.continueDestination(made.value.code, 'u1').ok, true);
+  assert.deepEqual(rooms.view(made.value.code)!.destination, { lat: -33.4, lng: 149.5, label: 'Final lookout' });
+  assert.equal((rooms.view(made.value.code)! as { resting?: boolean }).resting, false);
+});
+
 test('a convoy holds 30, and a user is in 3', () => {
   const rooms = new Rooms();
   const code = (rooms.create(who(0)) as { ok: true; value: { code: string } }).value.code;
@@ -167,6 +199,7 @@ test('every client message is checked, and unlisted fields are dropped', () => {
   assert.deepEqual(ok({ t: 'pos', lat: 1, lng: 2, speed: 3, extra: 'x' }), { ok: true, message: { t: 'pos', lat: 1, lng: 2, heading: null, speed: 3 } });
   assert.deepEqual(ok({ t: 'convoy.join', code: 'abcd efgh' }), { ok: true, message: { t: 'convoy.join', code: 'ABCDEFGH' } });
   assert.deepEqual(ok({ t: 'convoy.dest', room: 'R', destination: null }), { ok: true, message: { t: 'convoy.dest', room: 'R', destination: null } });
+  assert.deepEqual(ok({ t: 'convoy.rest', room: 'R', action: 'find' }), { ok: true, message: { t: 'convoy.rest', room: 'R', action: 'find' } });
   for (const bad of [
     'not json', '[]', '7', '{}', { t: 7 }, { t: 'nope' },
     { t: 'pos', lat: 91, lng: 0 }, { t: 'pos', lat: 0, lng: 181 }, { t: 'pos', lat: '1', lng: 0 }, { t: 'pos', lat: null, lng: 0 },

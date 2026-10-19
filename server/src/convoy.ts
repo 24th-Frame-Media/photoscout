@@ -43,6 +43,9 @@ export const normalizeCode = (raw: string): string => raw.replace(/[\s-]/g, '').
 export interface Who { id: string; username: string; avatar: string }
 export interface Position { lat: number; lng: number; heading: number | null; speed: number | null; ts: number }
 export interface Destination { lat: number; lng: number; label: string }
+/** A shared driving itinerary. A circuit includes its first stop again at the end. */
+export interface ConvoyRoute { name: string; stops: [number, number][] }
+export const MAX_CONVOY_ROUTE_STOPS = 25;
 
 interface Member extends Who {
   online: boolean;
@@ -60,6 +63,10 @@ interface Room {
   eventId: string | null;
   leader: string;
   destination: Destination | null;
+  /** The original destination while the convoy is temporarily paused at a rest stop. */
+  resumeDestination: Destination | null;
+  resting: boolean;
+  route: ConvoyRoute | null;
   members: Map<string, Member>;
   /** People the leader removed: they cannot come back in with the code. */
   removed: Set<string>;
@@ -75,6 +82,8 @@ export interface RoomView {
   eventId: string | null;
   leader: string;
   destination: Destination | null;
+  resting: boolean;
+  route: ConvoyRoute | null;
   members: { id: string; username: string; avatar: string; online: boolean; lastSeen: number; position: Position | null }[];
 }
 
@@ -96,7 +105,8 @@ export class Rooms {
     const room = this.room(code);
     if (!room) return undefined;
     return {
-      code: room.code, name: room.name, eventId: room.eventId, leader: room.leader, destination: room.destination,
+      code: room.code, name: room.name, eventId: room.eventId, leader: room.leader, destination: room.destination, resting: room.resting,
+      route: room.route && { name: room.route.name, stops: room.route.stops.map((p) => [...p] as [number, number]) },
       members: [...room.members.values()].sort((a, b) => a.joinedAt - b.joinedAt).map((m) => ({
         id: m.id, username: m.username, avatar: m.avatar, online: m.online, lastSeen: m.lastSeen, position: m.online ? m.position : null,
       })),
@@ -113,7 +123,7 @@ export class Rooms {
 
   isLeader(code: string, userId: string): boolean { return this.room(code)?.leader === userId; }
 
-  create(who: Who, opts: { name?: string; eventId?: string | null; destination?: Destination | null } = {}): Outcome {
+  create(who: Who, opts: { name?: string; eventId?: string | null; destination?: Destination | null; route?: ConvoyRoute | null } = {}): Outcome {
     if (this.rooms.size >= MAX_ROOMS) return fail('Convoys are very busy right now. Try again shortly.');
     if ((this.byUser.get(who.id)?.size ?? 0) >= MAX_ROOMS_PER_USER) return fail(`You can be in ${MAX_ROOMS_PER_USER} convoys at once: leave one first`);
     if (opts.eventId && this.byEvent.has(opts.eventId)) return fail('That cruise already has a convoy');
@@ -122,7 +132,11 @@ export class Rooms {
     const now = this.now();
     const room: Room = {
       code, name: (opts.name ?? '').trim().slice(0, MAX_NAME) || 'Convoy', eventId: opts.eventId ?? null, leader: who.id,
-      destination: opts.destination ?? null, members: new Map(), removed: new Set(), createdAt: now, emptySince: null,
+      destination: opts.destination ?? null,
+      resumeDestination: null,
+      resting: false,
+      route: opts.route ? { name: opts.route.name.trim().slice(0, MAX_NAME) || 'Convoy route', stops: opts.route.stops.map((p) => [...p] as [number, number]) } : null,
+      members: new Map(), removed: new Set(), createdAt: now, emptySince: null,
     };
     this.rooms.set(code, room);
     if (room.eventId) this.byEvent.set(room.eventId, code);
@@ -184,6 +198,40 @@ export class Rooms {
     if (!room?.members.has(userId)) return fail('You are not in that convoy');
     if (room.leader !== userId) return fail('Only the leader can set the destination');
     room.destination = destination && { ...destination, label: destination.label.trim().slice(0, MAX_LABEL) };
+    room.resumeDestination = null;
+    room.resting = false;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** Temporarily replace the destination with a rest stop, remembering where the convoy was headed. */
+  setRestStop(code: string, userId: string, destination: Destination): Outcome {
+    const room = this.room(code);
+    if (!room?.members.has(userId)) return fail('You are not in that convoy');
+    if (room.resting) return fail('The convoy is already in rest mode');
+    room.resumeDestination = room.destination && { ...room.destination };
+    room.destination = { ...destination, label: destination.label.trim().slice(0, MAX_LABEL) };
+    room.resting = true;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** Leave rest mode and restore the destination that was active before the stop. */
+  continueDestination(code: string, userId: string): Outcome {
+    const room = this.room(code);
+    if (!room?.members.has(userId)) return fail('You are not in that convoy');
+    if (room.leader !== userId) return fail('Only the leader can set the destination');
+    if (!room.resting) return fail('The convoy is not in rest mode');
+    room.destination = room.resumeDestination;
+    room.resumeDestination = null;
+    room.resting = false;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** The leader shares a route as ordered driving stops, including a circuit's closing stop when applicable. */
+  setRoute(code: string, userId: string, route: ConvoyRoute | null): Outcome {
+    const room = this.room(code);
+    if (!room?.members.has(userId)) return fail('You are not in that convoy');
+    if (room.leader !== userId) return fail('Only the leader can set the route');
+    room.route = route && { name: route.name.trim().slice(0, MAX_NAME) || 'Convoy route', stops: route.stops.map((p) => [...p] as [number, number]) };
     return { ok: true, value: this.view(code)! };
   }
 

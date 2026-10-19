@@ -133,7 +133,7 @@ test('moving the event cannot leave a roll-out time outside it', async () => {
 });
 
 test('the organiser starts the convoy, and those going join it with one message', async () => {
-  const made = (await alice('POST', '/api/community-events', event(drawn()))).json;
+  const made = (await alice('POST', '/api/community-events', event(drawn({ type: 'circuit' })))).json;
   const plain = (await alice('POST', '/api/community-events', event())).json;
   const a = await connected(app.socket(alice));
   const b = await connected(app.socket(bob));
@@ -152,6 +152,7 @@ test('the organiser starts the convoy, and those going join it with one message'
   assert.equal(room.eventId, made.id);
   assert.equal(room.name, 'Sunset cruise');
   assert.deepEqual(room.destination, { lat: -33.42, lng: 149.58, label: 'Servo car park, bring a full tank' });
+  assert.deepEqual(room.route, { name: 'Cruise route', stops: [...line, line[0]] });
   // Asking again is the same convoy.
   a.send({ t: 'convoy.cruise', eventId: made.id });
   assert.equal((await a.next((m) => m.t === 'room')).room.code, room.code);

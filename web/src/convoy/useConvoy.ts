@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { realtime, type Status } from './client.js';
 import { activeRoom, emptyState, reduce, viewOf, type ConvoyState, type ConvoyView } from './state.js';
-import type { Destination, Position, Room } from './types.js';
+import type { ConvoyRoute, Destination, Position, Room } from './types.js';
 
 /**
  * The convoy for any page: connect, reconnect, say where you are while you are
@@ -119,6 +119,8 @@ export interface Convoy {
   joinCruise(eventId: string): void;
   leave(code?: string): void;
   setDestination(destination: Destination | null): void;
+  rest(action: 'find' | 'continue'): void;
+  setRoute(route: ConvoyRoute | null): void;
   handOver(to: string): void;
   remove(id: string): void;
 }
@@ -155,6 +157,8 @@ export function useConvoy(): Convoy {
     joinCruise: (eventId) => send({ t: 'convoy.cruise', eventId }),
     leave: (code) => { const c = code ?? room?.code; if (c) send({ t: 'convoy.leave', room: c }); },
     setDestination: (destination) => { if (room) send({ t: 'convoy.dest', room: room.code, destination }); },
+    rest: (action) => { if (room) send({ t: 'convoy.rest', room: room.code, action }); },
+    setRoute: (route) => { if (room) send({ t: 'convoy.route', room: room.code, route }); },
     handOver: (to) => { if (room) send({ t: 'convoy.lead', room: room.code, to }); },
     remove: (id) => { if (room) send({ t: 'convoy.remove', room: room.code, id }); },
   };

@@ -6,6 +6,7 @@ import { originAllowed, readCookie, SESSION_COOKIE } from './auth.js';
 import { findUserById, hashOf, onSessionsRevoked, sessionUser } from './authStore.js';
 import { publicUrl } from './oauth.js';
 import { MAX_LABEL, MissLimiter, Rooms, type Who } from './convoy.js';
+import { findRestStop, restStopLabel } from './sources/restStops.js';
 import { cruiseAccess } from './cruise.js';
 import { parseClientMessage, type ClientMessage } from './wsMessages.js';
 
@@ -130,9 +131,32 @@ function handle(conn: Conn, m: ClientMessage): void {
       return announce(m.room);
     }
     case 'convoy.dest':
+    case 'convoy.route':
     case 'convoy.lead': {
-      const done = m.t === 'convoy.dest' ? rooms.setDestination(m.room, conn.userId, m.destination) : rooms.handOver(m.room, conn.userId, m.to);
+      const done = m.t === 'convoy.dest'
+        ? rooms.setDestination(m.room, conn.userId, m.destination)
+        : m.t === 'convoy.route'
+          ? rooms.setRoute(m.room, conn.userId, m.route)
+          : rooms.handOver(m.room, conn.userId, m.to);
       return done.ok ? announce(m.room) : error(done.error);
+    }
+    case 'convoy.rest': {
+      const room = rooms.view(m.room);
+      if (!room || !room.members.some((member) => member.id === conn.userId)) return error('You are not in that convoy');
+      if (m.action === 'continue') {
+        if (room.leader !== conn.userId) return error('Only the leader can continue to the destination');
+        const done = rooms.continueDestination(m.room, conn.userId);
+        return done.ok ? announce(m.room) : error(done.error);
+      }
+      if (!room.route) return error('Set a convoy route before finding a rest stop');
+      const leader = room.members.find((member) => member.id === room.leader)?.position;
+      const from: [number, number] = leader ? [leader.lng, leader.lat] : room.route.stops[0];
+      void findRestStop(room.route.stops, from).then((stop) => {
+        if (!stop) return error('No suitable rest stop was found close to the remaining route');
+        const done = rooms.setRestStop(m.room, conn.userId, { lat: stop.lat, lng: stop.lng, label: restStopLabel(stop) });
+        if (done.ok) announce(m.room); else error(done.error);
+      }).catch(() => error('Could not look up rest stops right now'));
+      return;
     }
     case 'convoy.create':
     case 'convoy.join':
@@ -152,7 +176,12 @@ function handle(conn: Conn, m: ClientMessage): void {
         const code = rooms.forEvent(m.eventId);
         if (code) done = rooms.join(code, who);
         else if (!access.isOwner) return error('The organiser has not started this convoy yet');
-        else done = rooms.create(who, { name: access.title, eventId: m.eventId, destination: { lat: access.meet.lat, lng: access.meet.lng, label: (access.meet.note || 'Meeting point').slice(0, MAX_LABEL) } });
+        else done = rooms.create(who, {
+          name: access.title,
+          eventId: m.eventId,
+          destination: { lat: access.meet.lat, lng: access.meet.lng, label: (access.meet.note || 'Meeting point').slice(0, MAX_LABEL) },
+          route: access.route,
+        });
       }
       if (!done.ok) return error(done.error);
       announce(done.value.code);
