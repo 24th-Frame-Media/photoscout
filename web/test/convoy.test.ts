@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { backoff, LINGER_MS, MAX_WAIT_MS, RealtimeClient, SESSION_ENDED, UNAVAILABLE_AFTER, type Env, type SocketLike } from '../src/convoy/client.js';
+import { backoff, CONNECTION_TIMEOUT_MS, HEARTBEAT_MS, LINGER_MS, MAX_WAIT_MS, RealtimeClient, SESSION_ENDED, UNAVAILABLE_AFTER, type Env, type SocketLike } from '../src/convoy/client.js';
 import { activeRoom, emptyState, lastSeenText, reduce, speedText, withMine } from '../src/convoy/state.js';
 import { pinsFor, STALE_MS } from '../src/convoy/layer.js';
 import type { Member, Room } from '../src/convoy/types.js';
+import { convoyEvents } from '../src/convoy/events.js';
 
 class FakeSocket implements SocketLike {
   readyState = 0;
@@ -94,7 +95,7 @@ test('the socket outlives a page change by a moment and then goes', () => {
   first();
   const second = client.acquire(); // the next page, straight away
   assert.equal(sockets.length, 1, 'no reconnect');
-  assert.equal(timers.filter((t) => t.live).length, 0, 'and the pending close was cancelled');
+  assert.equal(timers.filter((t) => t.live && t.ms === LINGER_MS).length, 0, 'and the pending close was cancelled');
   second();
   assert.equal(fire(), LINGER_MS);
   assert.equal(sockets[0].closedWith, undefined);
@@ -114,7 +115,72 @@ test('messages go to listeners, and garbage is ignored', () => {
 });
 
 const member = (id: string, patch: Partial<Member> = {}): Member => ({ id, username: id.toUpperCase(), avatar: '', online: true, lastSeen: 1000, position: null, ...patch });
-const room = (code: string, members: Member[], patch: Partial<Room> = {}): Room => ({ code, name: code, eventId: null, leader: 'a', destination: null, resting: false, route: null, automaticRegroup: { enabled: false, separationM: 5_000 }, members, ...patch });
+const room = (code: string, members: Member[], patch: Partial<Room> = {}): Room => ({ messages: [], code, name: code, eventId: null, leader: 'a', destination: null, resting: false, route: null, automaticRegroup: { enabled: false, separationM: 5_000 }, members, ...patch });
+
+test('stalled handshakes and half-open connections time out and reconnect', () => {
+  const { client, sockets, fire } = harness();
+  client.acquire();
+  assert.equal(fire(), CONNECTION_TIMEOUT_MS);
+  assert.equal(client.status, 'retrying');
+  assert.equal(sockets[0].readyState, 3);
+  fire();
+  sockets[1].hello();
+  assert.equal(fire(), HEARTBEAT_MS);
+  assert.deepEqual(JSON.parse(sockets[1].sent[0]), { t: 'ping' });
+  assert.equal(fire(), CONNECTION_TIMEOUT_MS);
+  assert.equal(client.status, 'retrying');
+  fire();
+  sockets[2].hello();
+  client.reconnect();
+  assert.equal(sockets[2].readyState, 3);
+  assert.equal(sockets.length, 4);
+  sockets[2].onmessage?.({ data: JSON.stringify({ t: 'hello', me: 'stale', rooms: [] }) });
+  assert.equal(client.status, 'connecting', 'old socket cannot overwrite the new connection');
+});
+
+test('a heartbeat reply keeps the connection alive without leaking timers', () => {
+  const { client, sockets, timers, fire } = harness();
+  const release = client.acquire();
+  sockets[0].hello();
+  fire();
+  sockets[0].onmessage?.({ data: '{"t":"pong"}' });
+  assert.equal(timers.filter((t) => t.live).length, 1);
+  assert.equal(timers.find((t) => t.live)!.ms, HEARTBEAT_MS);
+  release();
+  fire();
+  assert.equal(timers.filter((t) => t.live).length, 0);
+});
+
+test('chat delivery deduplicates messages, bounds history and notifies only new incoming messages', () => {
+  const r = room('R', [member('a'), member('b')]);
+  let state = reduce(emptyState, { t: 'hello', me: 'a', rooms: [r] });
+  const message = { id: '1', clientId: 'c1', userId: 'b', username: 'B', text: 'Wait for me', ts: 1000 };
+  const packet = { t: 'convoy.message' as const, room: 'R', message };
+  assert.equal(convoyEvents(state, packet).length, 1);
+  state = reduce(state, packet);
+  assert.equal(convoyEvents(state, packet).length, 0);
+  state = reduce(state, packet);
+  assert.equal(state.rooms[0].messages.length, 1);
+  assert.equal(convoyEvents(state, { ...packet, message: { ...message, id: 'own', userId: 'a' } }).length, 0);
+  for (let i = 2; i < 65; i++) state = reduce(state, { ...packet, message: { ...message, id: `${i}` } });
+  assert.equal(state.rooms[0].messages.length, 50);
+  const missing = { ...message, id: 'missed' };
+  const hello = { t: 'hello' as const, me: 'a', rooms: [{ ...state.rooms[0], messages: [...state.rooms[0].messages, missing] }] };
+  assert.equal(convoyEvents(emptyState, hello).length, 0, 'initial history is silent');
+  assert.equal(convoyEvents(state, hello).length, 1, 'reconnect catches up an unseen incoming message once');
+  assert.equal(convoyEvents(reduce(state, hello), hello).length, 0);
+});
+
+test('convoy notices describe destination, membership and leadership changes, not positions', () => {
+  const r = room('R', [member('a'), member('b')]);
+  const state = reduce(emptyState, { t: 'hello', me: 'a', rooms: [r] });
+  assert.equal(convoyEvents(state, { t: 'pos', room: 'R', id: 'b', lat: 1, lng: 2, heading: null, speed: null, ts: 2000 }).length, 0);
+  const changed = { ...r, leader: 'b', resting: true, destination: { lat: 1, lng: 2, label: 'Rest area' }, members: [...r.members, member('c')] };
+  const notices = convoyEvents(state, { t: 'room', room: changed });
+  assert.ok(notices.some((n) => n.text.includes('C joined')));
+  assert.ok(notices.some((n) => n.text.includes('B is now leading')));
+  assert.ok(notices.some((n) => n.text.includes('Rest stop: Rest area')));
+});
 
 test('the reducer follows hello, room, pos and left, and shows a room you have just joined', () => {
   let s = reduce(emptyState, { t: 'hello', me: 'a', rooms: [] });

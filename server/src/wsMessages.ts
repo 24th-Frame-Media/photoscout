@@ -1,4 +1,4 @@
-import { CODE_PATTERN, DEFAULT_REGROUP_SEPARATION_M, MAX_CONVOY_ROUTE_STOPS, MAX_LABEL, MAX_NAME, MAX_REGROUP_SEPARATION_M, MIN_REGROUP_SEPARATION_M, normalizeCode } from './convoy.js';
+import { CODE_PATTERN, DEFAULT_REGROUP_SEPARATION_M, MAX_CONVOY_MESSAGE_LENGTH, MAX_CONVOY_ROUTE_STOPS, MAX_LABEL, MAX_NAME, MAX_REGROUP_SEPARATION_M, MIN_REGROUP_SEPARATION_M, normalizeCode } from './convoy.js';
 
 /**
  * What a client may say on the socket, checked field by field before anything
@@ -11,6 +11,8 @@ import { CODE_PATTERN, DEFAULT_REGROUP_SEPARATION_M, MAX_CONVOY_ROUTE_STOPS, MAX
 const MAX_SPEED = 120;
 
 export type ClientMessage =
+  | { t: 'ping' }
+  | { t: 'convoy.message'; room: string; text: string; clientId: string }
   | { t: 'chat.sub' }
   | { t: 'chat.unsub' }
   | { t: 'convoy.create'; name: string; automaticRegroup: { enabled: boolean; separationM: number } }
@@ -80,6 +82,10 @@ export function parseClientMessage(raw: string): ParsedMessage {
   if (!isObject(o) || typeof o.t !== 'string') return { ok: false, error: 'Expected an object with a t' };
   try {
     switch (o.t) {
+      case 'ping':
+        return { ok: true, message: { t: 'ping' } };
+      case 'convoy.message':
+        return { ok: true, message: { t: o.t, room: id(o, 'room'), text: str(o, 'text', MAX_CONVOY_MESSAGE_LENGTH, true), clientId: id(o, 'clientId') } };
       case 'chat.sub':
       case 'chat.unsub':
       case 'pos.stop':

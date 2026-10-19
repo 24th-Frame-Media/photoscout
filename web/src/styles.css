@@ -2021,6 +2021,52 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
 }
 .driveconvoy__name { padding: 6px 12px; border-radius: var(--pill); background: var(--glass); border: 1px solid var(--border); font-size: 15px; font-weight: 600; }
 
+/* Convoy remains available throughout the app and in navigation. */
+.convoy-nav-dot { display: inline-block; width: 8px; height: 8px; margin: 0 4px; border-radius: 50%; background: var(--accent); }
+.convoy-nav-dot.is-on { background: var(--green); }
+.convoy-unread { display: inline-block; padding: 1px 7px; margin-left: 5px; border-radius: var(--pill); background: var(--accent); color: var(--on-accent); font-size: 12px; }
+.convoy-connection { display: block; font-size: 12.5px; color: var(--muted); padding: 6px 12px; }
+.convoy-notices { position: fixed; top: calc(var(--topbar-h) + 10px); left: 50%; transform: translateX(-50%); z-index: 85; width: min(460px, calc(100vw - 24px)); pointer-events: none; display: grid; gap: 6px; }
+.convoy-notice { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--accent-line); border-radius: var(--radius); box-shadow: 0 8px 28px #0006; pointer-events: auto; }
+.convoy-notice a { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; max-height: 5em; overflow: hidden; }
+.convoy-notice button { padding: 4px 10px; min-height: 36px; }
+.convoy-session-error { position: fixed; z-index: 86; top: var(--topbar-h); width: 100%; padding: 12px; background: var(--panel); border-bottom: 1px solid var(--red); }
+.convoy-dock { position: fixed; z-index: 45; right: 60px; top: calc(var(--topbar-h) + 12px); width: min(340px, calc(100vw - 24px)); background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 28px #0005; }
+.convoy-dock__toggle { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 10px; border: 0; background: none; text-align: left; min-height: 48px; }
+.convoy-dock__toggle > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.convoy-dock__body { padding: 0 12px 12px; max-height: calc(100dvh - var(--topbar-h) - 120px); overflow-y: auto; }
+.convoy-dock__body > p { font-size: 13px; }
+.convoy-chat { padding: 12px 0 0; }
+.convoy-chat h3 { margin: 0 0 8px; font-size: 15px; }
+.convoy-chat h3 .hint { display: block; font-weight: 400; font-size: 12px; }
+.convoy-chat__messages { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; background: var(--bg); }
+.convoy-chat--compact .convoy-chat__messages { max-height: 180px; }
+.convoy-chat__messages p { margin: 0 0 10px; overflow-wrap: anywhere; }
+.convoy-chat__messages p:last-child { margin-bottom: 0; }
+.convoy-chat__messages span { display: block; white-space: pre-wrap; }
+.convoy-chat__messages time { font-size: 11px; color: var(--muted); margin-left: 6px; }
+.convoy-chat__form { display: flex; gap: 6px; margin-top: 8px; }
+.convoy-chat__form input { flex: 1; min-width: 0; }
+.convoy-chat__form button { min-height: 48px; }
+.convoy-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.convoy-quick button { min-height: 48px; padding: 8px; font-size: 13px; }
+.convoy-audio { border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 12px 0; padding: 10px; }
+.convoy-audio label { display: flex; gap: 10px; align-items: center; min-height: 48px; font-size: 13px; }
+.convoy-audio input[type=checkbox] { width: 20px; height: 20px; flex-shrink: 0; }
+.convoy-audio legend { font-size: 13px; color: var(--muted); }
+.convoy-audio .hint { font-size: 12px; margin-bottom: 0; }
+.convoy-dock summary, .driveconvoy summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: 13px; }
+.driveconvoy { z-index: 6; max-width: min(360px, calc(100% - 2 * var(--drive-gap) - 64px)); }
+.driveconvoy > button { min-height: 48px; max-width: 100%; white-space: normal; }
+.driveconvoy__panel { width: 100%; padding: 10px 12px; background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius); max-height: min(52dvh, 500px); overflow-y: auto; }
+.driveconvoy__panel .convoy-connection { padding-left: 0; }
+@media (max-width: 640px) {
+  .convoy-dock { top: auto; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + var(--timebar-h) + 64px); width: min(320px, calc(100vw - 24px)); }
+  .convoy-dock__body { max-height: 55dvh; }
+  .convoy-notices { top: calc(var(--topbar-h) + 6px); }
+  .driveconvoy { max-width: calc(100% - 2 * var(--drive-gap) - 64px); }
+}
+
 /* ==== Settings: grouped side menu, and the list of areas ==== */
 .settings { max-width: 1100px; }
 .settings__layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 28px; align-items: start; }

@@ -22,6 +22,9 @@ const pick = (rooms: Room[], wanted: string | null): string | null =>
 
 export function reduce(state: ConvoyState, m: ServerMessage): ConvoyState {
   switch (m.t) {
+    case 'convoy.message':
+      return { ...state, rooms: state.rooms.map((r) => r.code !== m.room || r.messages.some((x) => x.id === m.message.id)
+        ? r : { ...r, messages: [...r.messages, m.message].slice(-50) }) };
     case 'hello':
       return { ...state, me: m.me, rooms: m.rooms, active: pick(m.rooms, state.active), error: '' };
     case 'room': {

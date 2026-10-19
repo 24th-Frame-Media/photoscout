@@ -6,6 +6,8 @@ import ConvoyMap from '../convoy/ConvoyMap.js';
 import { lastSeenText, speedText } from '../convoy/state.js';
 import { useConvoy, type Convoy as ConvoyApi } from '../convoy/useConvoy.js';
 import type { Member } from '../convoy/types.js';
+import ConvoyChat, { ConvoyAudio } from '../convoy/ConvoyChat.js';
+import { ConvoyConnection } from '../convoy/ConvoySession.js';
 
 const STATUS_TEXT: Record<string, string> = {
   connecting: 'Connecting…',
@@ -58,33 +60,38 @@ function ConvoyPage() {
     if (applied.current === key) return;
     applied.current = key;
     setSelectionError('');
+    let cancelled = false;
     void (async () => {
       try {
         if (routeId) {
           const route = await api.route(routeId);
+          if (cancelled) return;
           convoy.setRoute({ name: route.name, stops: routingWaypoints(routeStops(route), route.type) });
-          if (route.staging) convoy.setDestination({ lat: route.staging.lat, lng: route.staging.lng, label: `${route.name} staging` });
+          if (route.staging) convoy.setDestination({ lat: route.staging.lat, lng: route.staging.lng, label: `${route.name} staging`.slice(0, 80) });
         } else if (to) {
           const [lat, lng] = to.split(',').map(Number);
           if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) throw new Error('That place has invalid coordinates.');
-          convoy.setDestination({ lat, lng, label: label || 'Convoy destination' });
+          convoy.setDestination({ lat, lng, label: (label || 'Convoy destination').slice(0, 80) });
         }
         setParams({}, { replace: true });
       } catch (err) {
+        if (cancelled) return;
         applied.current = null;
         setSelectionError((err as Error).message || 'Could not apply the shared convoy selection.');
       }
     })();
-  }, [convoy.room, convoy.status, convoy.me, routeId, to, label]);
+    return () => { cancelled = true; if (applied.current === key) applied.current = null; };
+  }, [convoy.room?.code, convoy.room?.leader, convoy.status, convoy.me, routeId, to, label]);
 
   const waiting = STATUS_TEXT[convoy.status];
   return (
     <div className="page convoy">
       <h1>Convoy</h1>
+      {convoy.room && <ConvoyConnection />}
       {waiting && <p className={`status-line ${convoy.status === 'ended' ? 'error' : 'disabled'}`}>{waiting}</p>}
       {convoy.error && <p className="status-line error">{convoy.error}</p>}
       {selectionError && <p className="status-line error">{selectionError}</p>}
-      {convoy.room ? <InRoom convoy={convoy} /> : (
+      {convoy.room ? <InRoom key={convoy.room.code} convoy={convoy} /> : (
         <p className="hint">Start a convoy and send the code to the people you are driving with, or enter the code you were sent. While you are in one, your position is shared with the others in it, and only with them.</p>
       )}
       {convoy.rooms.length < 3 && (
@@ -177,9 +184,10 @@ function InRoom({ convoy }: { convoy: ConvoyApi }) {
 
       <label className="toggle">
         <input type="checkbox" checked={convoy.sharing} onChange={(e) => convoy.setSharing(e.target.checked)} />
-        Share my position with this convoy
+        Share my position with my joined convoys
       </label>
-      {convoy.sharing && <p className="hint">Shared only while a PhotoScout page with the convoy is open on this device.</p>}
+      {convoy.sharing && <p className="hint">Position sharing stays on across PhotoScout pages until you leave or turn it off. Keep the app visible on your phone for live updates.</p>}
+      <ConvoyAudio />
       {convoy.geoError && convoy.sharing && <p className="status-line error">{convoy.geoError}</p>}
 
       <ConvoyMap view={view} onPick={picking ? (lat, lng) => { convoy.setDestination({ lat, lng, label: label.trim() }); setPicking(false); setLabel(''); } : undefined} />
@@ -203,7 +211,7 @@ function InRoom({ convoy }: { convoy: ConvoyApi }) {
                 </>
               : <button onClick={() => setPicking(true)}>{room.destination ? 'Move destination' : 'Set destination'}</button>}
             {room.destination && !picking && <button onClick={() => convoy.setDestination(null)}>Clear</button>}
-            {room.route && room.resting && !picking && (
+            {room.resting && !picking && (
               <button className="primary" onClick={() => convoy.rest('continue')}>Continue to destination</button>
             )}
             {room.route && !picking && <button onClick={() => convoy.setRoute(null)}>Clear route</button>}
@@ -231,6 +239,7 @@ function InRoom({ convoy }: { convoy: ConvoyApi }) {
           );
         })}
       </ul>
+      <ConvoyChat key={room.code} />
     </>
   );
 }

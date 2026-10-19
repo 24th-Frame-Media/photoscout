@@ -5,6 +5,7 @@ export interface Destination { lat: number; lng: number; label: string }
 /** Shared Drive stops; a circuit repeats its first stop as the final stop. */
 export interface ConvoyRoute { name: string; stops: [number, number][] }
 export interface AutomaticRegroup { enabled: boolean; separationM: number }
+export interface ConvoyMessage { id: string; clientId: string; userId: string; username: string; text: string; ts: number }
 
 export interface Member {
   id: string;
@@ -18,6 +19,7 @@ export interface Member {
 }
 
 export interface Room {
+  messages: ConvoyMessage[];
   /** The invite code, which is also the room's id. */
   code: string;
   name: string;
@@ -32,6 +34,8 @@ export interface Room {
 }
 
 export type ServerMessage =
+  | { t: 'pong' }
+  | { t: 'convoy.message'; room: string; message: ConvoyMessage }
   | { t: 'hello'; me: string; rooms: Room[] }
   | { t: 'room'; room: Room }
   | { t: 'left'; room: string; /** The leader put you out. */ removed?: boolean }
@@ -43,6 +47,8 @@ export type ServerMessage =
   | { t: 'chat.refresh' };
 
 export type ClientMessage =
+  | { t: 'ping' }
+  | { t: 'convoy.message'; room: string; text: string; clientId: string }
   | { t: 'chat.sub' }
   | { t: 'chat.unsub' }
   | { t: 'convoy.create'; name: string; automaticRegroup: AutomaticRegroup }

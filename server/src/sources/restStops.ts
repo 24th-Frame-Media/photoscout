@@ -19,6 +19,7 @@ interface OverpassElement {
 
 const SEARCH_RADIUS_M = 5_000;
 const MAX_SEARCH_ANCHORS = 50;
+const MAX_LOOKAHEAD_M = 100_000;
 const BEHIND_TOLERANCE_M = 1_000;
 
 function routeMetrics(route: [number, number][]) {
@@ -53,23 +54,35 @@ export function chooseRestStop(route: [number, number][], from: [number, number]
   let picked: { candidate: RestStopCandidate; score: number } | null = null;
   for (const candidate of candidates) {
     const at = nearestOnRoute(route, [candidate.lng, candidate.lat]);
-    if (at.along + BEHIND_TOLERANCE_M < fromAlong || at.distance > SEARCH_RADIUS_M) continue;
+    if (at.along + BEHIND_TOLERANCE_M < fromAlong || at.along - fromAlong > MAX_LOOKAHEAD_M || at.distance > SEARCH_RADIUS_M) continue;
     const priority = candidate.hasToilets && candidate.kind === 'service station' ? 0
       : candidate.kind === 'McDonald\'s' ? 1
         : candidate.kind === 'service station' ? 2 : 3;
-    const score = priority * 2_000 + at.distance;
+    const score = Math.max(0, at.along - fromAlong) + priority * 2_000 + at.distance * 2;
     if (!picked || score < picked.score) picked = { candidate, score };
   }
   return picked?.candidate ?? null;
 }
 
-function anchorsFor(route: [number, number][]): [number, number][] {
-  if (route.length <= MAX_SEARCH_ANCHORS) return route;
-  return Array.from({ length: MAX_SEARCH_ANCHORS }, (_, i) => route[Math.round((i * (route.length - 1)) / (MAX_SEARCH_ANCHORS - 1))]);
+export function restSearchAnchors(route: [number, number][], from: [number, number]): [number, number][] {
+  if (route.length < 2) return route;
+  const cumulative = routeMetrics(route);
+  const start = nearestOnRoute(route, from).along;
+  const end = Math.min(cumulative.at(-1)!, start + MAX_LOOKAHEAD_M);
+  const count = Math.min(MAX_SEARCH_ANCHORS, Math.max(2, Math.ceil((end - start) / SEARCH_RADIUS_M) + 1));
+  return Array.from({ length: count }, (_, i) => {
+    const along = start + (end - start) * i / (count - 1);
+    let segment = 1;
+    while (segment < cumulative.length - 1 && cumulative[segment] < along) segment++;
+    const a = route[segment - 1], b = route[segment];
+    const length = cumulative[segment] - cumulative[segment - 1];
+    const t = length ? (along - cumulative[segment - 1]) / length : 0;
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  });
 }
 
 function queryFor(route: [number, number][]): string {
-  const clauses = anchorsFor(route).flatMap(([lng, lat]) => [
+  const clauses = route.flatMap(([lng, lat]) => [
     `nwr["amenity"="fuel"](around:${SEARCH_RADIUS_M},${lat},${lng});`,
     `nwr["highway"~"^(services|rest_area)$"](around:${SEARCH_RADIUS_M},${lat},${lng});`,
     `nwr["amenity"="fast_food"]["brand"~"McDonald's",i](around:${SEARCH_RADIUS_M},${lat},${lng});`,
@@ -93,7 +106,7 @@ function mapElement(element: OverpassElement): RestStopCandidate | null {
 /** Finds an OSM-mapped rest stop near the remaining shared route. Results are advisory: facilities/tags can be incomplete. */
 export async function findRestStop(route: [number, number][], from: [number, number]): Promise<RestStopCandidate | null> {
   if (route.length < 2) return null;
-  const { elements } = await overpassQuery<{ elements: OverpassElement[] }>(queryFor(route), { timeoutMs: 8_000, deadlineMs: 15_000 });
+  const { elements } = await overpassQuery<{ elements: OverpassElement[] }>(queryFor(restSearchAnchors(route, from)), { timeoutMs: 8_000, deadlineMs: 15_000 });
   const deduped = new Map<string, RestStopCandidate>();
   for (const element of elements) {
     const candidate = mapElement(element);

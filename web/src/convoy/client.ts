@@ -41,6 +41,8 @@ export const MAX_WAIT_MS = 30_000;
 export const LINGER_MS = 3000;
 /** The session is over (server/src/realtime.ts CLOSE_SESSION_ENDED). */
 export const SESSION_ENDED = 4401;
+export const CONNECTION_TIMEOUT_MS = 10_000;
+export const HEARTBEAT_MS = 20_000;
 
 /** How long to wait before attempt number `attempt` (0 first): doubling from a second, capped, then 50 to 100 per cent of it. */
 export function backoff(attempt: number, random: number): number {
@@ -65,6 +67,8 @@ export class RealtimeClient {
   private failures = 0;
   private timer: unknown = null;
   private lingerTimer: unknown = null;
+  private deadlineTimer: unknown = null;
+  private heartbeatTimer: unknown = null;
   private messageListeners = new Set<(m: ServerMessage) => void>();
   private statusListeners = new Set<(s: Status) => void>();
 
@@ -96,9 +100,43 @@ export class RealtimeClient {
 
   /** Whether it went out: a message sent while the socket is not open is dropped, not queued. */
   send(message: ClientMessage): boolean {
-    if (!this.socket || this.socket.readyState !== OPEN) return false;
-    this.socket.send(JSON.stringify(message));
-    return true;
+    if (this.status !== 'open' || !this.socket) return false;
+    if (this.socket.readyState !== OPEN) { this.reconnect(); return false; }
+    try { this.socket.send(JSON.stringify(message)); return true; }
+    catch { this.reconnect(); return false; }
+  }
+
+  /** Recover immediately after connectivity returns or a suspended page becomes visible. */
+  reconnect(): void {
+    if (this.users === 0 || this.status === 'ended') return;
+    this.shutdown();
+    this.connect();
+  }
+
+  private clearHealthTimers(): void {
+    if (this.deadlineTimer !== null) this.env.clearTimeout(this.deadlineTimer);
+    if (this.heartbeatTimer !== null) this.env.clearTimeout(this.heartbeatTimer);
+    this.deadlineTimer = this.heartbeatTimer = null;
+  }
+
+  private deadline(socket: SocketLike): void {
+    this.deadlineTimer = this.env.setTimeout(() => {
+      if (this.socket !== socket) return;
+      this.clearHealthTimers();
+      this.socket = null;
+      socket.close();
+      this.failures++;
+      if (this.users > 0) this.retry(); else this.setStatus('idle');
+    }, CONNECTION_TIMEOUT_MS);
+  }
+
+  private heartbeat(socket: SocketLike): void {
+    this.clearHealthTimers();
+    this.heartbeatTimer = this.env.setTimeout(() => {
+      this.heartbeatTimer = null;
+      if (this.socket !== socket) return;
+      if (this.send({ t: 'ping' })) this.deadline(socket);
+    }, HEARTBEAT_MS);
   }
 
   private setStatus(s: Status): void {
@@ -112,16 +150,21 @@ export class RealtimeClient {
     let socket: SocketLike;
     try { socket = this.env.open(this.env.url()); } catch { this.retry(); return; }
     this.socket = socket;
+    this.deadline(socket);
     socket.onopen = () => { /* a connection is only good once the server's hello arrives */ };
     socket.onmessage = (ev) => {
+      if (this.socket !== socket) return;
       let m: ServerMessage;
       try { m = JSON.parse(String(ev.data)) as ServerMessage; } catch { return; }
-      if (m.t === 'hello') { this.failures = 0; this.setStatus('open'); }
+      if (!m || typeof m !== 'object' || typeof m.t !== 'string') return;
+      if (m.t === 'hello') { this.failures = 0; this.setStatus('open'); this.heartbeat(socket); }
+      if (m.t === 'pong') { this.heartbeat(socket); return; }
       for (const fn of [...this.messageListeners]) fn(m);
     };
     socket.onerror = () => { /* followed by a close, which does the work */ };
     socket.onclose = (ev) => {
       if (this.socket !== socket) return;
+      this.clearHealthTimers();
       this.socket = null;
       if (ev.code === SESSION_ENDED) { this.setStatus('ended'); return; }
       if (this.users === 0) { this.setStatus('idle'); return; }
@@ -137,6 +180,7 @@ export class RealtimeClient {
   }
 
   private shutdown(): void {
+    this.clearHealthTimers();
     if (this.timer !== null) { this.env.clearTimeout(this.timer); this.timer = null; }
     const socket = this.socket;
     this.socket = null;

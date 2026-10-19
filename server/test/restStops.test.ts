@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseRestStop, type RestStopCandidate } from '../src/sources/restStops.js';
+import { chooseRestStop, restSearchAnchors, type RestStopCandidate } from '../src/sources/restStops.js';
+import { haversine } from '../src/geo.js';
 
 const route: [number, number][] = [[149, -33], [149.2, -33]];
 const candidate = (patch: Partial<RestStopCandidate>): RestStopCandidate => ({
@@ -10,6 +11,22 @@ const candidate = (patch: Partial<RestStopCandidate>): RestStopCandidate => ({
   kind: 'rest area',
   hasToilets: false,
   ...patch,
+});
+
+test('equivalent nearby facilities beat a distant stop further along the route', () => {
+  const picked = chooseRestStop([[149, -33], [151, -33]], [149, -33], [
+    candidate({ name: 'Distant', lng: 150.9, kind: 'service station', hasToilets: true }),
+    candidate({ name: 'Nearby', lng: 149.01, kind: 'service station', hasToilets: true }),
+  ]);
+  assert.equal(picked?.name, 'Nearby');
+});
+
+test('rest searches cover sparse route interiors starting at the leader with a bounded lookahead', () => {
+  const anchors = restSearchAnchors([[149, -33], [153, -33]], [150, -33]);
+  assert.ok(haversine(-33, 150, anchors[0][1], anchors[0][0]) < 10);
+  assert.ok(anchors.length <= 50);
+  for (let i = 1; i < anchors.length; i++) assert.ok(haversine(anchors[i - 1][1], anchors[i - 1][0], anchors[i][1], anchors[i][0]) <= 5_010);
+  assert.ok(haversine(-33, 150, anchors.at(-1)![1], anchors.at(-1)![0]) <= 100_010);
 });
 
 test('chooseRestStop stays near the remaining route and prefers Macca\'s or services over a generic stop', () => {

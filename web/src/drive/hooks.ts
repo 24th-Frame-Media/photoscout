@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Fix } from './camera.js';
 import { pickVoice } from './speech.js';
+import { cancelNavigation, speakNavigation } from './audio.js';
 
 export type GpsError = 'unsupported' | 'insecure' | 'denied' | 'unavailable' | 'timeout';
 
@@ -81,16 +82,15 @@ export function useSpeech(): { speak: (text: string) => void; cancel: () => void
     const load = () => { voice.current = pickVoice(speechSynthesis.getVoices()); };
     load();
     speechSynthesis.addEventListener('voiceschanged', load);
-    return () => { speechSynthesis.removeEventListener('voiceschanged', load); speechSynthesis.cancel(); };
+    return () => { speechSynthesis.removeEventListener('voiceschanged', load); cancelNavigation(); };
   }, [supported]);
 
   const speak = useCallback((text: string) => {
     if (!supported || mutedRef.current) return;
-    speechSynthesis.cancel(); // the latest prompt replaces one still being read
     const u = new SpeechSynthesisUtterance(text);
     u.lang = voice.current?.lang ?? 'en-AU';
     if (voice.current) u.voice = voice.current;
-    speechSynthesis.speak(u);
+    speakNavigation(u);
   }, [supported]);
 
   /** Phones only let a page speak after it has been touched; a silent word inside a tap does it. */
@@ -103,11 +103,11 @@ export function useSpeech(): { speak: (text: string) => void; cancel: () => void
 
   const setMuted = useCallback((m: boolean) => {
     setMutedState(m);
-    if (m && supported) speechSynthesis.cancel();
+    if (m && supported) cancelNavigation();
     try { localStorage.setItem(MUTE_KEY, m ? '1' : '0'); } catch { /* private mode */ }
   }, [supported]);
 
-  const cancel = useCallback(() => { if (supported) speechSynthesis.cancel(); }, [supported]);
+  const cancel = useCallback(() => { if (supported) cancelNavigation(); }, [supported]);
 
   return { speak, cancel, unlock, muted, setMuted, supported };
 }

@@ -60,6 +60,8 @@ let rooms = new Rooms();
 const misses = new MissLimiter();
 
 const send = (conn: Conn, message: unknown): void => {
+  // A stalled phone must not accumulate an unbounded queue of positions or chat.
+  if (conn.ws.bufferedAmount > 256 * 1024) { conn.ws.terminate(); return; }
   if (conn.ws.readyState === conn.ws.OPEN) conn.ws.send(JSON.stringify(message));
 };
 const sendUser = (userId: string, message: unknown): void => {
@@ -77,9 +79,12 @@ function announce(code: string): void {
 function automaticRegroup(code: string): void {
   const room = rooms.view(code);
   if (!room?.route || room.resting) return;
+  const reserved = rooms.reserveRestLookup(code, room.leader);
+  if (!reserved.ok) { rooms.completeAutomaticRegroup(code, null); return; }
   const leader = room.members.find((member) => member.id === room.leader)?.position;
   const from: [number, number] = leader ? [leader.lng, leader.lat] : room.route.stops[0];
   void findRestStop(room.route.stops, from).then((stop) => {
+    if (rooms.navigationVersion(code) !== reserved.value) return;
     const done = rooms.completeAutomaticRegroup(code, stop ? { lat: stop.lat, lng: stop.lng, label: `Regroup: ${restStopLabel(stop)}` } : null);
     if (done.ok && stop) announce(code);
   }).catch(() => { rooms.completeAutomaticRegroup(code, null); });
@@ -112,6 +117,14 @@ function handle(conn: Conn, m: ClientMessage): void {
   const reply = (message: unknown) => send(conn, message);
   const error = (text: string) => reply({ t: 'error', error: text, in: m.t });
   switch (m.t) {
+    case 'ping':
+      return reply({ t: 'pong' });
+    case 'convoy.message': {
+      const done = rooms.message(m.room, conn.userId, m.text, m.clientId);
+      if (!done.ok) return error(done.error);
+      for (const id of rooms.memberIds(m.room)) sendUser(id, { t: 'convoy.message', room: m.room, message: done.value });
+      return;
+    }
     case 'chat.sub':
       conn.chat = true;
       return reply({ t: 'chat.ready' });
@@ -162,9 +175,13 @@ function handle(conn: Conn, m: ClientMessage): void {
         return done.ok ? announce(m.room) : error(done.error);
       }
       if (!room.route) return error('Set a convoy route before finding a rest stop');
+      const reserved = rooms.reserveRestLookup(m.room, conn.userId);
+      if (!reserved.ok) return error(reserved.error);
       const leader = room.members.find((member) => member.id === room.leader)?.position;
       const from: [number, number] = leader ? [leader.lng, leader.lat] : room.route.stops[0];
       void findRestStop(room.route.stops, from).then((stop) => {
+        if (!sessionUser(db, conn.token)) return;
+        if (rooms.navigationVersion(m.room) !== reserved.value) return error('The convoy route or destination changed. Search again.');
         if (!stop) return error('No suitable rest stop was found close to the remaining route');
         const done = rooms.setRestStop(m.room, conn.userId, { lat: stop.lat, lng: stop.lng, label: restStopLabel(stop) });
         if (done.ok) announce(m.room); else error(done.error);
@@ -246,6 +263,7 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions = {}):
 
     ws.on('pong', () => { conn.alive = true; });
     ws.on('message', (data, isBinary) => {
+      if (!sessionUser(db, conn.token)) return close(conn, CLOSE_SESSION_ENDED, 'Session ended');
       conn.alive = true;
       if (isBinary) return close(conn, 1003, 'Text only');
       if (!allowed(conn, Date.now())) return;
