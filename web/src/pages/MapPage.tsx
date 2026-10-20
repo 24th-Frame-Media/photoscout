@@ -2,7 +2,7 @@ import { loadRoads, type RoadsStatus } from '../map/roadQuality';
 import ActivityLog from '../components/ActivityLog.js';
 import { MapConvoy } from '../convoy/ConvoySession.js';
 import { logActivity, logSuccessIfNews } from '../activity.js';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { GeoJSONSource, LngLatBounds, Map as MlMap, MapMouseEvent, Marker, NavigationControl, Point, Popup, ScaleControl, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -91,6 +91,31 @@ type RouteHistoryEntry = { draft: RouteDraft; duration: number | null; ready: bo
 
 export default function MapPage({ user }: { user: User | null }) {
   const container = useRef<HTMLDivElement>(null);
+  const toolsRef = useRef<HTMLDivElement>(null);
+
+  const updateToolsFade = useCallback(() => {
+    const el = toolsRef.current;
+    if (!el) return;
+    const isOverflowing = el.scrollWidth > el.clientWidth + 2;
+    if (!isOverflowing) {
+      el.style.removeProperty('-webkit-mask-image');
+      el.style.removeProperty('mask-image');
+      return;
+    }
+    const atStart = el.scrollLeft <= 4;
+    const atEnd = Math.ceil(el.scrollLeft + el.clientWidth) >= el.scrollWidth - 4;
+    const leftStop = atStart ? 'black 0px' : 'transparent 0px, black 24px';
+    const rightStop = atEnd ? 'black 100%' : 'black calc(100% - 32px), transparent 100%';
+    const mask = `linear-gradient(to right, ${leftStop}, ${rightStop})`;
+    el.style.setProperty('-webkit-mask-image', mask);
+    el.style.setProperty('mask-image', mask);
+  }, []);
+
+  useEffect(() => {
+    updateToolsFade();
+    window.addEventListener('resize', updateToolsFade);
+    return () => window.removeEventListener('resize', updateToolsFade);
+  }, [updateToolsFade]);
   const [map, setMap] = useState<MlMap | null>(null);
   const [places, setPlaces] = useState<Place[]>([]);
   const [spots, setSpots] = useState<Spot[]>([]);
@@ -1292,7 +1317,7 @@ export default function MapPage({ user }: { user: User | null }) {
         }} />
         </div>
       </div>
-      <div className="maptools">
+      <div className="maptools" ref={toolsRef} onScroll={updateToolsFade}>
         <button className={`chip${imagery ? ' active' : ''}`} onClick={() => toggle('imagery')}><Swatch cat={category('imagery')} />{category('imagery').label}</button>
         <button className={`chip${terrain ? ' active' : ''}`} onClick={() => setTerrainOn(!terrain)}>3D</button>
         <button className={`chip${goodOnly ? ' active' : ''}`} onClick={() => setGoodOnly(!goodOnly)} title="Only spots whose good times match the map time">Good now</button>
@@ -1587,7 +1612,7 @@ function showFirePopup(map: MlMap, at: [number, number], p: Record<string, any>)
 function homeControl() {
   const el = document.createElement('div');
   el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
-  el.innerHTML = `<button type="button" title="Home" aria-label="Fly to home"><svg viewBox="0 0 24 24" width="18" height="18" style="margin:auto;display:block" fill="none" stroke="#333" stroke-width="2" stroke-linejoin="round"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></button>`;
+  el.innerHTML = `<button type="button" title="Home" aria-label="Fly to home"><svg viewBox="0 0 24 24" width="18" height="18" style="margin:auto;display:block" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></button>`;
   return {
     onAdd(map: MlMap) {
       el.querySelector('button')!.onclick = () => {

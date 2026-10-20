@@ -83,7 +83,22 @@ export default function App() {
   return (
     <TimeProvider>
       <div className="topbar">
-        <button className="topbar__burger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">☰</button>
+        <button
+          className="topbar__burger"
+          onClick={() => setMenuOpen(!menuOpen)}
+          aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          aria-expanded={menuOpen}
+        >
+          {menuOpen ? (
+            <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M4 4L16 16M16 4L4 16" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M3 5h14M3 10h14M3 15h14" />
+            </svg>
+          )}
+        </button>
         <Link className="logo" to="/">Photo<span>Scout</span></Link>
         <nav className={menuOpen ? 'is-open' : ''}>
           {NAV.filter(([path]) => user || path !== '/chat').map(([path, label]) => (
