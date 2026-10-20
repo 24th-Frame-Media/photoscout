@@ -2070,10 +2070,15 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
 .convoy__head h2, .convoy__dest, .convoy__members a { overflow-wrap: anywhere; }
 .convoy__entry { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
 .convoy__card { min-width: 0; }
+@media (min-width: 641px) {
+  /* Keep the active-convoy dock out of a desktop map detail panel. */
+  #root:has(.mapshell--panel) .convoy-dock--map { right: 456px; }
+}
 @media (max-width: 640px) {
   .convoy-dock { top: auto; left: 8px; right: 8px; bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); width: auto; display: flex; flex-direction: column; max-height: calc(100dvh - var(--topbar-h) - 24px); }
-  .convoy-dock--map { top: calc(var(--topbar-h) + 52px); bottom: auto; right: 52px; max-height: calc(100dvh - var(--topbar-h) - 52px - 86px); }
-  .convoy-dock--map.is-expanded { right: 8px; }
+  /* A Map panel owns the top of a phone screen; keep the compact convoy state above the time bar instead. */
+  .convoy-dock--map { top: auto; left: auto; right: 8px; bottom: calc(env(safe-area-inset-bottom, 0px) + 92px); width: min(260px, calc(100vw - 16px)); max-height: calc(100dvh - var(--topbar-h) - 104px); }
+  .convoy-dock--map.is-expanded { left: 8px; right: 8px; width: auto; }
   .convoy-dock__body { min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; }
   #root:has(.convoy-dock:not(.convoy-dock--map)) .page { padding-bottom: 120px; }
   .convoy-chat__form input, .convoy__card input { font-size: 16px; }
