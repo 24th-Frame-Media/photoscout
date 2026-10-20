@@ -129,6 +129,7 @@ export default function MapPage({ user }: { user: User | null }) {
   const [sunAnchorBearing, setSunAnchorBearing] = useState<number | null>(null);
   const [terrain, setTerrainOn] = useState(false);
   const [goodOnly, setGoodOnly] = useState(false);
+  const [timeControlsVisible, setTimeControlsVisible] = useState(true);
   const [centre, setCentre] = useState({ lat: -33.419, lng: 149.577 });
   const [view, setView] = useState(0); // bumps on moveend, for zoom-scaled geometry and shadows
   const [params, setParams] = useSearchParams();
@@ -1300,7 +1301,7 @@ export default function MapPage({ user }: { user: User | null }) {
 
 
   return (
-    <div className={`mapshell${isPanelActive ? ' mapshell--panel' : ''}${editing ? ' mapshell--editing' : ''}${weatherOn && forecast ? ' mapshell--has-weather' : ''}`}>
+    <div className={`mapshell${isPanelActive ? ' mapshell--panel' : ''}${editing ? ' mapshell--editing' : ''}${weatherOn && forecast ? ' mapshell--has-weather' : ''}${timeControlsVisible ? '' : ' mapshell--time-hidden'}`}>
       <div ref={container} className="mapshell__map" />
       {user && <MapConvoy map={map} />}
       {convoy.active && convoy.destination && convoyNavigationNote && (
@@ -1328,7 +1329,10 @@ export default function MapPage({ user }: { user: User | null }) {
       {openEvent && eventFeed.events?.find((e) => e.group === openEvent) && (
         <EventDetail ev={eventFeed.events.find((e) => e.group === openEvent)!} user={user} onClose={() => setOpenEvent(null)} onMark={user ? eventFeed.mark : undefined} onRsvp={user ? eventFeed.rsvp : undefined} />
       )}
-      <Legend map={map} vis={legendVis} onToggle={toggleAny} extra={pluginCategories} />
+      <Legend map={map} vis={legendVis} onToggle={toggleAny} extra={pluginCategories}
+        control={<button className={`chip legend__time-toggle${timeControlsVisible ? ' active' : ''}`} onClick={() => setTimeControlsVisible((visible) => !visible)}
+          aria-pressed={timeControlsVisible} aria-label={timeControlsVisible ? 'Minimise time and sunlight controls' : 'Show time and sunlight controls'}
+          title={timeControlsVisible ? 'Minimise time and sunlight controls' : 'Show time and sunlight controls'}>☀</button>} />
       <div className="mapcorner">
         <PluginCornerPanels />
         <div className="mapcorner__row">
@@ -1389,7 +1393,7 @@ export default function MapPage({ user }: { user: User | null }) {
           ] }] : []),
         ]} />
       </div>
-      <div className="sunanchor-controls" role="group" aria-label="Sun anchor controls">
+      {timeControlsVisible && <div className="sunanchor-controls" role="group" aria-label="Sun anchor controls">
         <button
           type="button"
           className={mode === 'anchor' ? 'active' : ''}
@@ -1409,7 +1413,7 @@ export default function MapPage({ user }: { user: User | null }) {
           Clear
         </button>
         <span>{sunAnchor ? `${sunAnchor.lat.toFixed(5)}, ${sunAnchor.lng.toFixed(5)}` : 'No anchor set'}</span>
-      </div>
+      </div>}
 
       {panelOpen && (
         <aside className={`panel panel--${sheetSize}`}>
@@ -1567,7 +1571,7 @@ export default function MapPage({ user }: { user: User | null }) {
           {radarFrame?.nowcast && <span className="wxpill__muted">· radar nowcast</span>}
         </div>
       )}
-      <TimeBar lat={displayOrigin.lat} lng={displayOrigin.lng} />
+      {timeControlsVisible && <TimeBar lat={displayOrigin.lat} lng={displayOrigin.lng} />}
     </div>
   );
 }
