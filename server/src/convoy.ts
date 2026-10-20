@@ -182,7 +182,7 @@ export class Rooms {
       open: room.open,
       members: [...room.members.values()].sort((a, b) => a.joinedAt - b.joinedAt).map((m) => ({
         id: m.id, username: m.username, avatar: m.avatar, online: m.online, lastSeen: m.lastSeen, position: m.online ? m.position : null,
-        newMember: m.newMember,
+        ...(m.newMember ? { newMember: true } : {}),
       })),
     };
   }
@@ -552,7 +552,7 @@ export class Rooms {
         code: room.code,
         name: room.name,
         leader: room.leader,
-        members: members.map((m) => ({ id: m.id, username: m.username, avatar: m.avatar, newMember: m.newMember })),
+        members: members.map((m) => ({ id: m.id, username: m.username, avatar: m.avatar, ...(m.newMember ? { newMember: true } : {}) })),
         destination: room.destination,
         cruising: room.cruising,
         resting: room.resting,

@@ -405,7 +405,7 @@ test('distance join to an open convoy flags newMember and does not trigger autom
   const nearPos = rooms.position('u3', { lat: -33.002, lng: 151.002, heading: null, speed: null });
   assert.ok(nearPos);
   assert.deepEqual(nearPos.memberStatusChangedCodes, [code], 'reaches group and clears newMember flag');
-  assert.equal(rooms.view(code)!.members.find((m) => m.id === 'u3')?.newMember, false);
+  assert.equal(rooms.view(code)!.members.find((m) => m.id === 'u3')?.newMember, undefined);
 });
 
 test('leader can turn a private convoy into an open convoy and back to private', () => {
