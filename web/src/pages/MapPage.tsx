@@ -58,6 +58,7 @@ import {
   resolveDisplayOrigin,
   resolveSunPlannerBearing,
   shouldShowSunPlanner,
+  shouldShowSunLayer,
   startSunAnchorTool,
   SunAnchorController,
   updateSelectedBearingProjection,
@@ -162,6 +163,10 @@ export default function MapPage({ user }: { user: User | null }) {
   // Layer visibility: one source of truth for the legend and the chips.
   const [vis, setVis] = useState<Visibility>(loadVisibility);
   useEffect(() => saveVisibility(vis), [vis]);
+  useEffect(() => {
+    const sun = shouldShowSunLayer(timeControlsVisible, sunAnchor);
+    setVis((visibility) => visibility.sun === sun ? visibility : { ...visibility, sun });
+  }, [timeControlsVisible, sunAnchor?.lat, sunAnchor?.lng]);
   const toggle = (key: string, on = !vis[key]) => setVis((v) => ({ ...v, [key]: on }));
   // Plugin contributions (web/src/plugins). Their toggles join the legend and the menus below; their layers,
   // clicks, panels and polling are driven by the registry, so none of that is wired up in this file.
