@@ -34,6 +34,8 @@ export interface LlmService {
   model: string;
   roles: LlmRole[];
   enabled: boolean;
+  /** Off asks an OpenAI-compatible server to answer without reasoning first. */
+  thinking: boolean;
 }
 
 export interface Settings {

@@ -7,7 +7,7 @@ import { OpenCruiseDock } from '../convoy/OpenCruiseDock.js';
 import type { OpenConvoySummary } from '../convoy/types.js';
 import { convoyNavigationRequest, shouldRefreshConvoyNavigation } from '../convoy/navigation.js';
 import { logActivity, logSuccessIfNews } from '../activity.js';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { GeoJSONSource, LngLatBounds, Map as MlMap, MapMouseEvent, Marker, NavigationControl, Point, Popup, ScaleControl, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -46,6 +46,7 @@ import SpotPanel from '../components/SpotPanel.js';
 import SpotEditor, { SpotDraft } from '../components/SpotEditor.js';
 import PlaceEditor, { draftToPlace, PlaceDraft, placeToDraft } from '../components/PlaceEditor.js';
 import RouteEditor, { blankRouteDraft, draftToRoute, RouteDraft, routeToDraft } from '../components/RouteEditor.js';
+import RoutePhotos from '../components/RoutePhotos.js';
 import { fetchOsrmFullRoute, routeDistanceKm, routeStops, routingWaypoints } from '../map/routeGeometry.js';
 import { fetchNavRoute } from '../drive/route.js';
 import { updateRoutes, ROUTE_LINE_LAYER } from '../map/routeLayer.js';
@@ -61,6 +62,7 @@ import {
   resolveDisplayOrigin,
   resolveSunPlannerBearing,
   shouldShowSunPlanner,
+  shouldShowSunLayer,
   startSunAnchorTool,
   SunAnchorController,
   updateSelectedBearingProjection,
@@ -111,6 +113,31 @@ export default function MapPage({ user }: { user: User | null }) {
   const [cruiseDockDismissed, setCruiseDockDismissed] = useState(false);
   const [selectedOpenConvoy, setSelectedOpenConvoy] = useState<OpenConvoySummary | null>(null);
   const container = useRef<HTMLDivElement>(null);
+  const toolsRef = useRef<HTMLDivElement>(null);
+
+  const updateToolsFade = useCallback(() => {
+    const el = toolsRef.current;
+    if (!el) return;
+    const isOverflowing = el.scrollWidth > el.clientWidth + 2;
+    if (!isOverflowing) {
+      el.style.removeProperty('-webkit-mask-image');
+      el.style.removeProperty('mask-image');
+      return;
+    }
+    const atStart = el.scrollLeft <= 4;
+    const atEnd = Math.ceil(el.scrollLeft + el.clientWidth) >= el.scrollWidth - 4;
+    const leftStop = atStart ? 'black 0px' : 'transparent 0px, black 24px';
+    const rightStop = atEnd ? 'black 100%' : 'black calc(100% - 32px), transparent 100%';
+    const mask = `linear-gradient(to right, ${leftStop}, ${rightStop})`;
+    el.style.setProperty('-webkit-mask-image', mask);
+    el.style.setProperty('mask-image', mask);
+  }, []);
+
+  useEffect(() => {
+    updateToolsFade();
+    window.addEventListener('resize', updateToolsFade);
+    return () => window.removeEventListener('resize', updateToolsFade);
+  }, [updateToolsFade]);
   const [map, setMap] = useState<MlMap | null>(null);
   const [places, setPlaces] = useState<Place[]>([]);
   const [spots, setSpots] = useState<Spot[]>([]);
@@ -169,6 +196,13 @@ export default function MapPage({ user }: { user: User | null }) {
   // Layer visibility: one source of truth for the legend and the chips.
   const [vis, setVis] = useState<Visibility>(loadVisibility);
   useEffect(() => saveVisibility(vis), [vis]);
+  const sunSynced = useRef(false);
+  useEffect(() => {
+    // Skip the first run so a saved sun-layer preference survives page load.
+    if (!sunSynced.current) { sunSynced.current = true; return; }
+    const sun = shouldShowSunLayer(timeControlsVisible, sunAnchor);
+    setVis((visibility) => visibility.sun === sun ? visibility : { ...visibility, sun });
+  }, [timeControlsVisible, sunAnchor?.lat, sunAnchor?.lng]);
   const toggle = (key: string, on = !vis[key]) => setVis((v) => ({ ...v, [key]: on }));
   // Plugin contributions (web/src/plugins). Their toggles join the legend and the menus below; their layers,
   // clicks, panels and polling are driven by the registry, so none of that is wired up in this file.
@@ -590,13 +624,16 @@ export default function MapPage({ user }: { user: User | null }) {
     if (!map) return;
     const spotId = params.get('spot');
     const placeId = params.get('place');
+    const routeId = params.get('route');
     const s = spotId && spots.find((x) => x.id === spotId);
     const p = placeId && places.find((x) => x.id === placeId);
+    const r = routeId && routes.find((x) => x.id === routeId);
     if (s) { setSelected({ type: 'spot', id: s.id }); focus(s.lng, s.lat, 15); }
     else if (p) { setSelected({ type: 'place', id: p.id }); fitPlace(p); }
+    else if (r) { setSelected({ type: 'route', id: r.id }); focus(r.vertices[0][0], r.vertices[0][1], 12); }
     else return;
     setParams({}, { replace: true });
-  }, [map, spots, places]);
+  }, [map, spots, places, routes]);
 
   // A feed item's `?lat=&lng=` link: look at that spot on the map.
   useEffect(() => {
@@ -948,8 +985,15 @@ export default function MapPage({ user }: { user: User | null }) {
     return () => { overlay.destroy(); airCurrents.current = null; };
   }, [map]);
   useEffect(() => {
-    airCurrents.current?.update({ visible: weatherOn, windKmh: wxHour?.windKmh ?? null, windDeg: wxHour?.windDeg ?? null, windGrid });
-  }, [weatherOn, wxHour?.windKmh, wxHour?.windDeg, windGrid]);
+    airCurrents.current?.update({
+      visible: weatherOn,
+      windKmh: wxHour?.windKmh ?? null,
+      windDeg: wxHour?.windDeg ?? null,
+      gustKmh: wxHour?.gustKmh ?? null,
+      precipMm: wxHour?.precipMm ?? null,
+      windGrid,
+    });
+  }, [weatherOn, wxHour?.windKmh, wxHour?.windDeg, wxHour?.gustKmh, wxHour?.precipMm, windGrid]);
   // Categories without their own feed effect: apply straight from the legend state.
   useEffect(() => {
     if (!map) return;
@@ -1380,7 +1424,7 @@ export default function MapPage({ user }: { user: User | null }) {
         }} />
         </div>
       </div>
-      <div className="maptools">
+      <div className="maptools" ref={toolsRef} onScroll={updateToolsFade}>
         <button className={`chip${imagery ? ' active' : ''}`} onClick={() => toggle('imagery')}><Swatch cat={category('imagery')} />{category('imagery').label}</button>
         <button className={`chip${terrain ? ' active' : ''}`} onClick={() => setTerrainOn(!terrain)}>3D</button>
         <button className={`chip${goodOnly ? ' active' : ''}`} onClick={() => setGoodOnly(!goodOnly)} title="Only spots whose good times match the map time">Good now</button>
@@ -1572,12 +1616,14 @@ export default function MapPage({ user }: { user: User | null }) {
               <h2>{selectedRoute.name}</h2>
               <p className="hint">{selectedRoute.type === 'circuit' ? 'Circuit' : 'Sprint'} · {selectedRoute.waypoints ? `${selectedRoute.waypoints.length} stops` : 'Saved path'} · {routeDistanceKm(selectedRoute.vertices, selectedRoute.type).toFixed(1)} km · {selectedRoute.visibility}</p>
               {selectedRoute.notes && <p className="panel__notes">{selectedRoute.notes}</p>}
+              <RoutePhotos route={selectedRoute} canEdit={canEdit(selectedRoute.ownerId)} />
               <div className="panel__actions">
                 <Link to={`/plan?route=${selectedRoute.id}`}><button>Plan shoot</button></Link>
                 {user && (convoyHandoff.active
                   ? <button disabled={!convoyHandoff.canSet} title={convoyHandoff.disabledReason} onClick={() => convoyHandoff.setRoute(selectedRoute)}>Convoy there</button>
                   : <Link to={`/drive?route=${selectedRoute.id}`}><button>Drive it</button></Link>)}
                 {user && !convoyHandoff.active && <Link to={`/convoy?route=${selectedRoute.id}`}><button>Share with convoy</button></Link>}
+                {(selectedRoute.visibility === 'public' || selectedRoute.visibility === 'unlisted') && <button onClick={() => void navigator.clipboard?.writeText(`${window.location.origin}/?route=${encodeURIComponent(selectedRoute.id)}`)}>Copy public link</button>}
                 {canEdit(selectedRoute.ownerId) && <><button className="primary" onClick={() => openRouteEdit(routeToDraft(selectedRoute))}>Edit</button><button className="danger" onClick={() => void deleteRoute(selectedRoute)}>Delete</button></>}
               </div>
             </>
@@ -1698,7 +1744,7 @@ function showFirePopup(map: MlMap, at: [number, number], p: Record<string, any>)
 function homeControl() {
   const el = document.createElement('div');
   el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
-  el.innerHTML = `<button type="button" title="Home" aria-label="Fly to home"><svg viewBox="0 0 24 24" width="18" height="18" style="margin:auto;display:block" fill="none" stroke="#333" stroke-width="2" stroke-linejoin="round"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></button>`;
+  el.innerHTML = `<button type="button" title="Home" aria-label="Fly to home"><svg viewBox="0 0 24 24" width="18" height="18" style="margin:auto;display:block" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></button>`;
   return {
     onAdd(map: MlMap) {
       el.querySelector('button')!.onclick = () => {

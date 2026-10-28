@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PhotoScout</string>
+    <string name="server_setup_title">Connect to PhotoScout</string>
+    <string name="server_setup_subtitle">Enter your PhotoScout instance URL</string>
+    <string name="server_url_hint">https://photoscout.example.com</string>
+    <string name="test_connection">Test Connection</string>
+    <string name="connect">Connect</string>
+    <string name="connecting">Connecting…</string>
+    <string name="connection_failed">Could not connect to PhotoScout server.</string>
+    <string name="connection_success">Connected to PhotoScout %s</string>
+    <string name="retry">Retry</string>
+    <string name="change_server">Change Server</string>
+    <string name="tracking_notification_channel">Live Tracking</string>
+    <string name="tracking_notification_channel_desc">Active during Convoy and Drive navigation to maintain GPS position in background.</string>
+    <string name="tracking_notification_title">PhotoScout Navigation &amp; Convoy</string>
+    <string name="tracking_notification_text">Sharing live location in background</string>
+    <string name="stop_tracking">Stop Tracking</string>
+</resources>

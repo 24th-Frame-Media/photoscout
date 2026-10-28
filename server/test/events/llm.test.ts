@@ -41,6 +41,7 @@ const svc = (id: string, over: Partial<LlmService> = {}): LlmService => ({
   model: `${id}-model`,
   roles: ['text', 'chat'],
   enabled: true,
+  thinking: true,
   ...over,
 });
 
@@ -282,6 +283,73 @@ test('openai free text: no temperature is sent, and the reasoning is dropped', a
   assert.equal(sent.max_completion_tokens, 4000);
 });
 
+test('thinking: the field is left out by default and sent when it is off', async (t) => {
+  const quiet: LlmService = { ...openai, thinking: false };
+  const req = { prompt: 'p', schema: PERSON, timeoutMs: 1000 };
+  assert.equal('chat_template_kwargs' in buildOpenAiJsonRequest(openai, req).body, false);
+  assert.deepEqual(buildOpenAiJsonRequest(quiet, req).body.chat_template_kwargs, { enable_thinking: false });
+  assert.deepEqual(buildOpenAiJsonRequest(quiet, req, true).body.chat_template_kwargs, { enable_thinking: false });
+  assert.equal('chat_template_kwargs' in buildOpenAiJsonRequest(quiet, req, false, false).body, false);
+
+  const sent: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, 'fetch', async (_input: RequestInfo | URL, init?: RequestInit) => {
+    sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'hi' } }] }), { status: 200 });
+  });
+  const msgs = { messages: [{ role: 'user' as const, content: 'hi' }], timeoutMs: 10_000 };
+  await openaiProvider.chatText(openai, msgs);
+  await openaiProvider.chatText(quiet, msgs);
+  assert.equal('chat_template_kwargs' in sent[0], false);
+  assert.deepEqual(sent[1].chat_template_kwargs, { enable_thinking: false });
+});
+
+test('thinking: a server that rejects chat_template_kwargs is sent the request again without it', async (t) => {
+  const quiet: LlmService = { ...openai, thinking: false };
+  const bodies: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, 'fetch', async (_input: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return 'chat_template_kwargs' in bodies[bodies.length - 1]
+      ? new Response(JSON.stringify({ error: { message: 'Unrecognized request argument: Chat_Template_Kwargs' } }), { status: 400 })
+      : new Response(JSON.stringify({ choices: [{ message: { content: '{"name":"x"}' } }] }), { status: 200 });
+  });
+  assert.deepEqual(await openaiProvider.chatJson(quiet, { prompt: 'p', schema: PERSON, timeoutMs: 10_000 }), { name: 'x' });
+  assert.equal(bodies.length, 2);
+  assert.equal('chat_template_kwargs' in bodies[1], false);
+  assert.equal((bodies[1].response_format as { type: string }).type, 'json_schema', 'the schema is kept');
+
+  bodies.length = 0;
+  assert.equal(await openaiProvider.chatText(quiet, { messages: [{ role: 'user', content: 'hi' }], timeoutMs: 10_000 }), '{"name":"x"}');
+  assert.equal(bodies.length, 2);
+  assert.equal('chat_template_kwargs' in bodies[1], false);
+});
+
+test('thinking: both fallbacks compose, whichever error comes first', async (t) => {
+  const quiet: LlmService = { ...openai, thinking: false };
+  const bodies: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, 'fetch', async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    bodies.push(body);
+    const message =
+      (body.response_format as { type: string }).type === 'json_schema' ? 'json_schema is not supported'
+      : 'chat_template_kwargs' in body ? 'unknown parameter chat_template_kwargs'
+      : '';
+    return message
+      ? new Response(JSON.stringify({ error: { message } }), { status: 400 })
+      : new Response(JSON.stringify({ choices: [{ message: { content: '{"name":"z"}' } }] }), { status: 200 });
+  });
+  assert.deepEqual(await openaiProvider.chatJson(quiet, { prompt: 'p', schema: PERSON, timeoutMs: 10_000 }), { name: 'z' });
+  assert.equal(bodies.length, 3);
+  assert.deepEqual(bodies[2].response_format, { type: 'json_object' });
+  assert.equal('chat_template_kwargs' in bodies[2], false);
+});
+
+test('thinking: a service is read as thinking unless it says otherwise', () => {
+  assert.equal(normalizeService({}).thinking, true);
+  assert.equal(normalizeService({ thinking: 'no' }).thinking, true);
+  assert.equal(normalizeService({ thinking: false }).thinking, false);
+  assert.ok(legacyServices(DEFAULT_SETTINGS).every((s) => s.thinking));
+});
+
 // --- the router ------------------------------------------------------------
 
 test('least busy: a service already in the middle of a call is passed over', async (t) => {
@@ -507,7 +575,7 @@ test('a blank service key keeps the stored one, null clears it, and a new one re
     svc('c', { provider: 'gemini', apiKey: 'old' }),
   ]);
   const incoming = (id: string, apiKey: unknown) => ({
-    id, label: id, provider: 'openai', baseUrl: '', model: 'm', roles: ['text'], enabled: true, apiKey, apiKeySet: true,
+    id, label: id, provider: 'openai', baseUrl: '', model: 'm', roles: ['text'], enabled: true, thinking: true, apiKey, apiKeySet: true,
   });
   const merged = mergeSecrets(stored, {
     llmServices: [incoming('a', ''), incoming('b', null), incoming('c', '  fresh  ')],

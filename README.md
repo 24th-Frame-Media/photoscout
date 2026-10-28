@@ -17,7 +17,17 @@ A map of photography spots, the events worth shooting, and when the light works 
 - **Smooth member movement.** Convoy pins blend new GPS fixes and briefly predict motion, with estimates marked `~`. Prediction stops after three seconds or 90 metres. [Mobile behavior](docs/convoy-mobile.md) explains Android/iPhone installation, notifications and background tracking limits.
 - **Plugins.** Extra map layers, panels, Settings tabs, Drive alerts and background jobs that you install without changing the app. See [Plugins](#plugins).
 - **Import, export, share.** KML/KMZ, GPX, GeoJSON, CSV and Google Takeout in; GeoJSON, GPX or a zip with photos out. Share links, and syncing spots from other instances.
+- **Native mobile apps (Android & iOS).** Standalone native mobile apps with hardware-accelerated WebGL rendering, true background GPS tracking for Convoys and Drive navigation, screen wake-lock, camera/gallery uploads, and instance switching. Built automatically with GitHub Actions — Android APKs are distributed directly (no Play Store) and iOS IPAs are built for free sideloading via AltStore, SideStore, or Sideloadly ($0 cost, no Apple Developer Account needed). See [Mobile Apps](docs/mobile.md).
 - **Accounts.** Sign in with Google or Discord; there are no passwords. The instance is private by default (everything needs a sign-in); an admin can allow public reads under Settings > Instance (or set `PUBLIC_READS`), and then anonymous visitors see public spots, places and routes, and the events. Signed-in contributors add and edit their own; moderators handle reports; admins manage everyone's, the users and the settings.
+
+## Mobile Apps
+
+Download standalone native apps for your phone directly from [**GitHub Releases**](https://github.com/kapsikkum/photoscout/releases):
+
+- 🤖 **Android**: [**PhotoScout-release.apk**](https://github.com/kapsikkum/photoscout/releases/latest/download/PhotoScout-release.apk) — Direct APK sideload, no Play Store required. Works on Android 8.0+.
+- 🍏 **iOS**: [**PhotoScout-unsigned.ipa**](https://github.com/kapsikkum/photoscout/releases/latest/download/PhotoScout-unsigned.ipa) — Sideload with [AltStore](https://altstore.io), [Sideloadly](https://sideloadly.io), or [SideStore](https://sidestore.io). 100% free with any standard Apple ID ($0 cost, no paid Apple Developer account needed).
+
+Features include persistent background GPS tracking for Convoys and Drive navigation (screen off / apps switched), screen wake lock, camera/gallery uploads, and custom instance connection. See the [Mobile Guide](docs/mobile.md) for step-by-step install instructions.
 
 ## Screenshots
 

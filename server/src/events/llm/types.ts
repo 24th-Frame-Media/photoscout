@@ -29,6 +29,12 @@ export interface LlmService {
   model: string;
   roles: LlmRole[];
   enabled: boolean;
+  /**
+   * False asks the model to answer without reasoning first. Only the OpenAI
+   * provider acts on it (through `chat_template_kwargs`, which Strata, vLLM and
+   * llama.cpp honour); Ollama already never thinks and the others never ask to.
+   */
+  thinking: boolean;
 }
 
 export interface ChatMessage {
