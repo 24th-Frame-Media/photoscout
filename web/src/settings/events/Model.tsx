@@ -49,7 +49,7 @@ const ROLE_LABEL: [LlmRole, string][] = [
 const newId = (): string => Math.random().toString(36).slice(2, 10);
 
 function blankService(): LlmService {
-  return { id: newId(), label: '', provider: 'ollama', baseUrl: '', apiKey: '', model: '', roles: [], enabled: true };
+  return { id: newId(), label: '', provider: 'ollama', baseUrl: '', apiKey: '', model: '', roles: [], enabled: true, thinking: true };
 }
 
 /** The services an install with only the old Ollama fields had, written out so they can be edited. */
@@ -64,6 +64,7 @@ function seedFromLegacy(draft: SettingsType): LlmService[] {
       model: draft.llmModel,
       roles: ['text', 'chat'],
       enabled: true,
+      thinking: true,
     },
   ];
   if (draft.visionModel) {
@@ -76,6 +77,7 @@ function seedFromLegacy(draft: SettingsType): LlmService[] {
       model: draft.visionModel,
       roles: ['vision'],
       enabled: true,
+      thinking: true,
     });
   }
   return out;
@@ -367,7 +369,17 @@ function ServiceCard({
         <label className="toggle">
           <input type="checkbox" checked={svc.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> Enabled
         </label>
+        {svc.provider === 'openai' && (
+          <label className="toggle">
+            <input type="checkbox" checked={svc.thinking} onChange={(e) => set({ thinking: e.target.checked })} /> Thinking
+          </label>
+        )}
       </div>
+      {svc.provider === 'openai' && (
+        <p className="hint" style={{ marginTop: -4 }}>
+          Thinking off asks the model to answer without reasoning first (OpenAI-compatible servers such as Strata, vLLM, llama.cpp).
+        </p>
+      )}
 
       <div className="formrow">
         <label>Provider</label>

@@ -1,6 +1,6 @@
 import { Marker, type IControl, type Map as MlMap } from 'maplibre-gl';
 
-const PIN = '<svg viewBox="0 0 24 24" width="18" height="18" style="margin:auto;display:block" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>';
+const PIN = '<svg viewBox="0 0 24 24" width="18" height="18" style="margin:auto;display:block" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>';
 
 /**
  * Map control: centre the map on where this device says it is, and mark the spot with a dot.

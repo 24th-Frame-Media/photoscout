@@ -54,6 +54,7 @@ export function normalizeService(raw: unknown): LlmService {
     model: text(o.model, 200),
     roles,
     enabled: typeof o.enabled === 'boolean' ? o.enabled : true,
+    thinking: typeof o.thinking === 'boolean' ? o.thinking : true,
   };
 }
 
@@ -74,6 +75,7 @@ export function legacyServices(settings: Settings): LlmService[] {
       model: settings.llmModel ?? '',
       roles: ['text', 'chat'],
       enabled: true,
+      thinking: true,
     },
     {
       id: 'legacy-vision',
@@ -84,6 +86,7 @@ export function legacyServices(settings: Settings): LlmService[] {
       model: settings.visionModel ?? '',
       roles: ['vision'],
       enabled: true,
+      thinking: true,
     },
   ];
 }

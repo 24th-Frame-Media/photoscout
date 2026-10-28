@@ -56,9 +56,11 @@ function syncWatch(): void {
   const want = users > 0 && snap.sharing && snap.status === 'open' && snap.state.rooms.length > 0 && typeof navigator !== 'undefined' && 'geolocation' in navigator;
   if (want && watchId === null) {
     watchId = navigator.geolocation.watchPosition(onFix, onFixError, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20_000 });
+    window.PhotoScoutNative?.startBackgroundLocation?.();
   } else if (!want && watchId !== null) {
     navigator.geolocation.clearWatch(watchId);
     watchId = null;
+    window.PhotoScoutNative?.stopBackgroundLocation?.();
     realtime.send({ t: 'pos.stop' }); // so the others are not left looking at where you last were
     if (snap.mine) snap = { ...snap, mine: null }; // not shared any more, so not drawn as shared
   }

@@ -80,14 +80,25 @@ function headersOf(s: LlmService): Record<string, string> {
 }
 
 /**
+ * The field that switches reasoning off, for a service set to answer without it.
+ * Strata, vLLM and llama.cpp honour it; the real OpenAI API rejects it as an
+ * unknown parameter, which is why `include` can be turned off for a resend.
+ */
+function thinkingField(s: LlmService, include: boolean): Record<string, unknown> {
+  return s.thinking === false && include ? { chat_template_kwargs: { enable_thinking: false } } : {};
+}
+
+/**
  * The request for one structured answer. `plainJson` is the fallback for a
  * server that rejects the strict schema: it is asked for any JSON object, and
- * the schema is spelled out in the prompt.
+ * the schema is spelled out in the prompt. `withThinkingField` is the fallback
+ * for one that rejects `chat_template_kwargs`.
  */
 export function buildOpenAiJsonRequest(
   s: LlmService,
   r: JsonRequest,
   plainJson = false,
+  withThinkingField = true,
 ): { url: string; headers: Record<string, string>; body: Record<string, unknown> } {
   const images = r.images ?? [];
   const prompt = plainJson ? schemaInPrompt(r.prompt, r.schema) : r.prompt;
@@ -107,6 +118,7 @@ export function buildOpenAiJsonRequest(
         ? { type: 'json_object' }
         : { type: 'json_schema', json_schema: { name: 'answer', strict: true, schema: strictSchema(r.schema) } },
       max_completion_tokens: 16000,
+      ...thinkingField(s, withThinkingField),
     },
   };
 }
@@ -132,13 +144,21 @@ export const openaiProvider: Provider = {
 
   async chatJson(s, r: JsonRequest) {
     const deadline = Date.now() + r.timeoutMs;
-    const send = (plainJson: boolean) => {
-      const q = buildOpenAiJsonRequest(s, r, plainJson);
+    let plainJson = false;
+    let withThinkingField = true;
+    const send = () => {
+      const q = buildOpenAiJsonRequest(s, r, plainJson, withThinkingField);
       return sendWithRetries(q.url, { method: 'POST', headers: q.headers, body: JSON.stringify(q.body) }, deadline, baseOf(s));
     };
-    let reply = await send(false);
-    // A server without strict schema support says so in the error; then once more, plainly.
-    if (reply.status === 400 && /response_format|json_schema/i.test(reply.text)) reply = await send(true);
+    let reply = await send();
+    // A server that rejects one of our extras says so in the error; each is
+    // taken away once, so at most two resends, in whichever order they come.
+    for (let i = 0; i < 2 && reply.status === 400; i++) {
+      if (withThinkingField && s.thinking === false && /chat_template_kwargs/i.test(reply.text)) withThinkingField = false;
+      else if (!plainJson && /response_format|json_schema/i.test(reply.text)) plainJson = true;
+      else break;
+      reply = await send();
+    }
     if (!isOk(reply)) throw httpError(reply);
     const message = firstMessage(reply.text);
     if (typeof message.refusal === 'string' && message.refusal.trim()) {
@@ -149,16 +169,25 @@ export const openaiProvider: Provider = {
 
   async chatText(s, r: TextRequest) {
     const base = baseOf(s);
-    const reply = await sendWithRetries(
-      `${base}/chat/completions`,
-      {
-        method: 'POST',
-        headers: headersOf(s),
-        body: JSON.stringify({ model: s.model, messages: r.messages, max_completion_tokens: 4000 }),
-      },
-      Date.now() + r.timeoutMs,
-      base,
-    );
+    const deadline = Date.now() + r.timeoutMs;
+    const send = (withThinkingField: boolean) =>
+      sendWithRetries(
+        `${base}/chat/completions`,
+        {
+          method: 'POST',
+          headers: headersOf(s),
+          body: JSON.stringify({
+            model: s.model,
+            messages: r.messages,
+            max_completion_tokens: 4000,
+            ...thinkingField(s, withThinkingField),
+          }),
+        },
+        deadline,
+        base,
+      );
+    let reply = await send(true);
+    if (reply.status === 400 && s.thinking === false && /chat_template_kwargs/i.test(reply.text)) reply = await send(false);
     if (!isOk(reply)) throw httpError(reply);
     const text = stripThink(firstMessage(reply.text).content ?? '').trim();
     if (!text) throw new LlmError('answered nothing');
