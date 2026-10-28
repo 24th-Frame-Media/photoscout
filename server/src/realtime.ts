@@ -68,6 +68,24 @@ const sendUser = (userId: string, message: unknown): void => {
   for (const conn of byUser.get(userId) ?? []) send(conn, message);
 };
 
+/** Tell each Open Cruise driver which open convoys are near them; drivers without a fresh fix see none. */
+function pushOpenConvoys(): void {
+  for (const u of rooms.getOpenCruiseUsers()) sendUser(u.id, { t: 'open_cruise.convoys', convoys: rooms.openConvoysNear(u.position) });
+}
+
+/** Refresh each driver's whole nearby picture, so drivers who drove out of range drop off their map. */
+function pushOpenState(): void {
+  for (const u of rooms.getOpenCruiseUsers()) {
+    sendUser(u.id, { t: 'open_cruise.state', enabled: true, users: rooms.openCruiseUsersNear(u.position, u.id), convoys: rooms.openConvoysNear(u.position) });
+  }
+}
+
+/** Send to Open Cruise drivers near `originId` only. */
+function broadcastOpenCruiseNear(originId: string, message: unknown): void {
+  const origin = rooms.getOpenCruiseUser(originId)?.position ?? null;
+  for (const u of rooms.openCruiseUsersNear(origin, originId)) sendUser(u.id, message);
+}
+
 function broadcastOpenCruise(message: unknown, excludeUserId?: string): void {
   for (const u of rooms.getOpenCruiseUsers()) {
     if (excludeUserId && u.id === excludeUserId) continue;
@@ -81,7 +99,7 @@ function announce(code: string): void {
   if (!view) return;
   for (const id of rooms.memberIds(code)) sendUser(id, { t: 'room', room: view });
   if (view.open) {
-    broadcastOpenCruise({ t: 'open_cruise.convoys', convoys: rooms.openConvoys() });
+    pushOpenConvoys();
   }
 }
 
@@ -145,14 +163,15 @@ function handle(conn: Conn, m: ClientMessage): void {
       const who = whoIs(conn.userId);
       if (!who) return close(conn, CLOSE_SESSION_ENDED, 'Session ended');
       rooms.setOpenCruise(who, m.enabled);
+      const me = rooms.getOpenCruiseUser(conn.userId);
       if (m.enabled) {
         send(conn, {
           t: 'open_cruise.state',
           enabled: true,
-          users: rooms.getOpenCruiseUsers().filter((u) => u.id !== conn.userId),
-          convoys: rooms.openConvoys(),
+          users: rooms.openCruiseUsersNear(me?.position ?? null, conn.userId),
+          convoys: rooms.openConvoysNear(me?.position ?? null),
         });
-        broadcastOpenCruise({ t: 'open_cruise.user_joined', user: rooms.getOpenCruiseUser(conn.userId)! }, conn.userId);
+        broadcastOpenCruiseNear(conn.userId, { t: 'open_cruise.user_joined', user: me! });
       } else {
         broadcastOpenCruise({ t: 'open_cruise.user_left', id: conn.userId }, conn.userId);
         send(conn, { t: 'open_cruise.state', enabled: false, users: [], convoys: [] });
@@ -175,7 +194,7 @@ function handle(conn: Conn, m: ClientMessage): void {
       const done = rooms.acceptOpenConvoyInvite(m.fromUserId, who);
       if (!done.ok) return error(done.error);
       announce(done.value.code);
-      broadcastOpenCruise({ t: 'open_cruise.convoys', convoys: rooms.openConvoys() });
+      pushOpenConvoys();
       return;
     }
     case 'open_convoy.decline': {
@@ -190,7 +209,7 @@ function handle(conn: Conn, m: ClientMessage): void {
       const done = rooms.joinOpenConvoy(m.code, who);
       if (!done.ok) return error(done.error);
       announce(done.value.code);
-      broadcastOpenCruise({ t: 'open_cruise.convoys', convoys: rooms.openConvoys() });
+      pushOpenConvoys();
       return;
     }
     case 'pos.stop':
@@ -209,10 +228,10 @@ function handle(conn: Conn, m: ClientMessage): void {
       if (out.openCruise) {
         const user = rooms.getOpenCruiseUser(conn.userId);
         if (user) {
-          broadcastOpenCruise({ t: 'open_cruise.pos', user }, conn.userId);
+          broadcastOpenCruiseNear(conn.userId, { t: 'open_cruise.pos', user });
         }
         if (out.codes.some((code) => rooms.view(code)?.open)) {
-          broadcastOpenCruise({ t: 'open_cruise.convoys', convoys: rooms.openConvoys() });
+          pushOpenConvoys();
         }
       }
       for (const code of out.memberStatusChangedCodes) announce(code);
@@ -226,7 +245,7 @@ function handle(conn: Conn, m: ClientMessage): void {
       sendUser(conn.userId, { t: 'left', room: m.room });
       announce(m.room);
       if (wasOpen) {
-        broadcastOpenCruise({ t: 'open_cruise.convoys', convoys: rooms.openConvoys() });
+        pushOpenConvoys();
       }
       return;
     }
@@ -237,7 +256,7 @@ function handle(conn: Conn, m: ClientMessage): void {
       sendUser(m.id, { t: 'left', room: m.room, removed: true });
       announce(m.room);
       if (wasOpen) {
-        broadcastOpenCruise({ t: 'open_cruise.convoys', convoys: rooms.openConvoys() });
+        pushOpenConvoys();
       }
       return;
     }
@@ -247,7 +266,7 @@ function handle(conn: Conn, m: ClientMessage): void {
       if (!done.ok) return error(done.error);
       announce(m.room);
       if (wasOpen || m.open) {
-        broadcastOpenCruise({ t: 'open_cruise.convoys', convoys: rooms.openConvoys() });
+        pushOpenConvoys();
       }
       return;
     }
@@ -409,7 +428,7 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions = {}):
     const { changed } = rooms.sweep();
     for (const code of changed) announce(code);
     misses.sweep();
-    broadcastOpenCruise({ t: 'open_cruise.convoys', convoys: rooms.openConvoys() });
+    pushOpenState();
   }, opts.sweepMs ?? 30_000);
   beat.unref();
   sweepTimer.unref();

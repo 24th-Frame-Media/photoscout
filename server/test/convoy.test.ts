@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  AUTO_REGROUP_DELAY_MS, AUTO_REGROUP_FRESH_MS, CODE_LENGTH, CODE_PATTERN, MAX_MEMBERS, MAX_ROOMS_PER_USER, MEMBER_GRACE_MS, MissLimiter, newCode, normalizeCode, POSITION_GAP_MS, ROOM_IDLE_MS, Rooms,
+  AUTO_REGROUP_DELAY_MS, AUTO_REGROUP_FRESH_MS, CODE_LENGTH, CODE_PATTERN, MAX_MEMBERS, MAX_ROOMS_PER_USER, MEMBER_GRACE_MS, MissLimiter, newCode, OPEN_CONVOY_INVITE_GAP_MS, normalizeCode, POSITION_GAP_MS, ROOM_IDLE_MS, Rooms,
 } from '../src/convoy.js';
 import { parseClientMessage } from '../src/wsMessages.js';
 
@@ -388,7 +388,9 @@ test('distance join to an open convoy flags newMember and does not trigger autom
   c.t += POSITION_GAP_MS;
   rooms.position('u2', { lat: -33.001, lng: 151.001, heading: null, speed: null });
 
-  // User 3 joins open convoy from a distance
+  // User 3 joins open convoy from a distance, but only with Open Cruise on
+  assert.equal(rooms.joinOpenConvoy(code, who(3)).ok, false);
+  rooms.setOpenCruise(who(3), true);
   const joined = rooms.joinOpenConvoy(code, who(3));
   assert.ok(joined.ok);
   assert.equal(rooms.view(code)!.members.find((m) => m.id === 'u3')?.newMember, true);
@@ -436,4 +438,20 @@ test('leader can turn a private convoy into an open convoy and back to private',
   assert.ok(makePrivate.ok);
   assert.equal(rooms.view(code)!.open, false);
   assert.equal(rooms.openConvoys().length, 0);
+});
+
+test('open cruise visibility is limited to nearby drivers and invites are rate limited', () => {
+  const c = clock();
+  const rooms = new Rooms(c.now);
+  for (const n of [1, 2, 3]) rooms.setOpenCruise(who(n), true);
+  rooms.position('u1', { lat: -33.0, lng: 151.0, heading: null, speed: null });
+  rooms.position('u2', { lat: -33.001, lng: 151.001, heading: null, speed: null });
+  rooms.position('u3', { lat: -34.0, lng: 151.0, heading: null, speed: null });
+  assert.deepEqual(rooms.openCruiseUsersNear(rooms.getOpenCruiseUser('u1')!.position, 'u1').map((u) => u.id), ['u2']);
+  assert.deepEqual(rooms.openCruiseUsersNear(null), []);
+
+  assert.ok(rooms.createOpenConvoyInvite(who(1), 'u2').ok);
+  assert.equal(rooms.createOpenConvoyInvite(who(1), 'u2').ok, false, 'a second invite straight away is refused');
+  c.t += OPEN_CONVOY_INVITE_GAP_MS;
+  assert.ok(rooms.createOpenConvoyInvite(who(1), 'u2').ok);
 });

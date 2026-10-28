@@ -35,6 +35,10 @@ export const AUTO_REGROUP_DELAY_MS = 90_000;
 export const AUTO_REGROUP_FRESH_MS = 35_000;
 /** Open Cruise pairing is deliberately close-range and needs two current GPS fixes. */
 export const OPEN_CRUISE_MATCH_DISTANCE_M = 500;
+/** Open Cruise drivers and convoys are only shown to drivers this close; nobody sees the whole fleet. */
+export const OPEN_CRUISE_VISIBLE_RADIUS_M = 5_000;
+/** One Open Convoy invitation per sender at a time, so an invite cannot be used to pester. */
+export const OPEN_CONVOY_INVITE_GAP_MS = 10_000;
 
 /** No 0/O, 1/I/L: a code is read aloud and typed on a phone. 31^8 is about 8.5e11. */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -163,6 +167,7 @@ export class Rooms {
   private openCruiseUsers = new Map<string, OpenCruiseUser>();
   private openConvoyInvites = new Map<string, OpenConvoyInvite>();
   private openCruiseLastPos = new Map<string, number>();
+  private openConvoyInviteAt = new Map<string, number>();
 
   constructor(private now: () => number = Date.now, private makeCode: () => string = newCode) {}
 
@@ -575,6 +580,7 @@ export class Rooms {
     } else {
       this.openCruiseUsers.delete(who.id);
       this.openCruiseLastPos.delete(who.id);
+      this.openConvoyInviteAt.delete(who.id);
     }
   }
 
@@ -586,6 +592,19 @@ export class Rooms {
       ...user,
       position: user.position && now - user.position.ts <= AUTO_REGROUP_FRESH_MS ? user.position : null,
     }));
+  }
+
+  /** Open Cruise drivers with a fresh fix near a point, never including `exceptId`. */
+  openCruiseUsersNear(at: { lat: number; lng: number } | null, exceptId?: string): OpenCruiseUser[] {
+    if (!at) return [];
+    return this.getOpenCruiseUsers().filter((u) => u.id !== exceptId && u.position
+      && haversine(at.lat, at.lng, u.position.lat, u.position.lng) <= OPEN_CRUISE_VISIBLE_RADIUS_M);
+  }
+
+  /** Open convoys whose current centre is near a point. */
+  openConvoysNear(at: { lat: number; lng: number } | null): OpenConvoySummary[] {
+    if (!at) return [];
+    return this.openConvoys().filter((c) => c.centroid && haversine(at.lat, at.lng, c.centroid.lat, c.centroid.lng) <= OPEN_CRUISE_VISIBLE_RADIUS_M);
   }
 
   getOpenCruiseUser(userId: string): OpenCruiseUser | undefined {
@@ -601,6 +620,9 @@ export class Rooms {
     if (from.id === toUserId) return fail('You cannot invite yourself');
     const eligible = this.openCruisePairEligible(from.id, toUserId);
     if (!eligible.ok) return eligible;
+    const now = this.now();
+    if (now - (this.openConvoyInviteAt.get(from.id) ?? -Infinity) < OPEN_CONVOY_INVITE_GAP_MS) return fail('Wait a few seconds before inviting again');
+    this.openConvoyInviteAt.set(from.id, now);
     const invite: OpenConvoyInvite = { from, toUserId, createdAt: this.now() };
     this.openConvoyInvites.set(`${from.id}:${toUserId}`, invite);
     return { ok: true, value: invite };
@@ -640,6 +662,7 @@ export class Rooms {
     const room = this.room(code);
     if (!room) return fail('No convoy has that code');
     if (!room.open) return fail('That convoy is not an open convoy');
+    if (!this.openCruiseUsers.has(who.id)) return fail('Turn on Open Cruise to join an open convoy');
     return this.join(code, who, { newMember: true });
   }
 
