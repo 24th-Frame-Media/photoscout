@@ -114,7 +114,6 @@ class MainActivity : AppCompatActivity() {
 
         setupWindowAppearance()
         setupWebView()
-        setupSwipeRefresh()
         setupErrorHandling()
         setupBackNavigation()
         requestInitialPermissions()
@@ -171,7 +170,6 @@ class MainActivity : AppCompatActivity() {
                     binding.progressBar.progress = newProgress
                 } else {
                     binding.progressBar.visibility = View.GONE
-                    binding.swipeRefresh.isRefreshing = false
                 }
             }
 
@@ -328,14 +326,6 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun setupSwipeRefresh() {
-        binding.swipeRefresh.setColorSchemeResources(R.color.ps_primary)
-        binding.swipeRefresh.setProgressBackgroundColorSchemeResource(R.color.ps_surface)
-        binding.swipeRefresh.setOnRefreshListener {
-            binding.webView.reload()
-        }
-    }
-
     private fun setupErrorHandling() {
         binding.retryButton.setOnClickListener {
             binding.errorView.visibility = View.GONE
@@ -372,9 +362,6 @@ class MainActivity : AppCompatActivity() {
         if (url == null) return
         val path = try { Uri.parse(url).path ?: "" } catch (_: Exception) { "" }
         val isDriveOrConvoy = path.startsWith("/drive") || path.startsWith("/convoy")
-
-        // Disable pull-to-refresh on map/drive pages so touch gestures don't conflict
-        binding.swipeRefresh.isEnabled = !isDriveOrConvoy
 
         if (isDriveOrConvoy) {
             setKeepScreenAwake(true)
