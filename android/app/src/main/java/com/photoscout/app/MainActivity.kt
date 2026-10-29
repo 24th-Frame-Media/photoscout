@@ -34,6 +34,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.photoscout.app.databinding.ActivityMainBinding
 import java.io.File
 import java.io.IOException
@@ -123,6 +125,12 @@ class MainActivity : AppCompatActivity() {
     private fun setupWindowAppearance() {
         window.statusBarColor = ContextCompat.getColor(this, R.color.ps_background)
         window.navigationBarColor = ContextCompat.getColor(this, R.color.ps_background)
+        // Targeting SDK 35 makes the app edge-to-edge on Android 15+, so keep the page clear of the bars and keyboard.
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -467,7 +475,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        binding.webView.destroy()
+        // onCreate returns before inflating when no server is set yet.
+        if (::binding.isInitialized) binding.webView.destroy()
         super.onDestroy()
     }
 }
