@@ -45,7 +45,7 @@ test('a visitor can list events, which leave out what event-scout has hidden or 
   assert.deepEqual(first.json.map((e: { group: string }) => e.group), ['ok-1', 'ok-2']);
   assert.deepEqual(Object.keys(first.json[0]).sort(), [
     'address', 'category', 'dateOnly', 'description', 'endTime', 'foundAt', 'going', 'group', 'hidden', 'imageUrl', 'interested', 'isOnline', 'lat', 'lng',
-    'locality', 'myRsvp', 'photoScore', 'priceText', 'series', 'sources', 'starred', 'startTime', 'title', 'url', 'venueName',
+    'locality', 'mergedBy', 'mergedReason', 'myRsvp', 'originalDateOnly', 'originalStart', 'photoScore', 'priceText', 'series', 'soldOut', 'sources', 'starred', 'startTime', 'title', 'url', 'venueName', 'whenNote',
   ]);
   const [ev, bare] = first.json;
   assert.equal(ev.imageUrl, 'https://img.test/a.jpg', 'a stored copy is a path on event-scout, not something a browser can load');

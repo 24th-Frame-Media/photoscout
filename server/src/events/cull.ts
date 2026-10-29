@@ -3,6 +3,7 @@ import { regionName, regionOf, stripRegionAndPostcode } from './regions.js';
 import { localDay } from './day.js';
 import { dateFromTitle } from './shared/textWhen.js';
 import { isAreaScopedPluginSource } from './pluginSources.js';
+import { hidesEvent, statusReason } from './enrich/when.js';
 
 /**
  * Which events to keep out of sight on their own.
@@ -43,6 +44,10 @@ export interface Cullable {
   edited: string[];
   /** The model's reason this is not an event at all, '' when it is or has not said. */
   notEvent?: string;
+  /** What the listing says of itself, as the date check read it: cancelled, postponed, sold_out or ''. */
+  status?: string;
+  /** The words that say so. */
+  statusNote?: string;
   /** New, and not yet checked by the model. See vetting in events.ts. */
   pending?: boolean;
   /** The region the listing names ('qld'), '' when it names none. */
@@ -247,6 +252,9 @@ export function cullReason(
   const nonEventReason = detectNotAnEvent(ev.title, ev.description, ev.sources[0]?.url);
   if (nonEventReason) return `Not an event: ${nonEventReason}`;
   if (ev.notEvent) return `Not an event: ${ev.notEvent}`;
+  // Out of sight the same way, and put back the same way (star it): a cancelled
+  // event is not worth a trip, but nothing here is deleted.
+  if (hidesEvent(ev.status ?? '')) return statusReason(ev.status!, ev.statusNote ?? '');
   if (ev.pending && !ev.area) return 'Waiting to be checked';
   if (!ev.edited.includes('startTime') && !ev.edited.includes('title')) {
     const named = titleDateMismatch(ev.title, ev.startTime, ev.endTime);

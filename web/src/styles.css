@@ -2660,6 +2660,9 @@ svg.drive__report-icon { display: inline-block; width: 1.3em; height: 1.3em; ver
 .evbadge--community { color: var(--accent); border-color: var(--accent); }
 .evbadge--multiday, .evbadge--series { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 45%, transparent); background: color-mix(in srgb, var(--blue) 12%, transparent); cursor: help; }
 .evbadge--new { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); background: color-mix(in srgb, var(--green) 12%, transparent); cursor: help; }
+.evbadge--fixed { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); cursor: help; }
+.evbadge--merged { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); cursor: help; }
+.evbadge--soldout { color: var(--red, #f87171); border-color: color-mix(in srgb, var(--red, #f87171) 45%, transparent); background: color-mix(in srgb, var(--red, #f87171) 12%, transparent); }
 .evbadge--src.src-crawler { cursor: help; }
 
 /* RSVP */

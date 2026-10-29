@@ -3,6 +3,8 @@ import { TaskLog, TaskResult } from '../tasks/registry.js';
 import { checkRole, chatJson, listServiceModels, poolKey } from '../llm/router.js';
 import { allServices, ollamaUrl, servicesFor } from '../llm/services.js';
 import { LlmError, type LlmService, type LlmServiceStatus, type LlmStrategy, type ModelInfo } from '../llm/types.js';
+import { cleanDescription, findBoilerplate } from './boilerplate.js';
+import { clearVerdicts } from './dupeStore.js';
 import { flyerBacklog } from './visionPipeline.js';
 import { cleanAddress, validateAddress } from '../validate.js';
 import { defaultRegionFrom } from '../regions.js';
@@ -34,6 +36,7 @@ const EVENT_TIMEOUT_MS = 90_000;
 
 interface Row {
   id: number;
+  url: string;
   title: string;
   description: string;
   venue_name: string;
@@ -41,6 +44,21 @@ interface Row {
   category: string;
   start_time: string;
   source: string;
+  first_seen_at: string | null;
+  date_only: number;
+}
+
+/**
+ * The site boilerplate across every listing, found once per pass. One cheap
+ * SELECT: it has to see all of them, archived too, since a host's repeats are
+ * evidence whichever of its listings are still upcoming.
+ */
+export function loadBoilerplate(): Set<string> {
+  return findBoilerplate(
+    db.prepare('SELECT url, title, description FROM events').all() as unknown as {
+      url: string; title: string; description: string | null;
+    }[]
+  );
 }
 
 function toInput(row: Row): EnrichInput {
@@ -52,6 +70,8 @@ function toInput(row: Row): EnrichInput {
     category: row.category ?? '',
     startTime: row.start_time,
     source: row.source,
+    firstSeen: row.first_seen_at ?? undefined,
+    dateOnly: row.date_only === 1,
   };
 }
 
@@ -86,8 +106,17 @@ export function cleanExtractedAddress(address: string | undefined): string {
 export function enabledJobs(): EnrichJob[] {
   addJobsOnce();
   const configured = getSettings().llmJobs ?? [];
-  const known: EnrichJob[] = ['vet', 'describe', 'rename', 'classify', 'extract', 'score'];
+  const known: EnrichJob[] = ['vet', 'describe', 'rename', 'classify', 'extract', 'score', 'when', 'dupes'];
   return known.filter((j) => configured.includes(j));
+}
+
+/**
+ * The jobs that read one event at a time. The duplicate check works on pairs,
+ * has no field in the per-event schema, and must not be part of the cache key
+ * that decides whether an event has been read. See dupes.ts.
+ */
+export function eventJobs(): EnrichJob[] {
+  return enabledJobs().filter((j) => j !== 'dupes');
 }
 
 /**
@@ -101,6 +130,8 @@ function addJobsOnce(): void {
   const added: [flag: string, job: EnrichJob, wanted: (jobs: string[]) => boolean][] = [
     ['migrate:llm-rename-job', 'rename', (jobs) => jobs.includes('describe')],
     ['migrate:llm-vet-job', 'vet', (jobs) => jobs.length > 0],
+    ['migrate:llm-when-job', 'when', (jobs) => jobs.length > 0],
+    ['migrate:llm-dupes-job', 'dupes', (jobs) => jobs.length > 0],
   ];
   for (const [flag, job, wanted] of added) {
     if (getKv(flag)) continue;
@@ -133,14 +164,19 @@ export function vettingOn(): boolean {
 export function pendingEvents(model: string, jobs: EnrichJob[], limit: number): Row[] {
   const rows = db
     .prepare(
-      `SELECT e.id, e.title, e.description, e.venue_name, e.address, e.category,
-              e.start_time, e.source, x.content_hash AS hash
+      `SELECT e.id, e.url, e.title, e.description, e.venue_name, e.address, e.category,
+              e.start_time, e.source, e.first_seen_at, e.date_only, x.content_hash AS hash
          FROM events e
          LEFT JOIN event_enrichment x ON x.event_id = e.id
         WHERE e.archived = 0
         ORDER BY e.first_seen_at DESC, e.id DESC`
     )
     .all() as unknown as (Row & { hash: string | null })[];
+
+  // Cleaned here, before the hash, so what is hashed is what the model is shown:
+  // an event last read with a site's blurb as its description is read again.
+  const boilerplate = loadBoilerplate();
+  for (const row of rows) row.description = cleanDescription(boilerplate, { ...row, description: row.description ?? '' });
 
   const out: Row[] = [];
   for (const row of rows) {
@@ -154,7 +190,7 @@ export function pendingEvents(model: string, jobs: EnrichJob[], limit: number): 
 /** How many events are waiting, for the status display. */
 export function backlogCount(): number {
   const settings = getSettings();
-  const jobs = enabledJobs();
+  const jobs = eventJobs();
   if (jobs.length === 0) return 0;
   // Cheap enough at this scale, and only asked for when somebody is looking.
   return pendingEvents(poolKey('text', settings), jobs, Number.MAX_SAFE_INTEGER).length;
@@ -182,8 +218,12 @@ const recordStmt = () =>
  */
 export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
   const settings = getSettings();
-  const jobs = enabledJobs();
-  if (jobs.length === 0) return { ok: false, message: 'No enrichment jobs are switched on' };
+  const jobs = eventJobs();
+  if (jobs.length === 0) {
+    return enabledJobs().length === 0
+      ? { ok: false, message: 'No enrichment jobs are switched on' }
+      : { ok: true, message: 'no per-event jobs are switched on' };
+  }
 
   const check = await checkRole('text', settings);
   if (!check.ok) return { ok: false, message: check.message };
@@ -197,6 +237,8 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
   const update = db.prepare(
     `UPDATE events SET llm_description = ?, llm_title = ?, llm_category = ?, llm_venue_name = ?,
                        llm_address = ?, llm_price_text = ?, llm_photo_score = ?,
+                       llm_start_time = ?, llm_end_time = ?, llm_date_only = ?, llm_when_note = ?,
+                       llm_status = ?, llm_status_note = ?,
                        -- A place the model read is worth looking up on the map.
                        geocode_tried = CASE WHEN lat IS NULL AND (? != '' OR ? != '') THEN 0 ELSE geocode_tried END
      WHERE id = ?`
@@ -236,10 +278,19 @@ export async function runEnrichment(log: TaskLog): Promise<TaskResult> {
         address,
         verdict.priceText ?? '',
         verdict.photoScore ?? null,
+        verdict.startTime ?? '',
+        verdict.endTime ?? '',
+        verdict.startTime ? Number(verdict.dateOnly) : null,
+        verdict.whenNote ?? '',
+        verdict.status ?? '',
+        verdict.statusNote ?? '',
         venueName,
         address,
         row.id
       );
+      // A correction thrown away is worth a line: it is how a prompt that the
+      // model keeps getting wrong, or a quotation it keeps mangling, shows up.
+      for (const why of verdict.whenRejected ?? []) log(`${row.title}: ${why}`);
       if (verdict.notEvent !== undefined) vet.run(verdict.notEvent, new Date().toISOString(), row.id);
       record.run(row.id, hash, model, 1, '', new Date().toISOString());
       done++;
@@ -386,10 +437,13 @@ function countRead(table: 'event_enrichment' | 'event_vision'): number {
 /** Forget every verdict, so the next pass reconsiders everything. */
 export function clearEnrichment(): number {
   const changed = db.prepare('DELETE FROM event_enrichment').run().changes;
+  clearVerdicts();
   db.exec(
     `UPDATE events SET llm_description = '', llm_title = '', llm_category = '', llm_venue_name = '',
                        llm_address = '', llm_price_text = '', llm_photo_score = NULL,
-                       llm_vet_note = '', llm_vetted_at = ''`
+                       llm_vet_note = '', llm_vetted_at = '',
+                       llm_start_time = '', llm_end_time = '', llm_date_only = NULL,
+                       llm_when_note = '', llm_status = '', llm_status_note = ''`
   );
   return Number(changed);
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, type User } from '../api.js';
 import {
-  applyFilters, type Card, categoriesOf, DATE_CHIPS, decodeEntities, DEFAULT_FILTERS, ELSEWHERE, type Filters, foldSeries, type Geo, isRecent, loadFilters, NEARBY, openKeyOf, placeLabel, placesOf, saveFilters, type SortKey, sourcesOf, UNKNOWN,
+  applyFilters, type Card, categoriesOf, DATE_CHIPS, decodeEntities, DEFAULT_FILTERS, ELSEWHERE, type Filters, foldSeries, type Geo, isRecent, loadFilters, NEARBY, openKeyOf, originalStartEdit, placeLabel, placesOf, saveFilters, type SortKey, sourcesOf, UNKNOWN,
 } from '../events.js';
 import { haversineKm } from '../map/geo.js';
 import { useEvents } from '../useEvents.js';
@@ -264,6 +264,9 @@ export default function Events({ user }: { user: User | null }) {
           onRsvp={onRsvp}
           returnFocusTo={returnFocusTo}
           adminSlot={admin && !openEvent.community ? <EventAdmin ev={openEvent} others={all} onChanged={changed} /> : undefined}
+          onUseOriginalTime={admin && openEvent.originalStart
+            ? () => void adminApi.editEvent(openEvent.group, { startTime: originalStartEdit(openEvent.originalStart!, openEvent.originalDateOnly === true) }).then(changed).catch((err) => setAdminNote((err as Error).message))
+            : undefined}
         />
       )}
       {unlocated && (lookup?.state === 'missing' ? <EventNotFound onClose={close} /> : <EventDetailSkeleton onClose={close} />)}

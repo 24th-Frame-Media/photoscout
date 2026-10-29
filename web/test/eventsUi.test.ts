@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HttpError, type EventItem } from '../src/api.js';
-import { dateBadge, eventPath, findLinks, findSocials, hostOf, mapLink, openKeyOf, safeHref, timingOf } from '../src/events.js';
+import { dateBadge, eventPath, findLinks, findSocials, hostOf, mapLink, openKeyOf, safeHref, timingOf, whenFixTitle, originalStartEdit } from '../src/events.js';
 import { moreAttendees, MAX_AVATARS, myRsvpOf, nextRsvp, optimisticRsvp, rollbackRsvp, rsvpFromServer, rsvpOptions, rsvpStep, withMe } from '../src/rsvp.js';
 import { inviteError, RATE_LIMIT_MESSAGE, shareUrl } from '../src/components/InvitePanel.js';
 import { invitePath, inviteWhen } from '../src/components/InvitesInbox.js';
@@ -201,4 +201,22 @@ test('inviteWhen: the viewer\'s own clock, and nothing for a date that is not on
   assert.ok(text.includes('18'));
   assert.equal(inviteWhen(''), '');
   assert.equal(inviteWhen(null), '');
+});
+
+test('originalStartEdit: a date-only original goes back as a bare day, a timed one as it was', () => {
+  assert.equal(originalStartEdit(new Date(2030, 0, 8).toISOString(), true), '2030-01-08');
+  assert.equal(originalStartEdit(at(8, 9), false), at(8, 9));
+  assert.equal(originalStartEdit('nonsense', true), 'nonsense');
+  const midnight = new Date(2030, 0, 8).toISOString();
+  assert.equal(originalStartEdit(midnight, false), midnight, 'a source that really said midnight is not turned into a day');
+});
+
+test('whenFixTitle: says what the source gave and the words it was corrected from, and nothing for an uncorrected time', () => {
+  assert.equal(whenFixTitle(event('a')), '');
+  const fixed = whenFixTitle({ originalStart: at(8, 9), whenNote: 'Saturday 15 January' });
+  assert.match(fixed, /Saturday 15 January/);
+  assert.match(fixed, /9:00/);
+  const bare = whenFixTitle({ originalStart: new Date(2030, 0, 8).toISOString(), originalDateOnly: true, whenNote: '' });
+  assert.doesNotMatch(bare, /\d:\d\d/, 'a bare day is not given a made-up hour');
+  assert.equal(whenFixTitle({ originalStart: 'nonsense', whenNote: 'x' }), '');
 });

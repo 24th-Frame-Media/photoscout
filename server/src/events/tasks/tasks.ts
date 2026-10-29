@@ -3,7 +3,8 @@ import { archivePastEvents, getProgress, refreshAll } from '../refresh.js';
 import { runDensityScrape, runVenueDiscovery } from '../densityRefresh.js';
 import { pruneObservations } from '../density/store.js';
 import { runFlyerFetch, tidyFlyers } from '../flyerStore.js';
-import { runEnrichment, vettingOn } from '../enrich/pipeline.js';
+import { enabledJobs, runEnrichment, vettingOn } from '../enrich/pipeline.js';
+import { runDupes } from '../enrich/dupes.js';
 import { runVisionPass } from '../enrich/visionPipeline.js';
 import { createRegistry } from './registry.js';
 import { notifyTask } from '../notify/index.js';
@@ -122,14 +123,22 @@ tasks.register({
 tasks.register({
   name: 'enrich',
   label: 'Read listings with a local model',
-  description: 'Ask the AI models set up in Settings to tidy descriptions, categorise, fill in blank venue and price fields, and judge photo appeal. Everything it says is stored beside the scraped values, never over them.',
+  description: 'Ask the AI models set up in Settings to tidy descriptions, categorise, fill in blank venue and price fields, judge photo appeal, check dates, and find listings that are one event listed twice. Everything it says is stored beside the scraped values, never over them.',
   // Same arrangement as density: a frequent tick over a slower interval, so the
   // interval can be changed without a restart.
   schedule: '*/5 * * * *',
   intervalMinutes: () => Math.max(5, getSettings().llmIntervalMinutes ?? 60),
   enabled: () => Boolean(getSettings().llmEnabled),
   setEnabled: (on) => saveSettings({ ...getSettings(), llmEnabled: on }),
-  run: (log) => runEnrichment(log),
+  run: async (log) => {
+    const read = await runEnrichment(log);
+    // The pair check follows the per-event pass in the same task: one schedule,
+    // one switch, and the names the model gave have been read by then. It is
+    // its own pass because its unit is a pair. See enrich/dupes.ts.
+    if (!enabledJobs().includes('dupes')) return read;
+    const dupes = await runDupes(log);
+    return { ok: read.ok && dupes.ok, message: `${read.message}; ${dupes.message}` };
+  },
 });
 
 tasks.register({

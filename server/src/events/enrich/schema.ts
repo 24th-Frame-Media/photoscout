@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { ALL_CATEGORIES, GENERAL_CATEGORY } from '../sources/topics.js';
+import { checkWhen, LISTING_STATUSES, type ListingStatus } from './when.js';
 
 /**
  * What the local model is asked for, and what is believed of what comes back.
@@ -12,7 +13,7 @@ import { ALL_CATEGORIES, GENERAL_CATEGORY } from '../sources/topics.js';
 /** A newline, as a constant so the multi-line instructions below stay readable. */
 const NEWLINE = String.fromCharCode(10);
 
-export type EnrichJob = 'vet' | 'describe' | 'rename' | 'classify' | 'extract' | 'score';
+export type EnrichJob = 'vet' | 'describe' | 'rename' | 'classify' | 'extract' | 'score' | 'when' | 'dupes';
 
 export const ENRICH_JOBS: { key: EnrichJob; label: string; hint: string }[] = [
   {
@@ -45,6 +46,16 @@ export const ENRICH_JOBS: { key: EnrichJob; label: string; hint: string }[] = [
     label: 'Judge photo appeal',
     hint: 'Rate how worth photographing an event is, blended with the existing keyword score rather than replacing it.',
   },
+  {
+    key: 'when',
+    label: 'Check dates',
+    hint: 'Check the date and time shown against what the listing itself says, and whether it is cancelled, postponed or sold out. A time is changed only when the listing’s own words, quoted, plainly state a different one — the original is kept and can be put back. Cancelled and postponed events are hidden with the quote as the reason; sold out is only a label.',
+  },
+  {
+    key: 'dupes',
+    label: 'Find duplicates',
+    hint: 'Ask whether two listings the matcher kept apart — the same day, close together or alike in name — are really one event listed twice, the organiser’s post and a ticketing page, say. A yes joins them into one card, marked as merged by the model with its reason; anything doubtful is left apart. Splitting the card puts them back for good, and an event you merged by hand is never second-guessed.',
+  },
 ];
 
 /**
@@ -54,7 +65,7 @@ export const ENRICH_JOBS: { key: EnrichJob; label: string; hint: string }[] = [
  * events be looked at again. Leaving it alone after a wording tweak is fine;
  * the point is to have the choice.
  */
-export const PROMPT_VERSION = 5;
+export const PROMPT_VERSION = 7;
 
 /** Longest summary worth keeping. Roughly a card's worth of text. */
 export const MAX_SUMMARY = 600;
@@ -68,6 +79,10 @@ export interface EnrichInput {
   category: string;
   startTime: string;
   source: string;
+  /** When the listing was first seen, which fixes the year of a date that names none. Only the date check reads it. */
+  firstSeen?: string;
+  /** The start is a day with no clock time, so the prompt must not print the midnight it is stored as. */
+  dateOnly?: boolean;
 }
 
 export interface EnrichVerdict {
@@ -80,6 +95,20 @@ export interface EnrichVerdict {
   address?: string;
   priceText?: string;
   photoScore?: number;
+  /**
+   * From the date check, and only what survived checkWhen: a start the listing's
+   * own words support, as ISO; the matching end ('' for none); whether it is a
+   * day alone; and the words quoted. Absent means the scraped time stands.
+   */
+  startTime?: string;
+  endTime?: string;
+  dateOnly?: boolean;
+  whenNote?: string;
+  /** Cancelled, postponed or sold out, with the words that say so; absent for a listing that is on. */
+  status?: Exclude<ListingStatus, 'scheduled'>;
+  statusNote?: string;
+  /** Why parts of the date check were thrown away, for the task log. */
+  whenRejected?: string[];
 }
 
 /**
@@ -146,6 +175,21 @@ export function buildSchema(jobs: EnrichJob[], input?: EnrichInput): Record<stri
     required.push('photoScore');
   }
 
+  if (want.has('when')) {
+    // The words before the judgement of them, for the reason given under vet:
+    // said first, the answer follows from what was quoted rather than from a
+    // feeling about the date. start is null unless the verdict is "wrong",
+    // which is what keeps a model from restating the date it was shown.
+    const nullableString = { type: ['string', 'null'] };
+    properties.whenSource = nullableString;
+    properties.whenVerdict = { type: 'string', enum: ['matches', 'wrong', 'unclear'] };
+    properties.start = nullableString;
+    properties.end = nullableString;
+    properties.status = { type: 'string', enum: LISTING_STATUSES };
+    properties.statusSource = nullableString;
+    required.push('whenSource', 'whenVerdict', 'start', 'end', 'status', 'statusSource');
+  }
+
   return { type: 'object', properties, required };
 }
 
@@ -161,12 +205,14 @@ export function buildSchema(jobs: EnrichJob[], input?: EnrichInput): Record<stri
  * The zone is a parameter only so that a test can name one; in the app it is
  * always the ambient one, which docker-compose sets via TZ.
  */
-export function describeStart(iso: string, timeZone?: string): string {
+export function describeStart(iso: string, timeZone?: string, dateOnly = false): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return iso;
   return at.toLocaleString('en-AU', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-    hour: 'numeric', minute: '2-digit',
+    // A day with no clock time is stored as midnight; printing that invites
+    // the model to call the real time "wrong".
+    ...(dateOnly ? {} : { hour: 'numeric', minute: '2-digit' }),
     ...(timeZone ? { timeZone } : {}),
   });
 }
@@ -177,7 +223,36 @@ export function describeStart(iso: string, timeZone?: string): string {
  * Extraction is not here: what to ask of it depends on which fields the
  * listing already filled, so it is built per event below.
  */
-const JOB_INSTRUCTIONS: Record<Exclude<EnrichJob, 'extract'>, string> = {
+const JOB_INSTRUCTIONS: Record<Exclude<EnrichJob, 'extract' | 'dupes'>, string> = {
+  /**
+   * Conservative on purpose: a correction changes the time a reader plans
+   * around, so "wrong" is for a listing that plainly says otherwise and
+   * everything doubtful is "unclear". The traps named are the ones a date
+   * check falls into — the date tickets go on sale, an earlier edition, the
+   * next event in a list. Whatever it answers is checked again in when.ts.
+   */
+  when:
+    [
+      '- whenSource: the exact words of the title or description that state when this event happens,',
+      '  copied character for character, for example "Saturday 25 October, gates open 8am".',
+      '  null when neither states a date or time.',
+      '- whenVerdict: "matches" when those words give the same date as "starts" above (and the same',
+      '  time, if they give one); "wrong" only when they plainly state a different date or time for',
+      '  this event itself; "unclear" for everything else, including whenSource being null.',
+      '  Be conservative: when in doubt, "unclear". These are never the event\u2019s date: when tickets,',
+      '  entries or registrations open or close, the date of an earlier edition, or the dates of',
+      '  other events in a list.',
+      '- start: only when whenVerdict is "wrong", the date and time those words state, as',
+      '  "YYYY-MM-DD HH:MM" in 24-hour local time, or "YYYY-MM-DD" when they give no time. Where the',
+      '  year is left out, it is the next time that date comes round after "first seen" above.',
+      '  null otherwise.',
+      '- end: the same, only when the words also state when it finishes. null otherwise.',
+      '- status: "cancelled", "postponed" or "sold_out" only when the title or description plainly',
+      '  says so of this event itself; "scheduled" otherwise. An earlier edition being cancelled, or',
+      '  one session of several, does not count.',
+      '- statusSource: the exact words, copied character for character, that say so. null when',
+      '  status is "scheduled".',
+    ].join(NEWLINE),
   /**
    * Asked first, since the rest are wasted on a listing that is not an event.
    * Lenient on purpose: a small local thing described badly is exactly what
@@ -196,6 +271,8 @@ const JOB_INSTRUCTIONS: Record<Exclude<EnrichJob, 'extract'>, string> = {
       '  over; results, start lists or set times; news, awards or votes; merchandise or products;',
       '  travel or holiday packages; a performer or business talking about themselves;',
       '  and a list or season of many different events.',
+      '  A description that talks about the website, app or directory the listing was found on,',
+      '  rather than the event, is no evidence either way: judge by the title, time and venue then.',
     ].join(NEWLINE),
   classify:
     `- category: which of the listed categories fits best. Use "${GENERAL_CATEGORY}" only when none of the others do. "Heritage & machinery" means genuinely old or preserved things — steam, vintage, rail, aviation, historic re-enactment. A show of modern cars, 4x4s or bikes is "Cars & bikes"; competitive driving or riding is "Motorsport".`,
@@ -296,7 +373,9 @@ function extractInstruction(input: EnrichInput): string {
 }
 
 export function buildPrompt(input: EnrichInput, jobs: EnrichJob[]): string {
+  // The duplicate check asks about pairs, in dupePairs.ts; it has no part here.
   const asked = jobs
+    .filter((j): j is Exclude<EnrichJob, 'dupes'> => j !== 'dupes')
     .map((j) => (j === 'extract' ? extractInstruction(input) : JOB_INSTRUCTIONS[j]))
     .join(NEWLINE);
   return [
@@ -306,7 +385,8 @@ export function buildPrompt(input: EnrichInput, jobs: EnrichJob[]): string {
     '',
     '--- LISTING ---',
     `title: ${input.title}`,
-    `starts: ${describeStart(input.startTime)}`,
+    `starts: ${describeStart(input.startTime, undefined, jobs.includes('when') && input.dateOnly)}`,
+    ...(jobs.includes('when') && input.firstSeen ? [`first seen: ${describeStart(input.firstSeen, undefined, true)}`] : []),
     `venue: ${input.venueName || '(none given)'}`,
     `address: ${input.address || '(none given)'}`,
     `source: ${input.source}`,
@@ -369,7 +449,7 @@ function cleanField(value: unknown, max: number): string | undefined {
  * several ways a model says "I do not know" in prose instead of with null.
  * Anything rejected simply leaves the scraped value in place.
  */
-export function readVerdict(raw: unknown, jobs: EnrichJob[], input?: EnrichInput): EnrichVerdict {
+export function readVerdict(raw: unknown, jobs: EnrichJob[], input?: EnrichInput, now: Date = new Date()): EnrichVerdict {
   if (!raw || typeof raw !== 'object') return {};
   const obj = raw as Record<string, unknown>;
   const want = new Set(jobs);
@@ -409,6 +489,25 @@ export function readVerdict(raw: unknown, jobs: EnrichJob[], input?: EnrichInput
     if (venue) out.venueName = venue;
     if (address) out.address = address;
     if (price) out.priceText = price;
+  }
+  if (want.has('when') && input) {
+    const outcome = checkWhen(obj, {
+      title: input.title,
+      description: input.description,
+      firstSeen: input.firstSeen,
+      startTime: input.startTime,
+    }, now);
+    if (outcome.correction) {
+      out.startTime = outcome.correction.startTime;
+      out.endTime = outcome.correction.endTime;
+      out.dateOnly = outcome.correction.dateOnly;
+      out.whenNote = outcome.correction.note;
+    }
+    if (outcome.status) {
+      out.status = outcome.status.status;
+      out.statusNote = outcome.status.note;
+    }
+    if (outcome.rejected.length) out.whenRejected = outcome.rejected;
   }
   if (want.has('score')) {
     const score = typeof obj.photoScore === 'number' ? obj.photoScore : Number(obj.photoScore);

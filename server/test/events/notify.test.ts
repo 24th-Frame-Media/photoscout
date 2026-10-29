@@ -23,7 +23,7 @@ function ev(over: Partial<MergedEvent> = {}): MergedEvent {
     group: `g${id}`, title: `Event ${id}`, rawTitle: '', description: '', startTime: '2026-09-20T09:00:00.000Z', endTime: null,
     venueName: 'Mount Panorama', address: '', locality: 'Bathurst', place: 'Bathurst', area: 'Bathurst', lat: null, lng: null,
     imageUrl: '', category: 'Motorsport', priceText: '', isOnline: false, dateOnly: false, photoScore: 50,
-    starred: false, hidden: false, firstSeenAt: '2026-09-10T00:00:00.000Z', shownAt: '2026-09-10T00:00:00.000Z', notEvent: '', pending: false, unknownLocation: false, culled: null,
+    starred: false, hidden: false, firstSeenAt: '2026-09-10T00:00:00.000Z', shownAt: '2026-09-10T00:00:00.000Z', notEvent: '', scrapedStart: '', scrapedDateOnly: false, whenNote: '', status: '', statusNote: '', pending: false, unknownLocation: false, culled: null,
     sources: [{ source: 'crawler', url: `https://example.com/${id}` }], images: [],
     members: [{ id, source: 'crawler', title: '', url: '', imageUrl: '', startTime: '', venueName: '', parent: false }],
     manual: false, series: `s${id}`, note: '', enriched: {}, edited: [], rawDescription: '',

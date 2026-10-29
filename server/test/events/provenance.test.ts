@@ -46,6 +46,7 @@ function row(over: Partial<EventRow> = {}): EventRow {
     llm_address: '',
     llm_price_text: '',
     llm_photo_score: null,
+    llm_start_time: '', llm_end_time: '', llm_date_only: null, llm_when_note: '', llm_status: '', llm_status_note: '',
     vision_venue_name: '',
     vision_address: '',
     vision_price_text: '',

@@ -137,6 +137,17 @@ function migrate(): void {
   addColumn(cols, 'llm_vet_note', "TEXT NOT NULL DEFAULT ''");
   addColumn(cols, 'llm_vetted_at', "TEXT NOT NULL DEFAULT ''");
   addColumn(cols, 'llm_photo_score', 'REAL');
+  // The date check. A start the listing's own words were found to support, held
+  // beside the scraped one like everything else here: ISO UTC, '' for none,
+  // with the end, whether it is a day alone, and the words quoted. Status is
+  // '' for a listing that is on, else cancelled, postponed or sold_out, with
+  // the quotation that says so. See enrich/when.ts.
+  addColumn(cols, 'llm_start_time', TEXT_COLUMN);
+  addColumn(cols, 'llm_end_time', TEXT_COLUMN);
+  addColumn(cols, 'llm_date_only', 'INTEGER');
+  addColumn(cols, 'llm_when_note', TEXT_COLUMN);
+  addColumn(cols, 'llm_status', TEXT_COLUMN);
+  addColumn(cols, 'llm_status_note', TEXT_COLUMN);
 
   /**
    * One row per event already looked at, keyed by a hash of the text that was
@@ -194,6 +205,28 @@ function migrate(): void {
       ok INTEGER NOT NULL DEFAULT 1,
       note TEXT DEFAULT '',
       enriched_at TEXT NOT NULL
+    )
+  `);
+
+  /**
+   * The model's answer to "are these two listings one event", one row per pair.
+   *
+   * Keyed on source and source id rather than the row id, which is the
+   * identity a listing keeps when it is purged and found again. The hash is
+   * over what the model was shown, so a changed listing is asked about again;
+   * 'person' stands for an answer a person gave by splitting a group, which
+   * nothing the listing says can overturn. See enrich/dupes.ts.
+   */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS event_pair_verdict (
+      a_key TEXT NOT NULL,
+      b_key TEXT NOT NULL,
+      input_hash TEXT NOT NULL,
+      same INTEGER NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      model TEXT NOT NULL,
+      decided_at TEXT NOT NULL,
+      PRIMARY KEY (a_key, b_key)
     )
   `);
 

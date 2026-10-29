@@ -362,6 +362,44 @@ export function multiDaySpan(ev: Pick<EventItem, 'startTime' | 'endTime'>): numb
 }
 
 /**
+ * What to send as the start to put the source's own time back: its day alone
+ * when the source gave no clock time, so the event stays "Thursday" rather
+ * than turning into 12:00 am. The server says which it was; guessing from a
+ * midnight start would turn a listing that really began at midnight into a day.
+ */
+export function originalStartEdit(originalStart: string, dateOnly: boolean): string {
+  const at = new Date(originalStart);
+  if (Number.isNaN(at.getTime()) || !dateOnly) return originalStart;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}
+
+/** What a "merged by model" badge says when hovered: the model's reason, or that it was the model's call. */
+export function mergedTitle(ev: Pick<EventItem, 'mergedReason'>): string {
+  return ev.mergedReason ? `Listed twice, and joined by the model: ${ev.mergedReason}` : 'Listed twice, and joined by the model.';
+}
+
+/**
+ * What a "time corrected" badge says when hovered: the time the source gave
+ * and the words of the listing the new one was read from. '' for an event
+ * whose time is as scraped.
+ *
+ * The original is shown as a day alone when the source gave no clock time,
+ * rather than as the made-up 12:00 am it is stored as.
+ */
+export function whenFixTitle(ev: Pick<EventItem, 'originalStart' | 'originalDateOnly' | 'whenNote'>): string {
+  if (!ev.originalStart) return '';
+  const at = new Date(ev.originalStart);
+  if (Number.isNaN(at.getTime())) return '';
+  const bareDay = ev.originalDateOnly === true;
+  const was = at.toLocaleString(undefined, {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+    ...(bareDay ? {} : { hour: 'numeric', minute: '2-digit' }),
+  });
+  return `Corrected from the listing’s own words${ev.whenNote ? ` “${ev.whenNote}”` : ''}. The source gave ${was}.`;
+}
+
+/**
  * When an event is on, as it appears on a card, the map and the detail panel.
  *
  * A multi-day event shows its date span, a single-day one with an end its time

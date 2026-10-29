@@ -138,7 +138,7 @@ export default function EventAdmin({ ev, others, onChanged }: { ev: EventItem; o
       </ul>
       <div className="eventcard__actions">
         <button disabled={busy} onClick={() => setMerging(!merging)}>{merging ? 'Cancel merge' : 'Merge with others…'}</button>
-        {full.manual && <button disabled={busy} onClick={() => void run(() => api.unmergeEvent(full.group))}>Split apart</button>}
+        {(full.manual || full.mergedBy) && <button disabled={busy} onClick={() => void run(() => api.unmergeEvent(full.group))}>Split apart</button>}
       </div>
       {merging && (
         <>

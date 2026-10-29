@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { db, getKv, getSettings, setKv } from './db.js';
-import { assignDedupeGroups, DedupeInput } from './dedupe.js';
+import { recomputeDedupeGroups } from './regroup.js';
 import { AREA_SLACK, haversineKm, inArea } from './shared/geo.js';
 import { countriesOfAreas, regionsOfAreas } from './places.js';
 import {
@@ -907,16 +907,6 @@ export function reclassifyAll(): number {
     }
   }
   return changed;
-}
-
-function recomputeDedupeGroups(): void {
-  const rows = db
-    // The model's name where it gave one: a caption for a title matches nothing.
-    .prepare("SELECT id, COALESCE(NULLIF(llm_title, ''), title) AS title, start_time AS startTime, end_time AS endTime, lat, lng, venue_name AS venueName, date_only AS dateOnly FROM events ORDER BY start_time ASC, id ASC")
-    .all() as unknown as DedupeInput[];
-  const groups = assignDedupeGroups(rows);
-  const update = db.prepare('UPDATE events SET dedupe_group = ? WHERE id = ?');
-  for (const [id, group] of groups) update.run(group, id);
 }
 
 export function getStatuses(): SourceStatus[] {

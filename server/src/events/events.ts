@@ -16,6 +16,9 @@ import type { EditableField } from './merge.js';
 
 export { EditError } from './merge.js';
 import type { EnrichedBy, EventRow } from './merge.js';
+import { eventKey } from './enrich/dupePairs.js';
+import { joinedPairs, rejectPairs } from './enrich/dupeStore.js';
+import { recomputeDedupeGroups } from './regroup.js';
 
 // Re-exported so an event's shape stays importable from one place.
 export { chooseFields } from './merge.js';
@@ -80,6 +83,23 @@ export interface MergedEvent {
   shownAt: string | null;
   /** The model's reason this is not an event, '' when it is or has not said. */
   notEvent: string;
+  /**
+   * The start as scraped, when a model's verified correction is what `startTime`
+   * shows; '' otherwise. The page offers it back. See enrich/when.ts.
+   */
+  scrapedStart: string;
+  /** Whether the start as scraped was a day with no clock time. Only meaningful when scrapedStart is set. */
+  scrapedDateOnly: boolean;
+  /** The listing's own words the corrected start was read from, '' when it was not corrected. */
+  whenNote: string;
+  /**
+   * What the listing says of itself: cancelled, postponed or sold_out, or ''
+   * for one that is on. The first two take it off the list (see cullReason);
+   * sold out is only a label.
+   */
+  status: string;
+  /** The words that say so. */
+  statusNote: string;
   /** New and waiting for the model to check it, so kept out of sight for now. */
   pending: boolean;
   /** The model is checking listings and has not passed this one. */
@@ -102,6 +122,14 @@ export interface MergedEvent {
   members: EventMember[];
   /** True when a person merged these rather than the deduper. */
   manual: boolean;
+  /**
+   * 'model' when the listings behind this event were joined by the duplicate
+   * check rather than the matcher or a person, with its reason. Absent for any
+   * other group, including one a person merged by hand. Splitting it apart is
+   * recorded as a person's answer. See enrich/dupes.ts.
+   */
+  mergedBy?: 'model';
+  mergedReason?: string;
   /**
    * The repeating series this is one date of: the same name at the same place.
    * Every date is its own event — the calendar needs them apart — and the
@@ -146,6 +174,21 @@ export interface MergedEvent {
  */
 function groupKey(row: EventRow): string {
   return row.manual_group || row.dedupe_group || `solo-${row.id}`;
+}
+
+/**
+ * The mark of a group the duplicate check joined: set when two of its listings
+ * are a pair the model said was one event. Never on a group a person merged by
+ * hand, whose members are together because they chose it.
+ */
+function modelJoin(
+  members: EventRow[],
+  joins: { aKey: string; bKey: string; reason: string }[]
+): { mergedBy: 'model'; mergedReason: string } | Record<string, never> {
+  if (joins.length === 0 || members.length < 2 || members[0].manual_group) return {};
+  const keys = new Set(members.map((m) => eventKey(m.source, m.source_id)));
+  const hit = joins.find((j) => keys.has(j.aKey) && keys.has(j.bKey));
+  return hit ? { mergedBy: 'model', mergedReason: hit.reason } : {};
 }
 
 /**
@@ -218,6 +261,7 @@ function computeMergedEvents(archived: boolean): MergedEvent[] {
     .all() as unknown as (EventRow & { enrichment_ok: number | null; enrichment_note: string | null; enrichment_at: string | null })[];
   const archivedGroups = new Set<string>();
   const vetOn = vettingOn();
+  const modelJoins = joinedPairs();
 
   type MergedRow = EventRow & { enrichment_ok?: number | null; enrichment_note?: string | null; enrichment_at?: string | null };
   const byGroup = new Map<string, MergedRow[]>();
@@ -276,8 +320,19 @@ function computeMergedEvents(archived: boolean): MergedEvent[] {
       // members agree on is the one to show.
       // The main listing's own dates when one was picked: the posts merged in
       // with it are about the event, and date themselves by when they posted.
-      ...groupStart(parent ? [parent] : members, chosen.startTime),
-      endTime: (parent ? parent.end_time : members.find((m) => m.end_time)?.end_time) ?? null,
+      ...(chosen.modelStart
+        ? { startTime: chosen.startTime, dateOnly: chosen.modelStart.dateOnly }
+        : { ...groupStart(parent ? [parent] : members, chosen.startTime), ...(chosen.startDateOnly ? { dateOnly: true } : {}) }),
+      // The scraped end belongs to the scraped day, so a corrected start brings
+      // its own end or none.
+      endTime: chosen.modelStart
+        ? chosen.modelStart.endTime || null
+        : (parent ? parent.end_time : members.find((m) => m.end_time)?.end_time) ?? null,
+      scrapedStart: chosen.modelStart ? groupStart(parent ? [parent] : members, '').startTime : '',
+      scrapedDateOnly: chosen.modelStart ? groupStart(parent ? [parent] : members, '').dateOnly : false,
+      whenNote: chosen.modelStart?.note ?? '',
+      status: chosen.status?.status ?? '',
+      statusNote: chosen.status?.note ?? '',
       venueName,
       address,
       locality,
@@ -321,6 +376,7 @@ function computeMergedEvents(archived: boolean): MergedEvent[] {
         parent: m.manual_parent === 1,
       })),
       manual: Boolean(members[0].manual_group),
+      ...modelJoin(members, modelJoins),
       series: seriesKey(chosen.title, venueName || locality || address),
       note,
       enriched,
@@ -589,14 +645,24 @@ export function setMergeParent(group: string, id: number): void {
 }
 
 /**
- * Undo a manual merge. The members fall back to whatever the deduper says,
+ * Undo a merge. The members fall back to whatever the deduper says,
  * which may still hold some of them together — that is the correct outcome,
- * since those were duplicates before anyone intervened.
+ * since those were duplicates before anyone intervened. The same goes for a
+ * group the model joined, except that nothing but this is what splits it, and
+ * the answer is kept as a person's so that it stays split.
  */
 export function unmergeGroup(group: string): { split: number } {
+  // Listings are read before anything changes: whichever kind of group this
+  // is, the model's earlier yes for any pair among them has to be retracted,
+  // or the next regroup would put them straight back together.
+  const members = memberRows(group);
   const info = db
     .prepare("UPDATE events SET manual_group = '', manual_parent = 0 WHERE manual_group = ?")
     .run(group);
+  const retracted = rejectPairs(members);
+  // A group the duplicate check joined has no manual_group to clear: splitting
+  // it is regrouping without the pairs just retracted.
+  if (retracted > 0) recomputeDedupeGroups();
   bumpEventsVersion();
-  return { split: Number(info.changes) };
+  return { split: Number(info.changes) || (retracted > 0 ? members.length : 0) };
 }

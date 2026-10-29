@@ -343,7 +343,7 @@ export const DEFAULT_SETTINGS: Settings = {
   llmStrategy: 'least_busy',
   llmUrl: '',
   llmModel: '',
-  llmJobs: ['vet', 'describe', 'rename', 'classify', 'extract', 'score'],
+  llmJobs: ['vet', 'describe', 'rename', 'classify', 'extract', 'score', 'when', 'dupes'],
   llmIntervalMinutes: 60,
   eventRefreshIntervalMinutes: 360,
   llmMaxPerRun: 40,
