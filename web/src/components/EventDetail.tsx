@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type Cruise, type EventItem, type User } from '../api.js';
-import { decodeEntities, findLinks, findSocials, formatWhen, hostOf, localZone, mapLink, safeHref, timingOf, type Geo } from '../events.js';
+import { decodeEntities, findLinks, findSocials, formatWhen, hostOf, localZone, mapLink, mergedTitle, safeHref, timingOf, whenFixTitle, type Geo } from '../events.js';
 import { haversineKm } from '../map/geo.js';
 import type { OnRsvp } from '../useEvents.js';
 import { MarkButtons, type OnMark } from './EventCard.js';
@@ -21,8 +21,10 @@ import { RsvpSection } from './Rsvp.js';
  * Back closes it; the calendar and the map just show it. A community event adds who is running it, a cruise,
  * and Edit. RSVP and Invite are here for every event.
  */
-export default function EventDetail({ ev, onClose, onMark, onRsvp, user, adminSlot, geo, returnFocusTo }: {
+export default function EventDetail({ ev, onClose, onMark, onRsvp, user, adminSlot, onUseOriginalTime, geo, returnFocusTo }: {
   ev: EventItem; onClose: () => void; onMark?: OnMark; onRsvp?: OnRsvp; user?: User | null; adminSlot?: ReactNode;
+  /** Admins only: put the source's own time back, as a hand edit, so a model's correction stops applying. */
+  onUseOriginalTime?: () => void;
   /** Where "home" is, for "3.2 km from home"; left out where the page has not read the settings. */
   geo?: Geo | null;
   returnFocusTo?: () => HTMLElement | null;
@@ -78,16 +80,31 @@ export default function EventDetail({ ev, onClose, onMark, onRsvp, user, adminSl
             {ev.isOnline && <span className="evbadge">💻 Online</span>}
             {ev.priceText && <span className="evbadge">{decodeEntities(ev.priceText)}</span>}
             {ev.photoScore >= 40 && <span className="evbadge" title="Photo score">📷 {Math.round(ev.photoScore)}</span>}
+            {ev.soldOut && <span className="evbadge evbadge--soldout" title="The listing says it is sold out">Sold out</span>}
           </div>
           <h2 className="evd__title">{title}</h2>
           {ev.community && ev.organiser && (
             <p className="hint">Organised by <Link to={`/u/${encodeURIComponent(ev.organiser)}`}>{ev.organiser}</Link></p>
           )}
 
+          {ev.mergedBy === 'model' && (
+            <p className="hint evd__merged">
+              <span className="evbadge evbadge--merged" title={mergedTitle(ev)}>merged by model</span>{' '}
+              {ev.mergedReason}
+            </p>
+          )}
+
           <section className="evd__block" aria-label="When">
             <h3 className="evd__label">When</h3>
             <p className="evd__when">{formatWhen(ev, { full: true })}</p>
             {zone && !ev.dateOnly && <p className="hint">In your local time ({zone.replace(/_/g, ' ')})</p>}
+            {ev.originalStart && (
+              <p className="hint evd__fixed">
+                <span className="evbadge evbadge--fixed" title={whenFixTitle(ev)}>time corrected</span>{' '}
+                {whenFixTitle(ev)}
+                {onUseOriginalTime && <>{' '}<button type="button" className="linkbtn" onClick={onUseOriginalTime}>Use original time</button></>}
+              </p>
+            )}
           </section>
 
           <section className="evd__block" aria-label="Where">

@@ -307,6 +307,16 @@ export interface EventItem {
   priceText: string;
   isOnline: boolean;
   dateOnly: boolean;
+  /** Set when a model corrected the start from the listing's own words: the start as the source gave it, and the words. */
+  originalStart?: string;
+  /** Whether that original was a day with no clock time. */
+  originalDateOnly?: boolean;
+  whenNote?: string;
+  /** 'model' when the duplicate check joined the listings behind this event, with its reason. */
+  mergedBy?: '' | 'model';
+  mergedReason?: string;
+  /** The listing says it is sold out. */
+  soldOut?: boolean;
   photoScore: number;
   /** Shared by every date of a repeating event. */
   series: string;

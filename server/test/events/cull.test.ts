@@ -106,6 +106,12 @@ test('with no area on the map, nothing can be judged far from one', () => {
 test('the model turning a listing down culls it with its reason, unless starred', () => {
   assert.equal(cullReason(ev({ notEvent: 'a race report' }), hubs, {}), 'Not an event: a race report');
   assert.equal(cullReason(ev({ notEvent: 'a race report', starred: true }), hubs, {}), null);
+
+  // Cancelled and postponed go the same way, with the quotation as the reason; sold out does not.
+  assert.equal(cullReason(ev({ status: 'cancelled', statusNote: 'Sorry, this event is cancelled' }), hubs, {}), 'Cancelled — “Sorry, this event is cancelled”');
+  assert.match(cullReason(ev({ status: 'postponed', statusNote: 'moved to 2027' }), hubs, {}) ?? '', /^Postponed/);
+  assert.equal(cullReason(ev({ status: 'cancelled', statusNote: 'x', starred: true }), hubs, {}), null, 'starring puts it back');
+  assert.equal(cullReason(ev({ status: 'sold_out', statusNote: 'SOLD OUT' }), hubs, {}), null);
   assert.equal(cullReason(ev({ pending: true }), hubs, {}), 'Waiting to be checked');
   assert.equal(cullReason(ev({ pending: true, area: 'Bathurst' }), hubs, {}), null);
   assert.equal(cullReason(ev({ pending: true, sources: [{ source: 'manual' }] }), hubs, {}), null);

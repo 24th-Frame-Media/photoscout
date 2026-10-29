@@ -34,6 +34,18 @@ export interface EventItem {
   isOnline: boolean;
   /** The start carries a day and no clock time. */
   dateOnly: boolean;
+  /** The start as the source gave it, when startTime is a model's correction of it; '' otherwise. */
+  originalStart: string;
+  /** Whether that original was a day with no clock time, so putting it back keeps it one. */
+  originalDateOnly: boolean;
+  /** The listing's own words the correction was read from. */
+  whenNote: string;
+  /** 'model' when the duplicate check joined the listings behind this event; '' otherwise. */
+  mergedBy: '' | 'model';
+  /** The model's reason, for the badge's tooltip. */
+  mergedReason: string;
+  /** The listing says it is sold out. Only a label: cancelled and postponed events are not on the list at all. */
+  soldOut: boolean;
   photoScore: number;
   /** Shared by every date of a repeating event, so the page can fold them. */
   series: string;
@@ -100,6 +112,12 @@ export function publicEvent(raw: unknown): EventItem | null {
     priceText: str(ev.priceText),
     isOnline: ev.isOnline === true,
     dateOnly: ev.dateOnly === true,
+    originalStart: str(ev.scrapedStart),
+    originalDateOnly: ev.scrapedDateOnly === true,
+    mergedBy: ev.mergedBy === 'model' ? 'model' : '',
+    mergedReason: ev.mergedBy === 'model' ? str(ev.mergedReason) : '',
+    whenNote: str(ev.whenNote),
+    soldOut: ev.status === 'sold_out',
     photoScore: typeof ev.photoScore === 'number' && Number.isFinite(ev.photoScore) ? ev.photoScore : 0,
     series: str(ev.series),
     url: sources.map((s) => webUrl((s as { url?: unknown } | null)?.url)).find(Boolean) ?? '',

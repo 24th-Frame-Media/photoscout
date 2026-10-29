@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { EventItem, EventState } from '../api.js';
-import { dateBadge, decodeEntities, eventPath, formatWhen, hostOf, isMultiDay, isRecent, multiDaySpan, timingOf } from '../events.js';
+import { dateBadge, decodeEntities, eventPath, formatWhen, hostOf, isMultiDay, isRecent, multiDaySpan, mergedTitle, timingOf, whenFixTitle } from '../events.js';
 import type { OnRsvp } from '../useEvents.js';
 import EventImage from './EventImage.js';
 import { RsvpButtons } from './Rsvp.js';
@@ -86,6 +86,7 @@ export default function EventCard({ ev, dates, onMark, onRsvp, distanceKm }: {
         <h3 className="evcard__title"><Link to={to} state={{ modal: true }}>{title}</Link></h3>
         <div className="evcard__when">
           <span>{formatWhen(ev)}</span>
+          {ev.originalStart && <span className="evbadge evbadge--fixed" title={whenFixTitle(ev)}>time corrected</span>}
           {timing.text && <span className={`evcard__timing evcard__timing--${timing.kind}`}>{timing.text}</span>}
         </div>
 
@@ -105,6 +106,8 @@ export default function EventCard({ ev, dates, onMark, onRsvp, distanceKm }: {
           {multiDay && <span className="evbadge evbadge--multiday" title={`Runs across ${multiDaySpan(ev)} days`}>📅 {multiDaySpan(ev)} days</span>}
           {dates.length > 1 && <span className="evbadge evbadge--series" title={seriesTitle(dates)}>↻ {dates.length} dates</span>}
           {isRecent(ev) && <span className="evbadge evbadge--new" title="First found in the last week">✦ New</span>}
+          {ev.mergedBy === 'model' && <span className="evbadge evbadge--merged" title={mergedTitle(ev)}>merged by model</span>}
+          {ev.soldOut && <span className="evbadge evbadge--soldout" title="The listing says it is sold out">Sold out</span>}
           {ev.sources.map((source) => (
             <span key={source} className={`evbadge evbadge--src src-${source}`} title={sourceTitle(source, ev.url)}>{SOURCE_LABELS[source] ?? source}</span>
           ))}

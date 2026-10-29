@@ -12,7 +12,7 @@ function event(over: Partial<MergedEvent> = {}): MergedEvent {
     locality: 'Bathurst', place: 'Bathurst', area: 'Bathurst', lat: null, lng: null,
     imageUrl: '', category: 'Motorsport', priceText: '', isOnline: false, dateOnly: false,
     photoScore: 70, starred: false, hidden: false,
-    firstSeenAt: null, shownAt: null, notEvent: '', pending: false, unknownLocation: false, culled: null,
+    firstSeenAt: null, shownAt: null, notEvent: '', scrapedStart: '', scrapedDateOnly: false, whenNote: '', status: '', statusNote: '', pending: false, unknownLocation: false, culled: null,
     sources: [{ source: 'MIDNIGHT_SPEC', url: 'https://example.test/1' }],
     images: [],
     members: [{ id: 1, source: 'MIDNIGHT_SPEC', title: 'raw', url: 'https://example.test/1', imageUrl: '', startTime: '', venueName: '', parent: false }],

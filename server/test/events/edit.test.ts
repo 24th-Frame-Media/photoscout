@@ -17,6 +17,7 @@ function row(over: Partial<EventRow> = {}): EventRow {
     dedupe_group: 'g1', manual_group: '', first_seen_at: null,
     llm_description: '', llm_category: '', llm_venue_name: '', llm_address: '',
     llm_price_text: '', llm_photo_score: null,
+    llm_start_time: '', llm_end_time: '', llm_date_only: null, llm_when_note: '', llm_status: '', llm_status_note: '',
     vision_venue_name: '', vision_address: '', vision_price_text: '', vision_note: '',
     edit_title: '', edit_description: '', edit_start_time: '', edit_venue_name: '',
     edit_address: '', edit_category: '', edit_price_text: '', edit_image_url: '',
@@ -132,6 +133,9 @@ test('a start time is normalised to the instant it names', () => {
     { field: 'startTime', value: '2026-10-08T00:00:00.000Z' },
   ]);
   assert.throws(() => parseEditPatch({ startTime: 'next Tuesday' }), EditError);
+  // A bare day is kept bare, so that it stays a day; an impossible one is refused.
+  assert.deepEqual(parseEditPatch({ startTime: '2026-10-08' }), [{ field: 'startTime', value: '2026-10-08' }]);
+  assert.throws(() => parseEditPatch({ startTime: '2026-02-30' }), EditError);
 });
 
 test('a picture has to be a fetchable address', () => {

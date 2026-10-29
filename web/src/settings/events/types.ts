@@ -606,6 +606,8 @@ export interface AdminEvent {
   photoScore: number;
   hidden: boolean;
   manual: boolean;
+  /** Joined by the duplicate check rather than the matcher or a person. */
+  mergedBy?: 'model';
   members: EventMember[];
   /** The fields a person has changed by hand. */
   edited: string[];

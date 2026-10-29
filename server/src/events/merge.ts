@@ -1,4 +1,9 @@
 import { blendPhotoScore } from './enrich/schema.js';
+import { hidesEvent } from './enrich/when.js';
+import { parseWhen } from './shared/when.js';
+
+/** A start edit that is a day and nothing more: stored bare, so that it stays one. */
+const BARE_DAY = /^\d{4}-\d{2}-\d{2}$/;
 import { isForChildren } from './children.js';
 
 /**
@@ -57,6 +62,18 @@ export interface EventRow {
   llm_address: string;
   llm_price_text: string;
   llm_photo_score: number | null;
+  /**
+   * The date check's findings. A start (ISO) the listing's own words were found
+   * to support, with its end, whether it is a day alone, and the words quoted;
+   * '' / null when it found nothing to correct. See enrich/when.ts.
+   */
+  llm_start_time: string;
+  llm_end_time: string;
+  llm_date_only: number | null;
+  llm_when_note: string;
+  /** '' for a listing that is on; cancelled, postponed or sold_out, with the words that say so. */
+  llm_status: string;
+  llm_status_note: string;
   /** What a vision model read off the flyer. See enrich/vision.ts. */
   vision_venue_name: string;
   vision_address: string;
@@ -127,7 +144,11 @@ export function parseEditPatch(patch: Record<string, unknown>): ParsedEdit[] {
     if (raw !== null && typeof raw !== 'string') throw new EditError(`${field} must be text`);
     let value = raw === null ? '' : raw.trim();
 
-    if (field === 'startTime' && value) {
+    if (field === 'startTime' && value && BARE_DAY.test(value)) {
+      // Kept as the day it is, not turned into a midnight: the card says
+      // "Thursday" for it, as it does for a source that gave no clock time.
+      if (!parseWhen(value)) throw new EditError('startTime is not a date');
+    } else if (field === 'startTime' && value) {
       // Stored as the same UTC instant as every other time, so sorting, the
       // past-grace window and the calendar feed keep working on it unchanged.
       const at = new Date(value);
@@ -200,7 +221,18 @@ export interface ChosenFields {
   /** The title as the listing gave it, when a model's name for the event is shown instead. */
   rawTitle: string;
   description: string;
+  /** A start typed by hand, else the model's verified correction, else '' for the scraped one. */
   startTime: string;
+  /** The start was edited by hand as a day with no clock time. */
+  startDateOnly: boolean;
+  /**
+   * Set when startTime is the model's correction rather than a person's: the
+   * end that goes with it ('' for none, because the scraped end belongs to
+   * the scraped day), whether it is a day alone, and the words it was read from.
+   */
+  modelStart: { endTime: string; dateOnly: boolean; note: string } | null;
+  /** Cancelled, postponed or sold out, as the listing says; null for one that is on. */
+  status: { status: string; note: string } | null;
   venueName: string;
   address: string;
   category: string;
@@ -380,6 +412,27 @@ export function chooseFields(given: EventRow[]): ChosenFields {
       isForChildren('', m.edit_description)
   );
 
+  // A person's start beats the model's, which beats the scraped one. Taken
+  // from the main listing when one was picked, as the scraped dates are: the
+  // posts merged in with it date themselves by when they were posted.
+  const editedStart = overridden('startTime', (r) => r.edit_start_time);
+  const fix = (parent ? [parent] : members).find((m) => m.llm_start_time);
+  let startTime = editedStart ?? '';
+  let startDateOnly = false;
+  if (editedStart && BARE_DAY.test(editedStart)) {
+    const day = parseWhen(editedStart);
+    if (day) { startTime = day.startTime; startDateOnly = true; }
+  }
+  let modelStart: ChosenFields['modelStart'] = null;
+  if (editedStart === null && fix) {
+    startTime = fix.llm_start_time;
+    modelStart = { endTime: fix.llm_end_time, dateOnly: fix.llm_date_only === 1, note: fix.llm_when_note };
+    enriched.startTime = 'model';
+  }
+  // Any listing saying it is off is enough, like one saying it is on in vetting:
+  // the quotation is checked against that listing's own text.
+  const off = members.find((m) => hidesEvent(m.llm_status)) ?? members.find((m) => m.llm_status === 'sold_out');
+
   const chosen: ChosenFields = {
     title,
     rawTitle: '',
@@ -388,8 +441,11 @@ export function chooseFields(given: EventRow[]): ChosenFields {
       preferLlm('description', (r) => r.llm_description, () => longest),
     // Not chosen between three the way the rest are: the scraped time is the
     // only machine-readable one, and consensusStart in events.ts settles it
-    // across members. An edit simply replaces the answer.
-    startTime: overridden('startTime', (r) => r.edit_start_time) ?? '',
+    // across members. An edit or a verified correction simply replaces the answer.
+    startTime,
+    startDateOnly,
+    modelStart,
+    status: off ? { status: off.llm_status, note: off.llm_status_note } : null,
     venueName:
       overridden('venueName', (r) => r.edit_venue_name) ??
       fillBlankFrom(membersForVenue, 'venueName', (r) => r.venue_name, ['flyer', (r) => wholeName(r.vision_venue_name)], ['model', (r) => r.llm_venue_name]),
