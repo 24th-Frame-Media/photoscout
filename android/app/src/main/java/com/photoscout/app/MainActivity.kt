@@ -34,6 +34,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.photoscout.app.databinding.ActivityMainBinding
 import java.io.File
 import java.io.IOException
@@ -112,7 +114,6 @@ class MainActivity : AppCompatActivity() {
 
         setupWindowAppearance()
         setupWebView()
-        setupSwipeRefresh()
         setupErrorHandling()
         setupBackNavigation()
         requestInitialPermissions()
@@ -123,6 +124,12 @@ class MainActivity : AppCompatActivity() {
     private fun setupWindowAppearance() {
         window.statusBarColor = ContextCompat.getColor(this, R.color.ps_background)
         window.navigationBarColor = ContextCompat.getColor(this, R.color.ps_background)
+        // Targeting SDK 35 makes the app edge-to-edge on Android 15+, so keep the page clear of the bars and keyboard.
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -163,7 +170,6 @@ class MainActivity : AppCompatActivity() {
                     binding.progressBar.progress = newProgress
                 } else {
                     binding.progressBar.visibility = View.GONE
-                    binding.swipeRefresh.isRefreshing = false
                 }
             }
 
@@ -320,14 +326,6 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun setupSwipeRefresh() {
-        binding.swipeRefresh.setColorSchemeResources(R.color.ps_primary)
-        binding.swipeRefresh.setProgressBackgroundColorSchemeResource(R.color.ps_surface)
-        binding.swipeRefresh.setOnRefreshListener {
-            binding.webView.reload()
-        }
-    }
-
     private fun setupErrorHandling() {
         binding.retryButton.setOnClickListener {
             binding.errorView.visibility = View.GONE
@@ -364,9 +362,6 @@ class MainActivity : AppCompatActivity() {
         if (url == null) return
         val path = try { Uri.parse(url).path ?: "" } catch (_: Exception) { "" }
         val isDriveOrConvoy = path.startsWith("/drive") || path.startsWith("/convoy")
-
-        // Disable pull-to-refresh on map/drive pages so touch gestures don't conflict
-        binding.swipeRefresh.isEnabled = !isDriveOrConvoy
 
         if (isDriveOrConvoy) {
             setKeepScreenAwake(true)
@@ -467,7 +462,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        binding.webView.destroy()
+        // onCreate returns before inflating when no server is set yet.
+        if (::binding.isInitialized) binding.webView.destroy()
         super.onDestroy()
     }
 }
